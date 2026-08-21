@@ -1,0 +1,6 @@
+{
+  "name": "Disk Entrega & Conveniência",
+  "description": "Sistema completo para distribuidora de gás, água e conveniência com PDV ágil, despacho Kanban, PWA Offline-First para entregadores, controle de vasilhames e painel gerencial com BI e correção de pedidos.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
