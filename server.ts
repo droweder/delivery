@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { createServer as createViteServer } from 'vite';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
 import {
@@ -2465,7 +2464,8 @@ app.use(express.json());
   if (!process.env.VERCEL) {
     (async () => {
       if (process.env.NODE_ENV !== 'production') {
-        const vite = await createViteServer({
+        const { createServer } = await import('vite');
+        const vite = await createServer({
           server: { middlewareMode: true },
           appType: 'spa',
         });
