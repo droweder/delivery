@@ -340,7 +340,7 @@ async function dispararNotificacaoPush(
 let orderCounter = 1045;
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
@@ -2470,7 +2470,7 @@ app.use(express.json());
   if (!process.env.VERCEL) {
     (async () => {
       if (process.env.NODE_ENV !== 'production') {
-        const { createServer } = await import('vite');
+        const { createServer } = await import('v' + 'ite');
         const vite = await createServer({
           server: { middlewareMode: true },
           appType: 'spa',
