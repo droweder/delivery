@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BairroTaxa, Cliente, Entregador, Produto, TipoVasilhame } from '../types';
+import { BairroTaxa, Cliente, Entregador, Produto, TipoVasilhame, Usuario } from '../types';
 import { formatarMoeda } from '../lib/thermalPrinter';
 import {
   FolderKanban,
@@ -29,12 +29,21 @@ import {
   Layers,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   produtos: Produto[];
   clientes: Cliente[];
   entregadores: Entregador[];
   bairros: BairroTaxa[];
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onSalvarProduto: (produto: Partial<Produto> & { id?: string }) => Promise<void>;
   onExcluirProduto: (id: string) => Promise<void>;
   onSalvarCliente: (cliente: Partial<Cliente> & { id?: string }) => Promise<void>;
@@ -53,6 +62,13 @@ export const CadastrosHub: React.FC<Props> = ({
   clientes,
   entregadores,
   bairros,
+  usuarioLogado,
+  activeTab = 'cadastros',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
   onSalvarProduto,
   onExcluirProduto,
   onSalvarCliente,
@@ -193,124 +209,123 @@ export const CadastrosHub: React.FC<Props> = ({
   const bairrosFiltrados = bairros.filter((b) => b.nome.toLowerCase().includes(busca.toLowerCase()));
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Top Header */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                <FolderKanban className="w-6 h-6" />
-              </div>
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                Central de Cadastros
-              </h2>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Gerencie o catálogo de produtos da conveniência, base de clientes, frota de entregadores e
-              taxas de entrega por bairro.
-            </p>
-          </div>
+    <div className="space-y-4 animate-fade-in">
+      {/* Top Header com Botão de Menus Integrado */}
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="5"
+        moduloCor="bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300"
+        titulo="Central de Cadastros"
+        subtitulo="Gerencie o catálogo de produtos da conveniência, base de clientes, frota de entregadores e taxas de entrega por bairro."
+      >
+        {/* Quick Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          {abaAtiva === 'PRODUTOS' && (
+            <button
+              type="button"
+              onClick={() => setModalErpAberto(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Importar ERP</span>
+            </button>
+          )}
 
-          {/* Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2">
-            {abaAtiva === 'PRODUTOS' && onImportarProdutosErp && (
-              <button
-                onClick={() => setModalErpAberto(true)}
-                className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>Importar ERP</span>
-              </button>
-            )}
+          {abaAtiva === 'PRODUTOS' && (
+            <button
+              onClick={() =>
+                setProdutoModal({
+                  nome: '',
+                  marca: 'Ultragaz',
+                  categoria: 'GAS_P13',
+                  tipoVasilhame: 'P13',
+                  unidadeMedida: 'UN',
+                  precoRecarga: 115.0,
+                  precoCompleto: 295.0,
+                  estoqueCheio: 20,
+                  estoqueVazio: 10,
+                  estoqueMinimo: 5,
+                  permiteVendaCasco: true,
+                  maisUtilizado: false,
+                })
+              }
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Produto</span>
+            </button>
+          )}
 
-            {abaAtiva === 'PRODUTOS' && (
-              <button
-                onClick={() =>
-                  setProdutoModal({
-                    nome: '',
-                    marca: 'Ultragaz',
-                    categoria: 'GAS_P13',
-                    tipoVasilhame: 'P13',
-                    unidadeMedida: 'UN',
-                    precoRecarga: 115.0,
-                    precoCompleto: 295.0,
-                    estoqueCheio: 20,
-                    estoqueVazio: 10,
-                    estoqueMinimo: 5,
-                    permiteVendaCasco: true,
-                    maisUtilizado: false,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Novo Produto</span>
-              </button>
-            )}
+          {abaAtiva === 'CLIENTES' && (
+            <button
+              onClick={() =>
+                setClienteModal({
+                  nome: '',
+                  telefone: '',
+                  endereco: '',
+                  numero: '',
+                  complemento: '',
+                  referencia: '',
+                  bairroId: bairros[0]?.id || 'b1',
+                  saldoDevedor: 0,
+                  vasilhamesPendentes: { P13: 0, P20L: 0 },
+                })
+              }
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Cliente</span>
+            </button>
+          )}
 
-            {abaAtiva === 'CLIENTES' && (
-              <button
-                onClick={() =>
-                  setClienteModal({
-                    nome: '',
-                    telefone: '',
-                    endereco: '',
-                    numero: '',
-                    complemento: '',
-                    referencia: '',
-                    bairroId: bairros[0]?.id || 'b1',
-                    saldoDevedor: 0,
-                    vasilhamesPendentes: { P13: 0, P20L: 0 },
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Novo Cliente</span>
-              </button>
-            )}
+          {abaAtiva === 'ENTREGADORES' && (
+            <button
+              onClick={() =>
+                setEntregadorModal({
+                  nome: '',
+                  telefone: '',
+                  veiculo: 'Moto (Padrão)',
+                  placa: '',
+                  status: 'DISPONIVEL',
+                  bateriaNivel: 100,
+                })
+              }
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Entregador</span>
+            </button>
+          )}
 
-            {abaAtiva === 'ENTREGADORES' && (
-              <button
-                onClick={() =>
-                  setEntregadorModal({
-                    nome: '',
-                    telefone: '',
-                    veiculo: 'Moto (Padrão)',
-                    placa: '',
-                    status: 'DISPONIVEL',
-                    bateriaNivel: 100,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Novo Entregador</span>
-              </button>
-            )}
-
-            {abaAtiva === 'BAIRROS' && (
-              <button
-                onClick={() =>
-                  setBairroModal({
-                    nome: '',
-                    taxaEntrega: 5.0,
-                    tempoMedioMin: 25,
-                    ativo: true,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5 active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Novo Bairro</span>
-              </button>
-            )}
-          </div>
+          {abaAtiva === 'BAIRROS' && (
+            <button
+              onClick={() =>
+                setBairroModal({
+                  nome: '',
+                  taxaEntrega: 5.0,
+                  tempoMedioMin: 25,
+                  ativo: true,
+                })
+              }
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Bairro</span>
+            </button>
+          )}
         </div>
+      </ModuloHeader>
 
+      {/* Container Principal dos Cadastros com Sub-Abas */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xs">
         {/* Section Tabs */}
-        <div className="flex items-center gap-2 mt-6 overflow-x-auto pb-1 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-100 dark:border-slate-800">
           <button
             onClick={() => setAbaAtiva('PRODUTOS')}
             className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
@@ -1203,13 +1218,13 @@ export const CadastrosHub: React.FC<Props> = ({
       )}
 
       {/* Modal de Importação ERP */}
-      {onImportarProdutosErp && (
-        <ModalImportarProdutosErp
-          isOpen={modalErpAberto}
-          onClose={() => setModalErpAberto(false)}
-          onImportar={onImportarProdutosErp}
-        />
-      )}
+      <ModalImportarProdutosErp
+        isOpen={modalErpAberto}
+        aberto={modalErpAberto}
+        onClose={() => setModalErpAberto(false)}
+        onFechar={() => setModalErpAberto(false)}
+        onImportar={onImportarProdutosErp}
+      />
     </div>
   );
 };

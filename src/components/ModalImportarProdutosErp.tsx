@@ -8,18 +8,20 @@ import {
   FileText,
   Download,
   Layers,
-  Sparkles,
   Database,
   ArrowRight,
   Info,
 } from 'lucide-react';
-import { CategoriaProduto, Produto, TipoVasilhame } from '../types';
+import { CategoriaProduto, TipoVasilhame } from '../types';
 import { formatarMoeda } from '../lib/thermalPrinter';
 
 interface Props {
-  aberto: boolean;
-  onFechar: () => void;
-  onProdutosImportados: () => void;
+  aberto?: boolean;
+  isOpen?: boolean;
+  onFechar?: () => void;
+  onClose?: () => void;
+  onProdutosImportados?: () => void;
+  onImportar?: (produtosImportados: any[]) => Promise<void> | void;
 }
 
 interface ItemImportacao {
@@ -40,39 +42,29 @@ const MODELO_EXEMPLO_TEXTO = `codigo;nome;marca;preco;unidadeMedida;categoria;ti
 GAS-P13;Gás de Cozinha 13kg;Ultragaz;110.00;UN;GAS;P13;50;SIM
 AGUA-20L;Água Mineral 20L Galão;Fonte Ibirá;14.00;Galão 20L;AGUA;P20L;90;SIM
 BEB-HEIN-LN;Cerveja Heineken Long Neck 330ml;Heineken;7.50;UN;BEBIDAS;NENHUM;120;SIM
-BEB-HEIN-6;Cerveja Heineken Pack 6 un;Heineken;45.00;Pack c/ 6;BEBIDAS;NENHUM;40;SIM
-BEB-BRAHMA-350;Cerveja Brahma Chopp Lata 350ml;Ambev;3.80;Lata 350ml;BEBIDAS;NENHUM;180;SIM
-BEB-SKOL-LATA;Cerveja Skol Pilsen 350ml;Ambev;3.50;Lata 350ml;BEBIDAS;NENHUM;120;NAO
 BEB-COCA-2L;Refrigerante Coca-Cola 2L Pet;Coca-Cola;11.50;Garrafa 2L;BEBIDAS;NENHUM;60;SIM
-BEB-COCA-LATA;Refrigerante Coca-Cola Lata 350ml;Coca-Cola;5.00;Lata 350ml;BEBIDAS;NENHUM;80;NAO
-BEB-GUARANA-2L;Refrigerante Guaraná Antarctica 2L;Ambev;9.50;Garrafa 2L;BEBIDAS;NENHUM;50;SIM
-BEB-RED-BULL;Energético Red Bull 250ml;Red Bull;10.00;Lata 250ml;BEBIDAS;NENHUM;48;SIM
-BEB-MONSTER-473;Energético Monster Energy 473ml;Monster;11.90;Lata 473ml;BEBIDAS;NENHUM;36;NAO
-BEB-VODKA-SMIRN;Vodka Smirnoff Red 998ml;Diageo;42.00;Garrafa 1L;BEBIDAS;NENHUM;15;SIM
-BEB-GIN-TANQ;Gin Tanqueray London Dry 750ml;Diageo;119.00;Garrafa 750ml;BEBIDAS;NENHUM;10;NAO
-BEB-WHISKY-RED;Whisky Johnnie Walker Red Label 1L;Diageo;95.00;Garrafa 1L;BEBIDAS;NENHUM;12;SIM
 CONV-GELO-5K;Gelo em Cubos Filtrado 5kg;Gelo Polar;16.00;Saco 5kg;CONVENIENCIA;NENHUM;35;SIM
-CONV-GELO-COCO;Gelo de Água de Coco 200g;Coco Leve;4.50;Copo 200g;CONVENIENCIA;NENHUM;40;SIM
-CONV-CARVAO-3K;Carvão Vegetal Especial Churrasco 3kg;Carvão Ipê;22.00;Saco 3kg;CONVENIENCIA;NENHUM;30;SIM
-CONV-ACENDEDOR;Acendedor Sólido para Churrasqueira;Brasa Fácil;6.50;UN;CONVENIENCIA;NENHUM;25;NAO
-CONV-SAL-GROSSO;Sal Grosso com Ervas Finas 1kg;Churrasco Bom;8.90;Pacote 1kg;CONVENIENCIA;NENHUM;20;NAO
-CONV-SEDAS-SMOK;Seda Smoking King Size;Smoking;7.00;Livreto;CONVENIENCIA;NENHUM;50;NAO
-CONV-ISQUEIRO;Isqueiro Maxi Recarregável;Bic;6.00;UN;CONVENIENCIA;NENHUM;45;SIM
-CONV-AMENDOIM-150;Amendoim Torrado e Salgado 150g;Dori;6.90;Pacote 150g;CONVENIENCIA;NENHUM;30;NAO`;
+CONV-CARVAO-3K;Carvão Vegetal Especial Churrasco 3kg;Carvão Ipê;22.00;Saco 3kg;CONVENIENCIA;NENHUM;30;SIM`;
 
 export const ModalImportarProdutosErp: React.FC<Props> = ({
   aberto,
+  isOpen,
   onFechar,
+  onClose,
   onProdutosImportados,
+  onImportar,
 }) => {
+  const visivel = isOpen !== undefined ? isOpen : Boolean(aberto);
+  const fechar = onClose || onFechar || (() => {});
+
   const [textoColado, setTextoColado] = useState('');
   const [itensPrevia, setItensPrevia] = useState<ItemImportacao[]>([]);
   const [salvando, setSalvando] = useState(false);
   const [mensagemStatus, setMensagemStatus] = useState<string | null>(null);
   const [marcarTodosComoMaisUtilizados, setMarcarTodosComoMaisUtilizados] = useState(false);
-  const [modoAba, setModoAba] = useState<'colar' | 'arquivo' | 'exemplos'>('colar');
+  const [modoAba, setModoAba] = useState<'colar' | 'arquivo'>('colar');
 
-  if (!aberto) return null;
+  if (!visivel) return null;
 
   // Analisador inteligente de linhas (CSV, TSV, Ponto e Vírgula)
   const processarTextoParaItens = (texto: string) => {
@@ -256,11 +248,6 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
     document.body.removeChild(link);
   };
 
-  const handleCarregarExemplo = () => {
-    processarTextoParaItens(MODELO_EXEMPLO_TEXTO);
-    setModoAba('colar');
-  };
-
   const handleConfirmarImportacao = async () => {
     const itensValidos = itensPrevia.filter((it) => it.valido);
     if (itensValidos.length === 0) {
@@ -283,27 +270,32 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
         maisUtilizado: marcarTodosComoMaisUtilizados ? true : Boolean(it.maisUtilizado),
       }));
 
-      const res = await fetch('/api/produtos/importar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          itens: itensFormatados,
-          modoSubstituir: false,
-        }),
-      });
+      if (onImportar) {
+        await onImportar(itensFormatados);
+      } else {
+        const res = await fetch('/api/produtos/importar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itens: itensFormatados,
+            modoSubstituir: false,
+          }),
+        });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Erro ao importar produtos');
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Erro ao importar produtos');
+        }
       }
 
-      const data = await res.json();
-      setMensagemStatus(`Sucesso! ${data.adicionados} novos produtos adicionados e ${data.atualizados} atualizados.`);
-      onProdutosImportados();
+      setMensagemStatus(`Sucesso! ${itensFormatados.length} produtos importados no catálogo.`);
+      if (onProdutosImportados) {
+        onProdutosImportados();
+      }
 
       setTimeout(() => {
-        onFechar();
-      }, 1500);
+        fechar();
+      }, 1200);
     } catch (err: any) {
       alert('Erro na importação: ' + err.message);
     } finally {
@@ -339,7 +331,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
           </div>
 
           <button
-            onClick={onFechar}
+            onClick={fechar}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -369,18 +361,9 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCarregarExemplo}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold border border-amber-200 transition-colors"
-              title="Carregar catálogo de exemplo pronto com 22 produtos de conveniência, gás e água"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-              <span>Carregar Exemplo ERP</span>
-            </button>
-
-            <button
               onClick={handleDownloadTemplate}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 transition-colors"
-              title="Baixar planilha modelo em formato CSV para preenchimento no Excel"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 transition-colors shadow-2xs"
+              title="Baixar planilha modelo em formato CSV para preenchimento"
             >
               <Download className="w-3.5 h-3.5 text-blue-600" />
               <span>Baixar Modelo CSV</span>
@@ -403,10 +386,10 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                 </span>
               </div>
               <textarea
-                rows={5}
+                rows={6}
                 value={textoColado}
                 onChange={(e) => processarTextoParaItens(e.target.value)}
-                placeholder="Exemplo:&#10;BEB-HEIN-6;Cerveja Heineken Pack 6 un;Heineken;45.00;Pack c/ 6;BEBIDAS;NENHUM;40;SIM&#10;GAS-P13;Gás de Cozinha 13kg;Ultragaz;110.00;UN;GAS;P13;50;SIM"
+                placeholder="Cole aqui o conteúdo preenchido com base no modelo baixado...&#10;Exemplo:&#10;GAS-P13;Gás de Cozinha 13kg;Ultragaz;110.00;UN;GAS;P13;50;SIM&#10;BEB-HEIN-6;Cerveja Heineken Pack 6 un;Heineken;45.00;Pack c/ 6;BEBIDAS;NENHUM;40;SIM"
                 className="w-full font-mono text-[11px] p-3 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800"
               />
             </div>
@@ -416,9 +399,9 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
           {modoAba === 'arquivo' && (
             <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-blue-500 transition-colors bg-slate-50">
               <UploadCloud className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-              <h4 className="font-bold text-slate-800 text-sm">Selecione o arquivo CSV, TSV ou TXT exportado do seu ERP</h4>
+              <h4 className="font-bold text-slate-800 text-sm">Selecione o arquivo CSV, TSV ou TXT preenchido</h4>
               <p className="text-slate-500 text-xs mt-1 mb-3">
-                O sistema identificará automaticamente as colunas de nome, marca, preço e unidade de medida.
+                Baixe o modelo CSV pelo botão acima, preencha os dados e faça o upload aqui.
               </p>
               <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer shadow-xs transition-colors">
                 <FileSpreadsheet className="w-4 h-4" />
@@ -462,9 +445,9 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
             {itensPrevia.length === 0 ? (
               <div className="border border-slate-200 rounded-xl p-8 text-center text-slate-400 bg-slate-50">
                 <Database className="w-8 h-8 mx-auto stroke-1 mb-2 opacity-50" />
-                <p className="font-medium">Nenhum produto na prévia.</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Cole uma lista acima ou clique em <strong>"Carregar Exemplo ERP"</strong> para testar.
+                <p className="font-medium text-slate-600">Nenhum produto na prévia.</p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Clique em <strong>"Baixar Modelo CSV"</strong> no topo para baixar a planilha modelo, preencha os seus produtos e faça o upload ou cole o texto.
                 </p>
               </div>
             ) : (
@@ -577,7 +560,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               type="button"
-              onClick={onFechar}
+              onClick={fechar}
               className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
             >
               Cancelar

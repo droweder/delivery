@@ -7,6 +7,7 @@ import {
   Pedido,
   Produto,
   TipoVendaItem,
+  Usuario,
 } from '../types';
 import { formatarMoeda } from '../lib/thermalPrinter';
 import {
@@ -36,12 +37,20 @@ import {
   Zap,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   clientes: Cliente[];
   produtos: Produto[];
   bairros: BairroTaxa[];
-  usuarioLogado?: import('../types').Usuario;
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onPedidoCriado: (novoPedido: Pedido, imprimirImediato?: boolean) => void;
   onNovoCliente: (cliente: Cliente) => void;
   onProdutosAtualizados?: () => void;
@@ -58,6 +67,12 @@ export const PdvModulo: React.FC<Props> = ({
   produtos,
   bairros,
   usuarioLogado,
+  activeTab = 'pdv',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
   onPedidoCriado,
   onNovoCliente,
   onProdutosAtualizados,
@@ -284,25 +299,27 @@ export const PdvModulo: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Banner / Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-3 sm:p-4 rounded-xl border border-slate-200 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">MÓDULO 1</span>
-            <h2 className="text-base sm:text-lg font-black text-slate-900">PDV Express • Entrada de Pedidos</h2>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Busca por telefone com auto-preenchimento, taxa de entrega por bairro e separação de recarga vs vasilhame.
-          </p>
-        </div>
-
+      {/* Top Header com Botão de Menus Integrado */}
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="1"
+        moduloCor="bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"
+        titulo="PDV Express • Entrada de Pedidos"
+        subtitulo="Busca por telefone com auto-preenchimento, taxa de entrega por bairro e separação de recarga vs vasilhame."
+      >
         {sucessoFeedback && (
-          <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold animate-fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 rounded-xl text-xs font-bold animate-fade-in shadow-xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>{sucessoFeedback}</span>
           </div>
         )}
-      </div>
+      </ModuloHeader>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Client Identification & Catalog (7 cols) */}
@@ -336,6 +353,14 @@ export const PdvModulo: React.FC<Props> = ({
                 onChange={(e) => {
                   setBuscaCliente(e.target.value);
                   if (!e.target.value) setClienteSelecionado(null);
+                }}
+                onBlur={() => {
+                  if (buscaCliente.trim() && !clienteSelecionado && clientesFiltrados.length === 0) {
+                    if (confirm('Cliente não encontrado. Deseja cadastrá-lo como novo cliente?')) {
+                      setNovoTelefone(buscaCliente.replace(/\D/g, ''));
+                      setModalNovoCliente(true);
+                    }
+                  }
                 }}
                 placeholder="Digite telefone com DDD ou nome do cliente..."
                 className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/70"
@@ -437,25 +462,13 @@ export const PdvModulo: React.FC<Props> = ({
 
           {/* 2. CATÁLOGO DE PRODUTOS */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-            {/* Catalog Header & ERP Import Button */}
+            {/* Catalog Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <h3 className="font-bold text-slate-900 text-xs sm:text-sm">2. Catálogo de Produtos</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800">
                   {produtosFiltrados.length} disponíveis
                 </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setModalImportarErp(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-colors shadow-2xs"
-                  title="Importar lista de produtos (Nome, Marca, Preço, Unidade) do ERP"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Importar do ERP</span>
-                </button>
               </div>
             </div>
 

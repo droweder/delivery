@@ -21,6 +21,9 @@ import {
   Shield,
   RotateCcw,
   Check,
+  Crown,
+  LogOut,
+  ArrowLeft,
 } from 'lucide-react';
 import { isDeviceOffline, setSimulatedOffline } from '../lib/offlineDb';
 import { Usuario } from '../types';
@@ -44,6 +47,10 @@ interface Props {
   pedidosEntreguesCount: number;
   pedidosDevolvidosCount?: number;
   usuarioLogado?: Usuario;
+  empresaNome?: string;
+  isSuperAdmin?: boolean;
+  onVoltarSuperAdmin?: () => void;
+  onLogout?: () => void;
   onAbrirTrocaUsuario?: () => void;
   onRefreshAll: () => void;
 }
@@ -66,6 +73,10 @@ export const Navbar: React.FC<Props> = ({
   pedidosEntreguesCount,
   pedidosDevolvidosCount = 0,
   usuarioLogado,
+  empresaNome = 'Disk Entrega & Conveniência',
+  isSuperAdmin = false,
+  onVoltarSuperAdmin,
+  onLogout,
   onAbrirTrocaUsuario,
   onRefreshAll,
 }) => {
@@ -73,7 +84,7 @@ export const Navbar: React.FC<Props> = ({
   const [menuSuspensoAberto, setMenuSuspensoAberto] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const opcoesMenu: MenuOption[] = [
+  const todasOpcoes: Array<MenuOption & { permitido: boolean }> = [
     {
       id: 'pdv',
       label: '1. PDV Express & Vendas',
@@ -81,6 +92,10 @@ export const Navbar: React.FC<Props> = ({
       badge: pedidosPendentesCount,
       badgeClass: 'bg-amber-400 text-slate-950',
       icon: ShoppingBag,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.emitirPedidos),
     },
     {
       id: 'despacho',
@@ -89,6 +104,10 @@ export const Navbar: React.FC<Props> = ({
       badge: pedidosEmRotaCount,
       badgeClass: 'bg-sky-400 text-slate-950',
       icon: Truck,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.despacharPedidos),
     },
     {
       id: 'acerto',
@@ -97,30 +116,50 @@ export const Navbar: React.FC<Props> = ({
       badge: pedidosEntreguesCount,
       badgeClass: 'bg-emerald-400 text-slate-950',
       icon: DollarSign,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.realizarAcertoCaixa),
     },
     {
       id: 'vasilhames',
       label: '4. Estoque de Vasilhames',
       shortLabel: 'Estoque',
       icon: Layers,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.ajustarEstoque),
     },
     {
       id: 'gerencia',
       label: '5. Gerência & Dashboard',
       shortLabel: 'Gerência',
       icon: TrendingUp,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.verDashboardGerencial),
     },
     {
       id: 'cadastros',
       label: '6. Central de Cadastros',
       shortLabel: 'Cadastros',
       icon: FolderKanban,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.acessarCadastros),
     },
     {
       id: 'usuarios',
-      label: '7. Gestão de Usuários',
-      shortLabel: 'Usuários',
+      label: '7. Gestão de Usuários & Permissões',
+      shortLabel: 'Usuários & Permissões',
       icon: Users,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.gerenciarUsuarios),
     },
     {
       id: 'entregador',
@@ -128,16 +167,23 @@ export const Navbar: React.FC<Props> = ({
       shortLabel: 'App Entregador',
       icon: Smartphone,
       destaque: true,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        usuarioLogado?.perfil === 'ENTREGADOR' ||
+        Boolean(usuarioLogado?.entregadorIdVinculado),
     },
     {
       id: 'arquitetura',
       label: 'Schema SQL & Arquitetura',
       shortLabel: 'Schema SQL',
       icon: Database,
+      permitido: isSuperAdmin || usuarioLogado?.perfil === 'ADMIN',
     },
   ];
 
-  const opcaoAtual = opcoesMenu.find((o) => o.id === activeTab) || opcoesMenu[0];
+  const opcoesMenu = todasOpcoes.filter((op) => op.permitido);
+  const opcaoAtual = opcoesMenu.find((o) => o.id === activeTab) || opcoesMenu[0] || todasOpcoes[0];
   const IconeAtual = opcaoAtual.icon;
 
   useEffect(() => {
@@ -180,9 +226,9 @@ export const Navbar: React.FC<Props> = ({
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-md">
       <div className="max-w-[1440px] mx-auto px-3 sm:px-4">
         {/* Top Header Bar */}
-        <div className="flex items-center justify-between h-14 gap-2">
+        <div className="flex items-center justify-between h-14 gap-3">
           {/* Logo and Brand */}
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-amber-500 to-blue-600 flex items-center justify-center shadow-xs shrink-0">
               <div className="flex items-center justify-center -space-x-1">
                 <Flame className="w-4 h-4 text-amber-200" />
@@ -190,115 +236,47 @@ export const Navbar: React.FC<Props> = ({
               </div>
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <h1 className="text-xs sm:text-sm font-black tracking-tight text-white truncate">
-                  Disk Entrega & Conveniência
+                  Delivery
                 </h1>
-                <span className="hidden md:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
                   Offline-First
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 hidden lg:block truncate">
-                Gás GLP, Água 20L e Bebidas • Base Operacional & Rota
+              <p className="text-[10px] sm:text-[11px] font-semibold text-amber-400/95 truncate leading-tight">
+                {empresaNome}
               </p>
             </div>
           </div>
 
-          {/* Center/Mobile: Dropdown Menu Suspenso Prominente */}
-          <div className="relative flex-1 max-w-xs md:max-w-sm mx-1 sm:mx-2" ref={dropdownRef}>
-            <button
-              type="button"
-              id="btn-menu-suspenso"
-              onClick={() => setMenuSuspensoAberto(!menuSuspensoAberto)}
-              className={`w-full py-1.5 px-2.5 sm:px-3 rounded-xl border text-left flex items-center justify-between transition-all shadow-xs ${
-                menuSuspensoAberto
-                  ? 'bg-slate-800 border-blue-500 ring-2 ring-blue-500/20'
-                  : 'bg-slate-800/80 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
-              }`}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <IconeAtual className="w-4 h-4 text-blue-400 shrink-0" />
-                <span className="font-black text-xs text-white truncate">
-                  {opcaoAtual.label}
-                </span>
-                {Boolean(opcaoAtual.badge && opcaoAtual.badge > 0) && (
-                  <span
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-black shrink-0 ${opcaoAtual.badgeClass}`}
-                  >
-                    {opcaoAtual.badge}
-                  </span>
-                )}
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 text-slate-400 shrink-0 ml-1 transition-transform ${
-                  menuSuspensoAberto ? 'rotate-180 text-blue-400' : ''
-                }`}
-              />
-            </button>
-
-            {/* Dropdown Options Popup */}
-            {menuSuspensoAberto && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 animate-fade-in divide-y divide-slate-800/60 max-h-[80vh] overflow-y-auto">
-                <div className="p-2 bg-slate-950/60 text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                  <span>Módulos do Sistema</span>
-                  <span className="text-[10px] text-blue-400 lowercase">toque para abrir</span>
-                </div>
-
-                <div className="p-1.5 space-y-1">
-                  {opcoesMenu.map((op) => {
-                    const isSelected = activeTab === op.id;
-                    const Icon = op.icon;
-
-                    return (
-                      <button
-                        key={op.id}
-                        onClick={() => selecionarAba(op.id)}
-                        className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between text-xs font-bold transition-all ${
-                          isSelected
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : op.destaque
-                            ? 'bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50 border border-emerald-800/40'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Icon className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-blue-400'}`} />
-                          <span>{op.label}</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {Boolean(op.badge && op.badge > 0) && (
-                            <span
-                              className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
-                                isSelected ? 'bg-white text-blue-700' : op.badgeClass
-                              }`}
-                            >
-                              {op.badge}
-                            </span>
-                          )}
-                          {isSelected && <Check className="w-4 h-4" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Right Status Badges & Active User */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Logged User Badge */}
-            {usuarioLogado && (
+            {/* Super Admin Back to Management Button */}
+            {isSuperAdmin && onVoltarSuperAdmin && (
               <button
                 type="button"
-                onClick={onAbrirTrocaUsuario}
-                title="Clique para alternar operador ou ver permissões"
-                className="hidden sm:flex items-center gap-1.5 py-1 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 transition-colors"
+                onClick={onVoltarSuperAdmin}
+                title="Voltar ao Painel Geral de Super Admin"
+                className="flex items-center gap-1.5 py-1 px-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+              >
+                <Crown className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Painel Super Admin</span>
+                <span className="sm:hidden">Admin</span>
+              </button>
+            )}
+
+            {/* Logged User Badge */}
+            {usuarioLogado && (
+              <div
+                title={`Usuário Conectado: ${usuarioLogado.nome} (${usuarioLogado.cargo || usuarioLogado.perfil})`}
+                className="hidden sm:flex items-center gap-1.5 py-1 px-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200"
               >
                 <div
                   className={`w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-black text-white ${
-                    usuarioLogado.perfil === 'ADMIN'
+                    usuarioLogado.perfil === 'SUPER_ADMIN'
+                      ? 'bg-amber-500 text-slate-950'
+                      : usuarioLogado.perfil === 'ADMIN'
                       ? 'bg-purple-600'
                       : usuarioLogado.perfil === 'GERENTE'
                       ? 'bg-blue-600'
@@ -307,15 +285,19 @@ export const Navbar: React.FC<Props> = ({
                       : 'bg-emerald-600'
                   }`}
                 >
-                  {usuarioLogado.nome[0]}
+                  {usuarioLogado.perfil === 'SUPER_ADMIN' ? '👑' : usuarioLogado.nome[0]}
                 </div>
                 <span className="font-bold text-[11px] max-w-[90px] lg:max-w-[130px] truncate">
                   {usuarioLogado.nome.split(' ')[0]}
                 </span>
                 <span className="text-[9px] px-1 py-0.2 rounded bg-slate-700 text-slate-300 font-semibold uppercase">
-                  {usuarioLogado.perfil === 'ATENDENTE_PDV' ? 'PDV' : usuarioLogado.perfil}
+                  {usuarioLogado.perfil === 'SUPER_ADMIN'
+                    ? 'SUPER'
+                    : usuarioLogado.perfil === 'ATENDENTE_PDV'
+                    ? 'PDV'
+                    : usuarioLogado.perfil}
                 </span>
-              </button>
+              </div>
             )}
 
             {/* Offline Simulation Switch */}
@@ -351,6 +333,19 @@ export const Navbar: React.FC<Props> = ({
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+
+            {/* Logout Button */}
+            {onLogout && (
+              <button
+                type="button"
+                id="btn-logout"
+                onClick={onLogout}
+                title="Sair da Conta / Trocar Empresa"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-red-300 hover:bg-red-950/60 transition-colors border border-transparent hover:border-red-800/60"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Produto } from '../types';
+import { Produto, Usuario } from '../types';
 import { formatarMoeda } from '../lib/thermalPrinter';
 import {
   Layers,
@@ -22,13 +22,32 @@ import {
   X,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   produtos: Produto[];
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onEstoqueAtualizado: () => void;
 }
 
-export const EstoqueVasilhames: React.FC<Props> = ({ produtos, onEstoqueAtualizado }) => {
+export const EstoqueVasilhames: React.FC<Props> = ({
+  produtos,
+  usuarioLogado,
+  activeTab = 'vasilhames',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
+  onEstoqueAtualizado,
+}) => {
   const [balanco, setBalanco] = useState<any>(null);
   const [carregando, setCarregando] = useState(false);
   const [ajustandoId, setAjustandoId] = useState<string | null>(null);
@@ -110,39 +129,41 @@ export const EstoqueVasilhames: React.FC<Props> = ({ produtos, onEstoqueAtualiza
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">MÓDULO 5</span>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">
-                Controle de Vasilhames & Estoque Físico
-              </h2>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Rastreamento contínuo da separação <strong>Líquido vs Casco</strong> e catálogo geral sincronizado com o ERP.
-            </p>
-          </div>
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="4"
+        moduloCor="bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+        titulo="Controle de Vasilhames & Estoque Físico"
+        subtitulo={
+          <>
+            Rastreamento contínuo da separação <strong>Líquido vs Casco</strong> e catálogo geral sincronizado com o ERP.
+          </>
+        }
+      >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setModalImportar(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white transition-colors shadow-xs"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Importar do ERP</span>
+          </button>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setModalImportar(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white transition-colors shadow-2xs"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Importar do ERP</span>
-            </button>
-
-            <button
-              onClick={carregarBalanco}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin' : ''}`} />
-              <span>Atualizar Balanço</span>
-            </button>
-          </div>
+          <button
+            onClick={carregarBalanco}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin' : ''}`} />
+            <span>Atualizar Balanço</span>
+          </button>
         </div>
-      </div>
+      </ModuloHeader>
 
       {/* Overview Balance Cards (P13 & Água 20L) */}
       {balanco && (

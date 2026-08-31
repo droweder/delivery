@@ -17,8 +17,29 @@ import {
   Radio,
   Send,
 } from 'lucide-react';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
+import { Usuario } from '../types';
 
-export const ArquiteturaSqlDoc: React.FC = () => {
+interface Props {
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
+}
+
+export const ArquiteturaSqlDoc: React.FC<Props> = ({
+  usuarioLogado,
+  activeTab = 'arquitetura',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
+}) => {
   const [copiadoSql, setCopiadoSql] = useState(false);
   const [copiadoPushSql, setCopiadoPushSql] = useState(false);
   const [copiadoEdgeFunc, setCopiadoEdgeFunc] = useState(false);
@@ -43,40 +64,38 @@ export const ArquiteturaSqlDoc: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Top Banner */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">ARQUITETURA</span>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">
-                Documentação Técnica, Schema SQL & Cache Offline
-              </h2>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Especificação de engenharia para o sistema de entregas de água, gás e bebidas (PWA Offline-First).
-            </p>
-          </div>
+      {/* Top Banner com ModuloHeader */}
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="SQL"
+        moduloCor="bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"
+        titulo="Documentação Técnica, Schema SQL & Cache Offline"
+        subtitulo="Especificação de engenharia para o sistema de entregas de água, gás e bebidas (PWA Offline-First)."
+      >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopySql}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs"
+          >
+            {copiadoSql ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copiadoSql ? 'Copiado!' : 'Copiar SQL'}</span>
+          </button>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopySql}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
-            >
-              {copiadoSql ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiadoSql ? 'Copiado!' : 'Copiar SQL'}</span>
-            </button>
-
-            <button
-              onClick={handleDownloadSql}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Baixar .sql</span>
-            </button>
-          </div>
+          <button
+            onClick={handleDownloadSql}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Baixar .sql</span>
+          </button>
         </div>
-      </div>
+      </ModuloHeader>
 
       {/* 1. DIAGRAMA DE ARQUITETURA OFFLINE-FIRST */}
       <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">

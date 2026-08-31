@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Entregador, FechamentoCaixaEntregador, Pedido } from '../types';
+import { Entregador, FechamentoCaixaEntregador, Pedido, Usuario } from '../types';
 import { formatarMoeda, formatarDataHora } from '../lib/thermalPrinter';
 import {
   DollarSign,
@@ -13,14 +13,34 @@ import {
   Calendar,
   Lock,
 } from 'lucide-react';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   pedidos: Pedido[];
   entregadores: Entregador[];
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onAcertoConcluido: () => void;
 }
 
-export const AcertoCaixa: React.FC<Props> = ({ pedidos, entregadores, onAcertoConcluido }) => {
+export const AcertoCaixa: React.FC<Props> = ({
+  pedidos,
+  entregadores,
+  usuarioLogado,
+  activeTab = 'acerto',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
+  onAcertoConcluido,
+}) => {
   const [entregadorId, setEntregadorId] = useState<string>(entregadores[0]?.id || 'e1');
   const [dinheiroContado, setDinheiroContado] = useState<string>('');
   const [cascosP13Contados, setCascosP13Contados] = useState<string>('');
@@ -110,37 +130,35 @@ export const AcertoCaixa: React.FC<Props> = ({ pedidos, entregadores, onAcertoCo
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">MÓDULO 4</span>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">
-                Módulo de Acerto & Fechamento de Caixa
-              </h2>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Conferência de valores recebidos (Dinheiro físico, PIX, Cartão) e recolhimento de vasilhames vazios no final do turno.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-600">Entregador:</span>
-            <select
-              id="select-entregador-acerto"
-              value={entregadorId}
-              onChange={(e) => setEntregadorId(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-slate-50 text-xs shadow-xs"
-            >
-              {entregadores.map((ent) => (
-                <option key={ent.id} value={ent.id}>
-                  {ent.nome} ({ent.veiculo})
-                </option>
-              ))}
-            </select>
-          </div>
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="3"
+        moduloCor="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
+        titulo="Módulo de Acerto & Fechamento de Caixa"
+        subtitulo="Conferência de valores recebidos (Dinheiro físico, PIX, Cartão) e recolhimento de vasilhames vazios no final do turno."
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Entregador:</span>
+          <select
+            id="select-entregador-acerto"
+            value={entregadorId}
+            onChange={(e) => setEntregadorId(e.target.value)}
+            className="px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 text-xs shadow-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {entregadores.map((ent) => (
+              <option key={ent.id} value={ent.id}>
+                {ent.nome} ({ent.veiculo})
+              </option>
+            ))}
+          </select>
         </div>
-      </div>
+      </ModuloHeader>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Delivered Orders to Reconcile (7 cols) */}

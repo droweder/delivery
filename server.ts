@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import {
   INITIAL_BAIRROS,
   INITIAL_CLIENTES,
+  INITIAL_EMPRESAS,
   INITIAL_ENTREGADORES,
   INITIAL_PEDIDOS,
   INITIAL_PRODUTOS,
@@ -13,6 +14,7 @@ import { SQL_SCHEMA_POSTGRESQL, SQL_TRIGGER_ESTOQUE } from './src/data/schemaSql
 import {
   BairroTaxa,
   Cliente,
+  Empresa,
   Entregador,
   FechamentoCaixaEntregador,
   ItemPedido,
@@ -25,6 +27,7 @@ import {
 } from './src/types';
 
 // In-Memory Relational Store
+let empresas: Empresa[] = [...INITIAL_EMPRESAS];
 let bairros: BairroTaxa[] = [...INITIAL_BAIRROS];
 let produtos: Produto[] = [...INITIAL_PRODUTOS];
 let clientes: Cliente[] = [...INITIAL_CLIENTES];
@@ -138,6 +141,159 @@ async function startServer() {
   // 1. Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', serverTime: new Date().toISOString() });
+  });
+
+  // 1.1 Multi-Tenant Empresas (Super Admin)
+  app.get('/api/empresas', (req, res) => {
+    res.json(empresas);
+  });
+
+  app.get('/api/empresas/:id', (req, res) => {
+    const { id } = req.params;
+    const emp = empresas.find((e) => e.id === id);
+    if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
+    res.json(emp);
+  });
+
+  app.post('/api/empresas', (req, res) => {
+    const dados = req.body;
+    if (!dados.nomeFantasia || !dados.cnpj) {
+      return res.status(400).json({ error: 'Nome fantasia e CNPJ são obrigatórios' });
+    }
+
+    const novaEmpresa: Empresa = {
+      id: dados.id || `emp_${Date.now()}`,
+      razaoSocial: dados.razaoSocial || dados.nomeFantasia,
+      nomeFantasia: dados.nomeFantasia,
+      cnpj: dados.cnpj,
+      telefone: dados.telefone || '',
+      email: dados.email || '',
+      cidade: dados.cidade || 'São Paulo',
+      estado: dados.estado || 'SP',
+      endereco: dados.endereco || '',
+      plano: dados.plano || 'PRO',
+      status: dados.status || 'ATIVO',
+      limiteUsuarios: Number(dados.limiteUsuarios) || 10,
+      limitePedidosMes: Number(dados.limitePedidosMes) || 5000,
+      valorMensalidade: Number(dados.valorMensalidade) || 199.0,
+      totalPedidosRealizados: 0,
+      totalUsuariosAtivos: 1,
+      observacoes: dados.observacoes || '',
+      criadoEm: new Date().toISOString(),
+      ultimoAcesso: new Date().toISOString(),
+      configuracoes: dados.configuracoes || {},
+    };
+
+    empresas.push(novaEmpresa);
+    res.status(201).json(novaEmpresa);
+  });
+
+  app.put('/api/empresas/:id', (req, res) => {
+    const { id } = req.params;
+    const emp = empresas.find((e) => e.id === id);
+    if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
+
+    const dados = req.body;
+    if (dados.razaoSocial !== undefined) emp.razaoSocial = dados.razaoSocial;
+    if (dados.nomeFantasia !== undefined) emp.nomeFantasia = dados.nomeFantasia;
+    if (dados.cnpj !== undefined) emp.cnpj = dados.cnpj;
+    if (dados.telefone !== undefined) emp.telefone = dados.telefone;
+    if (dados.email !== undefined) emp.email = dados.email;
+    if (dados.cidade !== undefined) emp.cidade = dados.cidade;
+    if (dados.estado !== undefined) emp.estado = dados.estado;
+    if (dados.endereco !== undefined) emp.endereco = dados.endereco;
+    if (dados.plano !== undefined) emp.plano = dados.plano;
+    if (dados.status !== undefined) emp.status = dados.status;
+    if (dados.limiteUsuarios !== undefined) emp.limiteUsuarios = Number(dados.limiteUsuarios);
+    if (dados.limitePedidosMes !== undefined) emp.limitePedidosMes = Number(dados.limitePedidosMes);
+    if (dados.valorMensalidade !== undefined) emp.valorMensalidade = Number(dados.valorMensalidade);
+    if (dados.observacoes !== undefined) emp.observacoes = dados.observacoes;
+    if (dados.configuracoes !== undefined) emp.configuracoes = { ...emp.configuracoes, ...dados.configuracoes };
+
+    res.json(emp);
+  });
+
+  app.delete('/api/empresas/:id', (req, res) => {
+    const { id } = req.params;
+    const index = empresas.findIndex((e) => e.id === id);
+    if (index === -1) return res.status(404).json({ error: 'Empresa não encontrada' });
+
+    const [removida] = empresas.splice(index, 1);
+    res.json({ sucesso: true, empresa: removida });
+  });
+
+  // 1.2 Autenticação Unificada (Supabase Ready)
+  app.post('/api/auth/login', (req, res) => {
+    const { login, senha, pin } = req.body;
+    const termo = (login || '').toLowerCase().trim();
+    const senhaDigitada = (senha !== undefined ? String(senha) : pin !== undefined ? String(pin) : '').trim();
+
+    // Busca usuário por email, login ou PIN
+    const usuario = usuarios.find((u) => {
+      if (!u.ativo) return false;
+      const matchIdentificador =
+        (termo && (u.login.toLowerCase() === termo || (u.email && u.email.toLowerCase() === termo))) ||
+        (termo === 'superadmin' && u.perfil === 'SUPER_ADMIN') ||
+        (pin && u.pinAcesso === String(pin).trim());
+
+      if (!matchIdentificador) return false;
+
+      // Validação de senha se fornecida
+      if (senhaDigitada) {
+        const senhaCadastrada = (u.senha || u.pinAcesso || '').trim();
+        if (senhaCadastrada && senhaCadastrada !== senhaDigitada) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    if (!usuario) {
+      return res.status(401).json({
+        error: 'Credenciais inválidas. Verifique seu login/e-mail e senha de acesso.',
+      });
+    }
+
+    // Se usuário não é Super Admin, localiza a empresa vinculada
+    let empresaVinculada: Empresa | null = null;
+    if (usuario.perfil !== 'SUPER_ADMIN') {
+      const empId = usuario.empresaId || 'emp1';
+      empresaVinculada = empresas.find((e) => e.id === empId) || empresas[0];
+
+      if (empresaVinculada && empresaVinculada.status === 'BLOQUEADO') {
+        return res.status(403).json({
+          error: 'O acesso desta empresa está temporariamente bloqueado. Contate o administrador da plataforma.',
+        });
+      }
+    }
+
+    usuario.ultimoAcesso = new Date().toISOString();
+    if (empresaVinculada) {
+      empresaVinculada.ultimoAcesso = new Date().toISOString();
+    }
+
+    res.json({
+      sucesso: true,
+      usuario,
+      empresa: empresaVinculada,
+      token: `jwt_session_${usuario.id}_${Date.now()}`,
+    });
+  });
+
+  app.post('/api/auth/esqueci-senha', (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'E-mail é obrigatório para recuperação' });
+    }
+
+    // Simula a chamada do Supabase: supabase.auth.resetPasswordForEmail(email)
+    console.log(`[Supabase Auth] Link de restauração de senha gerado e disparado para: ${email}`);
+
+    res.json({
+      sucesso: true,
+      mensagem: `Um link seguro de redefinição de senha foi enviado para ${email}. Verifique sua caixa de entrada e spam.`,
+    });
   });
 
   // 2. Bairros e Taxas de Entrega
@@ -254,8 +410,9 @@ async function startServer() {
   });
 
   // Batch ERP Product Import API
-  app.post('/api/produtos/importar', (req, res) => {
-    const { itens, modoSubstituir } = req.body;
+  const handleImportacaoProdutos = (req: any, res: any) => {
+    const itens = req.body.itens || req.body.produtos;
+    const modoSubstituir = req.body.modoSubstituir;
 
     if (!Array.isArray(itens) || itens.length === 0) {
       return res.status(400).json({ error: 'Lista de produtos para importação está vazia ou inválida.' });
@@ -346,7 +503,10 @@ async function startServer() {
       totalCatalogo: produtos.length,
       produtos,
     });
-  });
+  };
+
+  app.post('/api/produtos/importar', handleImportacaoProdutos);
+  app.post('/api/produtos/importar-erp', handleImportacaoProdutos);
 
   app.delete('/api/produtos/:id', (req, res) => {
     const { id } = req.params;

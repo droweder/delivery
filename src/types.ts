@@ -10,7 +10,38 @@ export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'CARTAO_DEBITO' | 'CARTAO_CRED
 
 export type StatusEntregador = 'DISPONIVEL' | 'EM_ROTA' | 'FOLGA';
 
-export type PerfilUsuario = 'ADMIN' | 'GERENTE' | 'ATENDENTE_PDV' | 'ENTREGADOR';
+export type PerfilUsuario = 'SUPER_ADMIN' | 'ADMIN' | 'GERENTE' | 'ATENDENTE_PDV' | 'ENTREGADOR';
+
+export type PlanoEmpresa = 'BASICO' | 'PRO' | 'ENTERPRISE';
+
+export type StatusEmpresa = 'ATIVO' | 'BLOQUEADO' | 'PENDENTE';
+
+export interface Empresa {
+  id: string;
+  razaoSocial: string;
+  nomeFantasia: string;
+  cnpj: string;
+  telefone: string;
+  email: string;
+  cidade: string;
+  estado: string;
+  endereco: string;
+  plano: PlanoEmpresa;
+  status: StatusEmpresa;
+  limiteUsuarios: number;
+  limitePedidosMes: number;
+  valorMensalidade: number;
+  totalPedidosRealizados?: number;
+  totalUsuariosAtivos?: number;
+  observacoes?: string;
+  criadoEm: string;
+  ultimoAcesso?: string;
+  configuracoes?: {
+    logoUrl?: string;
+    corTema?: string;
+    cobrarTaxaEntregaPadrao?: number;
+  };
+}
 
 export interface PermissoesUsuario {
   emitirPedidos: boolean;
@@ -28,9 +59,11 @@ export interface PermissoesUsuario {
 
 export interface Usuario {
   id: string;
+  empresaId?: string | null; // null para SUPER_ADMIN (Acesso global a todas as empresas)
   nome: string;
   login: string;
   email?: string;
+  senha?: string;
   telefone?: string;
   perfil: PerfilUsuario;
   cargo: string;

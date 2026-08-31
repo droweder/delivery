@@ -29,11 +29,19 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   usuarios: Usuario[];
   entregadores: Entregador[];
   usuarioLogado: Usuario;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onSalvarUsuario: (usuario: Partial<Usuario> & { id?: string }) => Promise<void>;
   onToggleAtivo: (id: string) => Promise<void>;
   onExcluirUsuario: (id: string) => Promise<void>;
@@ -44,10 +52,16 @@ const PERFIS_INFO: Record<
   PerfilUsuario,
   { label: string; badgeClass: string; desc: string; icon: React.ComponentType<any> }
 > = {
+  SUPER_ADMIN: {
+    label: 'Super Admin (Criador)',
+    badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40',
+    desc: 'Criador da plataforma com acesso irrestrito global e gestão multi-tenant de todas as empresas.',
+    icon: Shield,
+  },
   ADMIN: {
     label: 'Administrador Geral',
     badgeClass: 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/60',
-    desc: 'Acesso irrestrito a todos os módulos, cadastros, relatórios e gestão de usuários.',
+    desc: 'Acesso irrestrito a todos os módulos, cadastros, relatórios e gestão de usuários da empresa.',
     icon: Shield,
   },
   GERENTE: {
@@ -148,6 +162,12 @@ export const GestaoUsuarios: React.FC<Props> = ({
   usuarios,
   entregadores,
   usuarioLogado,
+  activeTab = 'usuarios',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
   onSalvarUsuario,
   onToggleAtivo,
   onExcluirUsuario,
@@ -335,38 +355,38 @@ export const GestaoUsuarios: React.FC<Props> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Top Header Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                <Users className="w-6 h-6" />
-              </div>
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                Gestão de Usuários & Permissões
-              </h2>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-2xl">
-              Controle de acesso dos colaboradores, emissão de pedidos por atendente, entregas por motorista
-              e trilha de auditoria completa em cada etapa do pedido.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={abrirModalNovo}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center gap-2 active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Novo Colaborador / Usuário</span>
-            </button>
-          </div>
+    <div className="space-y-4 animate-fade-in">
+      {/* Top Header Card com Botão de Menus Integrado */}
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="7"
+        moduloCor="bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"
+        titulo="Gestão de Usuários & Permissões"
+        subtitulo="Controle de acesso dos colaboradores, emissão de pedidos por atendente, entregas por motorista e trilha de auditoria completa em cada etapa do pedido."
+      >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={abrirModalNovo}
+            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Novo Colaborador</span>
+          </button>
         </div>
+      </ModuloHeader>
 
-        {/* Audit & Role Flow Highlights */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+      {/* Audit & Role Flow Highlights */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
+          Trilha de Auditoria e Responsabilidades no Sistema
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
             <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-xs">
               <ShoppingBag className="w-4 h-4" />
@@ -480,7 +500,9 @@ export const GestaoUsuarios: React.FC<Props> = ({
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-sm text-white shadow-xs ${
-                        u.perfil === 'ADMIN'
+                        u.perfil === 'SUPER_ADMIN'
+                          ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-slate-950'
+                          : u.perfil === 'ADMIN'
                           ? 'bg-gradient-to-br from-purple-600 to-indigo-700'
                           : u.perfil === 'GERENTE'
                           ? 'bg-gradient-to-br from-blue-600 to-cyan-700'

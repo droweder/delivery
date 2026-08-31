@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Entregador, Pedido } from '../types';
+import { Entregador, Pedido, Usuario } from '../types';
 import { formatarMoeda, formatarDataHora, imprimirComanda } from '../lib/thermalPrinter';
 import {
   Truck,
@@ -19,10 +19,19 @@ import {
   Radio,
   Zap,
 } from 'lucide-react';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   pedidos: Pedido[];
   entregadores: Entregador[];
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onDespacharPedidos: (pedidosIds: string[], entregadorId: string, imprimir?: boolean) => Promise<void>;
   onVisualizarComanda: (pedido: Pedido) => void;
 }
@@ -30,6 +39,13 @@ interface Props {
 export const DespachoKanban: React.FC<Props> = ({
   pedidos,
   entregadores,
+  usuarioLogado,
+  activeTab = 'despacho',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
   onDespacharPedidos,
   onVisualizarComanda,
 }) => {
@@ -91,44 +107,49 @@ export const DespachoKanban: React.FC<Props> = ({
   return (
     <div className="space-y-4">
       {/* Header & Quick Dispatch Bar */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">MÓDULO 2</span>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">Módulo de Despacho • Kanban Operacional</h2>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Atribuição de rotas, disparo de <strong>Notificações Push Supabase</strong> para o celular do entregador e impressão de comandas.
-            </p>
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="2"
+        moduloCor="bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300"
+        titulo="Módulo de Despacho • Kanban Operacional"
+        subtitulo={
+          <>
+            Atribuição de rotas, disparo de <strong>Notificações Push Supabase</strong> para o celular do entregador e impressão de comandas.
+          </>
+        }
+      >
+        {/* Quick Courier filter & Push status badge */}
+        <div className="flex items-center flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold shadow-2xs">
+            <Radio className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+            <span>Supabase Push Ativo</span>
           </div>
 
-          {/* Quick Courier filter & Push status badge */}
-          <div className="flex items-center flex-wrap gap-2">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-              <Radio className="w-3 h-3 text-emerald-600 animate-pulse" />
-              <span>Supabase Push Ativo</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                <Filter className="w-3.5 h-3.5" /> Filtrar:
-              </span>
-              <select
-                value={filtroEntregador}
-                onChange={(e) => setFiltroEntregador(e.target.value)}
-                className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 text-slate-800"
-              >
-                <option value="TODOS">Todos os Entregadores</option>
-                {entregadores.map((ent) => (
-                  <option key={ent.id} value={ent.id}>
-                    {ent.nome} ({ent.veiculo.split(' ')[0]})
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1">
+              <Filter className="w-3.5 h-3.5" /> Filtrar:
+            </span>
+            <select
+              value={filtroEntregador}
+              onChange={(e) => setFiltroEntregador(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+            >
+              <option value="TODOS">Todos os Entregadores</option>
+              {entregadores.map((ent) => (
+                <option key={ent.id} value={ent.id}>
+                  {ent.nome} ({ent.veiculo.split(' ')[0]})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
+      </ModuloHeader>
 
         {/* Push Alert Toast */}
         {alertaPushEnviado && (
@@ -198,7 +219,6 @@ export const DespachoKanban: React.FC<Props> = ({
             </div>
           </div>
         )}
-      </div>
 
       {/* Kanban Board Columns (3 Columns) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">

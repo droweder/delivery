@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Entregador, FormaPagamento, NotificacaoPush, Pedido, SyncQueueItem } from '../types';
+import { Entregador, FormaPagamento, NotificacaoPush, Pedido, SyncQueueItem, Usuario } from '../types';
 import { formatarMoeda, formatarDataHora } from '../lib/thermalPrinter';
 import {
   darBaixaOffline,
@@ -49,13 +49,32 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { ModalDevolverPedido } from './ModalDevolverPedido';
+import { ModuloHeader } from './ModuloHeader';
+import { MainTab } from './Navbar';
 
 interface Props {
   entregadores: Entregador[];
+  usuarioLogado?: Usuario | null;
+  activeTab?: MainTab;
+  setActiveTab?: (tab: MainTab) => void;
+  isSuperAdmin?: boolean;
+  pedidosPendentesCount?: number;
+  pedidosEmRotaCount?: number;
+  pedidosEntreguesCount?: number;
   onPedidoAtualizadoNoServidor?: () => void;
 }
 
-export const AppEntregador: React.FC<Props> = ({ entregadores, onPedidoAtualizadoNoServidor }) => {
+export const AppEntregador: React.FC<Props> = ({
+  entregadores,
+  usuarioLogado,
+  activeTab = 'entregador',
+  setActiveTab = () => {},
+  isSuperAdmin = false,
+  pedidosPendentesCount = 0,
+  pedidosEmRotaCount = 0,
+  pedidosEntreguesCount = 0,
+  onPedidoAtualizadoNoServidor,
+}) => {
   const [entregadorAtualId, setEntregadorAtualId] = useState<string>(entregadores[0]?.id || 'e1');
   const [pedidosLocais, setPedidosLocais] = useState<Pedido[]>([]);
   const [filaSync, setFilaSync] = useState<SyncQueueItem[]>([]);
@@ -375,103 +394,101 @@ export const AppEntregador: React.FC<Props> = ({ entregadores, onPedidoAtualizad
 
   return (
     <div className="space-y-4">
-      {/* Header Info & Push Simulator Controls */}
-      <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">MÓDULO 3</span>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-emerald-600" />
-                PWA Mobile Entregador • Offline-First + Supabase Push
-              </h2>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Notificações push em segundo plano com som cristalino, motor háptico de vibração e sincronização resiliente via IndexedDB.
-            </p>
-          </div>
+      {/* Header Info com Botão de Menus Integrado */}
+      <ModuloHeader
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        usuarioLogado={usuarioLogado}
+        isSuperAdmin={isSuperAdmin}
+        pedidosPendentesCount={pedidosPendentesCount}
+        pedidosEmRotaCount={pedidosEmRotaCount}
+        pedidosEntreguesCount={pedidosEntreguesCount}
+        moduloNumero="3"
+        moduloCor="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
+        titulo="PWA Mobile Entregador • Offline-First + Push"
+        subtitulo="Notificações push em segundo plano com som cristalino, motor háptico de vibração e sincronização resiliente via IndexedDB."
+      >
+        {/* Courier Selector & Simulation Toggles */}
+        <div className="flex items-center flex-wrap gap-2">
+          <select
+            id="select-entregador-ativo"
+            value={entregadorAtualId}
+            onChange={(e) => setEntregadorAtualId(e.target.value)}
+            className="px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 text-xs shadow-xs"
+          >
+            {entregadores.map((ent) => (
+              <option key={ent.id} value={ent.id}>
+                🛵 {ent.nome} ({ent.veiculo.split(' ')[0]})
+              </option>
+            ))}
+          </select>
 
-          {/* Courier Selector & Simulation Toggles */}
-          <div className="flex items-center flex-wrap gap-2">
-            <select
-              id="select-entregador-ativo"
-              value={entregadorAtualId}
-              onChange={(e) => setEntregadorAtualId(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-slate-50 text-xs shadow-xs"
-            >
-              {entregadores.map((ent) => (
-                <option key={ent.id} value={ent.id}>
-                  🛵 {ent.nome} ({ent.veiculo.split(' ')[0]})
-                </option>
-              ))}
-            </select>
+          {/* Push History / Drawer Button */}
+          <button
+            onClick={() => setModalPushAberto(true)}
+            className="relative flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-300 dark:border-slate-700 transition-all shadow-xs"
+            title="Ver Histórico de Notificações Push"
+          >
+            <Bell className="w-3.5 h-3.5 text-blue-600" />
+            <span>Notificações</span>
+            {totalNaoLidas > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
+                {totalNaoLidas}
+              </span>
+            )}
+          </button>
 
-            {/* Push History / Drawer Button */}
-            <button
-              onClick={() => setModalPushAberto(true)}
-              className="relative flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs border border-slate-300 transition-all shadow-xs"
-              title="Ver Histórico de Notificações Push"
-            >
-              <Bell className="w-3.5 h-3.5 text-blue-600" />
-              <span>Notificações</span>
-              {totalNaoLidas > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-black animate-pulse">
-                  {totalNaoLidas}
-                </span>
-              )}
-            </button>
+          {/* Push Tester Modal Trigger */}
+          <button
+            onClick={() => setModalSimuladorPush(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-xs"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>Testar Push</span>
+          </button>
 
-            {/* Push Tester Modal Trigger */}
-            <button
-              onClick={() => setModalSimuladorPush(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-xs"
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Testar Push</span>
-            </button>
+          {/* Toggle Sound */}
+          <button
+            onClick={() => {
+              setSomHabilitado(!somHabilitado);
+              if (!somHabilitado) playPushChime('NORMAL');
+            }}
+            className={`p-1.5 rounded-xl border text-xs font-bold transition-all ${
+              somHabilitado
+                ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700'
+            }`}
+            title={somHabilitado ? 'Som de Notificação Ativado' : 'Som Mudo'}
+          >
+            {somHabilitado ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
 
-            {/* Toggle Sound */}
-            <button
-              onClick={() => {
-                setSomHabilitado(!somHabilitado);
-                if (!somHabilitado) playPushChime('NORMAL');
-              }}
-              className={`p-1.5 rounded-lg border text-xs font-bold transition-all ${
-                somHabilitado
-                  ? 'bg-amber-50 text-amber-800 border-amber-300'
-                  : 'bg-slate-100 text-slate-400 border-slate-200'
-              }`}
-              title={somHabilitado ? 'Som de Notificação Ativado' : 'Som Mudo'}
-            >
-              {somHabilitado ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </button>
+          {/* Offline Simulation Toggle */}
+          <button
+            onClick={() => {
+              const novo = !isOffline;
+              setSimulatedOffline(novo);
+              setIsOffline(novo);
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border font-bold text-xs transition-all shadow-xs ${
+              isOffline
+                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            {isOffline ? <WifiOff className="w-3.5 h-3.5 text-amber-600" /> : <Wifi className="w-3.5 h-3.5 text-emerald-600" />}
+            <span>{isOffline ? 'Simulando Offline' : 'Simular Sem Sinal'}</span>
+          </button>
 
-            {/* Offline Simulation Toggle */}
-            <button
-              onClick={() => {
-                const novo = !isOffline;
-                setSimulatedOffline(novo);
-                setIsOffline(novo);
-              }}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-bold text-xs transition-all shadow-xs ${
-                isOffline
-                  ? 'bg-amber-100 text-amber-900 border-amber-300'
-                  : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-              }`}
-            >
-              {isOffline ? <WifiOff className="w-3.5 h-3.5 text-amber-600" /> : <Wifi className="w-3.5 h-3.5 text-emerald-600" />}
-              <span>{isOffline ? 'Simulando Offline' : 'Simular Sem Sinal'}</span>
-            </button>
-
-            {/* Toggle Phone Frame */}
-            <button
-              onClick={() => setModoMolduraCelular(!modoMolduraCelular)}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs border border-slate-300 transition-all"
-            >
-              {modoMolduraCelular ? 'Modo Expandido' : 'Modo Celular'}
-            </button>
-          </div>
+          {/* Toggle Phone Frame */}
+          <button
+            onClick={() => setModoMolduraCelular(!modoMolduraCelular)}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs border border-slate-300 dark:border-slate-700 transition-all"
+          >
+            {modoMolduraCelular ? 'Modo Expandido' : 'Modo Celular'}
+          </button>
         </div>
+      </ModuloHeader>
 
         {/* Push Permission Alert Banner */}
         {pushPermissao !== 'granted' && (
@@ -510,7 +527,6 @@ export const AppEntregador: React.FC<Props> = ({ entregadores, onPedidoAtualizad
             </button>
           </div>
         )}
-      </div>
 
       {/* Main Screen Layout (Phone Frame or Wide View) */}
       <div className={`mx-auto transition-all ${modoMolduraCelular ? 'max-w-md' : 'max-w-4xl'}`}>
