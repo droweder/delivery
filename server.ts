@@ -142,14 +142,19 @@ function registrarMovimentacaoEstoque(dados: {
         })
         .eq('id', prod.id)
         .catch(() => {});
-    }
-  } catch (e) {}
+
+        }
+    } catch (e) {}
 
   return mov;
 }
 
+
 // Supabase Lazy Client
+
 let supabaseClient: any = null;
+
+
 
 function getSupabase() {
   if (!supabaseClient) {
@@ -163,8 +168,9 @@ function getSupabase() {
     });
   }
   return supabaseClient;
-}
 
+
+}
 // VAPID Web Push Keys Setup (Supabase / W3C Standard)
 let vapidKeys = {
   publicKey: process.env.VAPID_PUBLIC_KEY || '',
@@ -179,7 +185,7 @@ if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
   } catch (e) {
     console.warn('[Web Push] Aviso ao gerar chaves VAPID:', e);
   }
-}
+
 
 try {
   if (vapidKeys.publicKey && vapidKeys.privateKey) {
@@ -192,8 +198,11 @@ try {
   }
 } catch (e) {
   console.warn('[Web Push] Aviso ao configurar VAPID details:', e);
+
+
 }
 
+}
 // Push Subscriptions & Push Notifications Log (Supabase / Web Push)
 let pushSubscriptions: PushSubscriptionData[] = [];
 let pushNotificationsLog: NotificacaoPush[] = [
@@ -325,17 +334,18 @@ async function dispararNotificacaoPush(
 
   console.log(`[Push / Supabase] Notificação enviada para entregador ${notificacao.entregadorId}: ${notificacao.titulo}`);
   return notificacao;
+
+
 }
 
 let orderCounter = 1045;
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-  app.use(express.json());
+app.use(express.json());
 
-  // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
   // API ROUTES
   // --------------------------------------------------------------------------
 
@@ -2452,23 +2462,24 @@ async function startServer() {
   // --------------------------------------------------------------------------
   // VITE & STATIC SPA MIDDLEWARE
   // --------------------------------------------------------------------------
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  if (!process.env.VERCEL) {
+    (async () => {
+      if (process.env.NODE_ENV !== 'production') {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        app.use(vite.middlewares);
+      } else {
+        const distPath = path.join(process.cwd(), 'dist');
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => {
+          res.sendFile(path.join(distPath, 'index.html'));
+        });
+      }
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Disk Entrega Server rodando em http://localhost:${PORT}`);
+      });
+    })();
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Disk Entrega Server rodando em http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+export default app;
