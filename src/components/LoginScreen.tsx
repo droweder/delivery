@@ -96,9 +96,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
           </div>
           <h1 className="text-3xl font-black tracking-tight text-white flex items-center justify-center gap-2">
             Delivery
-            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold border border-blue-400/30">
-              SaaS Multi-Empresas
-            </span>
+            
           </h1>
           <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
             Plataforma Integrada de Gestão de Entregas, PDV Rápido e Logística em Tempo Real
@@ -207,15 +205,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
           </form>
         </div>
 
-        {/* Supabase + Vercel Deployment Architecture Note */}
-        <div className="mt-6 text-center text-[11px] text-slate-500">
-          <p className="flex items-center justify-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Compatível com Supabase Auth & PostgreSQL Row Level Security (RLS)</span>
-          </p>
         </div>
-      </div>
-
       {/* Modal Esqueci Minha Senha */}
       {modalEsqueciAberto && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -227,7 +217,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white">Recuperar Senha</h3>
-                  <p className="text-xs text-slate-400">Restauração de acesso via Supabase Auth</p>
+                  <p className="text-xs text-slate-400">Restauração de acesso</p>
                 </div>
               </div>
             </div>

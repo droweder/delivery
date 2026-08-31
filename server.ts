@@ -2458,6 +2458,12 @@ app.use(express.json());
     res.type('text/plain').send(SQL_SCHEMA_POSTGRESQL + '\n\n' + SQL_TRIGGER_ESTOQUE);
   });
 
+
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Unhandled API Error:', err);
+    res.status(500).json({ error: 'Internal Server Error', message: err.message, stack: err.stack });
+  });
+
   // --------------------------------------------------------------------------
   // VITE & STATIC SPA MIDDLEWARE
   // --------------------------------------------------------------------------

@@ -3,10 +3,12 @@ import app from './server.ts';
 import http from 'http';
 
 const server = http.createServer(app);
-server.listen(9090, () => {
-  http.get('http://localhost:9090/api/empresas', (res) => {
+server.listen(9094, () => {
+  http.get('http://localhost:9094/api/produtos', (res) => {
     console.log(res.statusCode);
-    res.on('data', d => process.stdout.write(d));
+    let data = '';
+    res.on('data', d => data += d);
+    res.on('end', () => console.log(data));
     setTimeout(() => process.exit(0), 100);
   });
 });
