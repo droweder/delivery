@@ -1,4 +1,4 @@
-import { BairroTaxa, Cliente, Empresa, Entregador, Pedido, Produto, Usuario } from '../types';
+import { BairroTaxa, Cliente, Empresa, Entregador, Pedido, Produto, Usuario } from '../types.js';
 
 export const INITIAL_EMPRESAS: Empresa[] = [];
 export const INITIAL_BAIRROS: BairroTaxa[] = [];

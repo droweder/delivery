@@ -10,8 +10,8 @@ import {
   INITIAL_PEDIDOS,
   INITIAL_PRODUTOS,
   INITIAL_USUARIOS,
-} from './src/data/initialData';
-import { SQL_SCHEMA_POSTGRESQL, SQL_TRIGGER_ESTOQUE } from './src/data/schemaSql';
+} from './src/data/initialData.js';
+import { SQL_SCHEMA_POSTGRESQL, SQL_TRIGGER_ESTOQUE } from './src/data/schemaSql.js';
 import {
   BairroTaxa,
   Cliente,
@@ -27,7 +27,7 @@ import {
   SyncQueueItem,
   TipoMovimentacaoEstoque,
   Usuario,
-} from './src/types';
+} from './src/types.js';
 
 // In-Memory Relational Store
 let empresas: Empresa[] = [...INITIAL_EMPRESAS];
