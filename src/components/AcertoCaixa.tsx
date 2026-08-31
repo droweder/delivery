@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Entregador, FechamentoCaixaEntregador, Pedido, Usuario } from '../types';
 import { formatarMoeda, formatarDataHora } from '../lib/thermalPrinter';
 import {
@@ -12,6 +12,9 @@ import {
   FileText,
   Calendar,
   Lock,
+  History,
+  Clock,
+  ChevronRight,
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
@@ -48,8 +51,26 @@ export const AcertoCaixa: React.FC<Props> = ({
   const [observacoesFechamento, setObservacoesFechamento] = useState('');
   const [fechando, setFechando] = useState(false);
   const [ultimoFechamento, setUltimoFechamento] = useState<FechamentoCaixaEntregador | null>(null);
+  const [historicoFechamentos, setHistoricoFechamentos] = useState<FechamentoCaixaEntregador[]>([]);
+  const [visualizarHistorico, setVisualizarHistorico] = useState(false);
 
   const entregadorSelecionado = entregadores.find((e) => e.id === entregadorId) || entregadores[0];
+
+  const carregarHistorico = async () => {
+    try {
+      const res = await fetch(`/api/acerto/fechamentos?entregadorId=${entregadorId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoricoFechamentos(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    carregarHistorico();
+  }, [entregadorId]);
 
   // Pedidos entregues aguardando fechamento para esse entregador
   const pedidosParaAcerto = pedidos.filter(
@@ -144,6 +165,18 @@ export const AcertoCaixa: React.FC<Props> = ({
         subtitulo="Conferência de valores recebidos (Dinheiro físico, PIX, Cartão) e recolhimento de vasilhames vazios no final do turno."
       >
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setVisualizarHistorico(!visualizarHistorico)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-xs ${
+              visualizarHistorico
+                ? 'bg-emerald-700 text-white border-emerald-800'
+                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>{visualizarHistorico ? 'Voltar ao Fechamento' : 'Histórico de Turnos'}</span>
+          </button>
+
           <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Entregador:</span>
           <select
             id="select-entregador-acerto"
@@ -159,6 +192,91 @@ export const AcertoCaixa: React.FC<Props> = ({
           </select>
         </div>
       </ModuloHeader>
+
+      {/* Histórico View */}
+      {visualizarHistorico ? (
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div>
+              <h3 className="font-black text-slate-900 text-sm">
+                Histórico de Turnos & Fechamentos de Caixa
+              </h3>
+              <p className="text-xs text-slate-500">
+                Turnos encerrados com conferência de dinheiro e vasilhames para {entregadorSelecionado.nome}.
+              </p>
+            </div>
+            <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg">
+              {historicoFechamentos.length} fechamentos
+            </span>
+          </div>
+
+          {historicoFechamentos.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs">
+              <History className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+              <p className="font-bold text-slate-600">Nenhum fechamento registrado para este entregador.</p>
+              <p className="text-slate-400 text-[11px]">Os acertos concluídos ficarão arquivados nesta lista.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
+                    <th className="p-2.5">Data / Hora</th>
+                    <th className="p-2.5">Entregador</th>
+                    <th className="p-2.5 text-center">Pedidos Concluídos</th>
+                    <th className="p-2.5 text-right">Dinheiro Esperado</th>
+                    <th className="p-2.5 text-right">Dinheiro Informado</th>
+                    <th className="p-2.5 text-right">Diferença</th>
+                    <th className="p-2.5 text-center">Cascos Recolhidos</th>
+                    <th className="p-2.5">Observação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {historicoFechamentos.map((f) => (
+                    <tr key={f.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="p-2.5 font-mono text-[11px] text-slate-700">
+                        {formatarDataHora(f.data)}
+                      </td>
+                      <td className="p-2.5 font-bold text-slate-900">{f.entregadorNome}</td>
+                      <td className="p-2.5 text-center font-mono font-bold text-slate-700">
+                        {f.pedidosConcluidosIds?.length || 0}
+                      </td>
+                      <td className="p-2.5 text-right font-mono text-slate-700">
+                        {formatarMoeda(f.totalDinheiroEsperado)}
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-bold text-slate-900">
+                        {formatarMoeda(f.totalDinheiroInformado)}
+                      </td>
+                      <td className="p-2.5 text-right font-mono">
+                        <span
+                          className={`font-bold ${
+                            f.diferencaDinheiro === 0
+                              ? 'text-emerald-700'
+                              : f.diferencaDinheiro > 0
+                              ? 'text-blue-700'
+                              : 'text-rose-700'
+                          }`}
+                        >
+                          {f.diferencaDinheiro === 0 ? 'Exato' : formatarMoeda(f.diferencaDinheiro)}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-center font-mono text-xs">
+                        <span className="text-amber-700 font-bold">{f.cascosP13Recolhidos}x P13</span>
+                        {f.cascosP20LRecolhidos > 0 && (
+                          <span className="text-blue-700 font-bold ml-1.5">{f.cascosP20LRecolhidos}x 20L</span>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-slate-500 text-[11px] italic">
+                        {f.observacoes || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Delivered Orders to Reconcile (7 cols) */}
@@ -378,6 +496,7 @@ export const AcertoCaixa: React.FC<Props> = ({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

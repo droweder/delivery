@@ -23,9 +23,13 @@ export interface Empresa {
   cnpj: string;
   telefone: string;
   email: string;
+  cep?: string;
   cidade: string;
   estado: string;
   endereco: string;
+  numero?: string;
+  bairro?: string;
+  complemento?: string;
   plano: PlanoEmpresa;
   status: StatusEmpresa;
   limiteUsuarios: number;
@@ -87,11 +91,16 @@ export interface Cliente {
   id: string;
   nome: string;
   telefone: string;
+  cpfCnpj?: string;
+  email?: string;
+  cep?: string;
   endereco: string;
   numero: string;
   complemento?: string;
   bairroId: string;
   bairroNome: string;
+  cidade?: string;
+  estado?: string;
   referencia?: string;
   lat: number;
   lng: number;
@@ -275,4 +284,34 @@ export interface PushSubscriptionData {
   plataforma: 'WEB' | 'ANDROID' | 'IOS';
   ativo: boolean;
   criadoEm: string;
+}
+
+export type TipoMovimentacaoEstoque =
+  | 'ENTRADA'
+  | 'SAIDA_VENDA'
+  | 'DESPACHO_ROTA'
+  | 'RETORNO_ROTA'
+  | 'AJUSTE_MANUAL'
+  | 'CANCELAMENTO_ESTORNO'
+  | 'DEVOLUCAO_AVARIA';
+
+export interface MovimentacaoEstoque {
+  id: string;
+  produtoId: string;
+  produtoNome: string;
+  tipoVasilhame: TipoVasilhame;
+  tipoMovimentacao: TipoMovimentacaoEstoque;
+  quantidadeCheio: number;
+  quantidadeVazio: number;
+  estoqueCheioAnterior: number;
+  estoqueCheioAtual: number;
+  estoqueVazioAnterior: number;
+  estoqueVazioAtual: number;
+  pedidoId?: string;
+  pedidoCodigo?: string;
+  entregadorId?: string;
+  entregadorNome?: string;
+  usuarioResponsavel?: string;
+  motivo?: string;
+  timestamp: string;
 }

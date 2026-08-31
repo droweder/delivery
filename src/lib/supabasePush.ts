@@ -145,7 +145,21 @@ export async function showNativePushNotification(notificacao: NotificacaoPush) {
 }
 
 // ----------------------------------------------------------------------------
-// INSCREVER DISPOSITIVO NO SERVIÇO DE PUSH DO BACKEND
+// CONVERSÃO DE CHAVE VAPID PARA ARRAY DE BYTES (Padrão W3C Web Push)
+// ----------------------------------------------------------------------------
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+// ----------------------------------------------------------------------------
+// INSCREVER DISPOSITIVO NO SERVIÇO DE PUSH DO BACKEND (Supabase + VAPID)
 // ----------------------------------------------------------------------------
 export async function registerPushDeviceOnServer(entregadorId: string) {
   try {
@@ -153,20 +167,51 @@ export async function registerPushDeviceOnServer(entregadorId: string) {
     let p256dh = '';
     let authKey = '';
 
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
-      const reg = await navigator.serviceWorker.ready;
-      if (reg && reg.pushManager) {
-        let sub = await reg.pushManager.getSubscription();
-        if (sub) {
-          endpoint = sub.endpoint;
-          const rawKey = sub.getKey ? sub.getKey('p256dh') : null;
-          const rawAuth = sub.getKey ? sub.getKey('auth') : null;
-          if (rawKey) p256dh = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(rawKey))));
-          if (rawAuth) authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(rawAuth))));
+    // 1. Tenta obter a chave pública VAPID do servidor
+    let vapidPublicKey = '';
+    try {
+      const keyRes = await fetch('/api/push/vapid-public-key');
+      if (keyRes.ok) {
+        const keyData = await keyRes.json();
+        vapidPublicKey = keyData.publicKey;
+      }
+    } catch (e) {
+      console.warn('[Push] Não foi possível obter chave pública VAPID:', e);
+    }
+
+    // 2. Registra a PushSubscription nativa no navegador se houver suporte
+    if ('serviceWorker' in navigator && 'PushManager' in window && vapidPublicKey) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && reg.pushManager) {
+          let sub = await reg.pushManager.getSubscription();
+          if (!sub) {
+            const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+            sub = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: applicationServerKey as any,
+            });
+          }
+
+          if (sub) {
+            endpoint = sub.endpoint;
+            const rawKey = sub.getKey ? sub.getKey('p256dh') : null;
+            const rawAuth = sub.getKey ? sub.getKey('auth') : null;
+            if (rawKey) {
+              p256dh = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(rawKey))));
+            }
+            if (rawAuth) {
+              authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(rawAuth))));
+            }
+            console.log('[Push] Subscription nativa Web Push criada com sucesso:', endpoint);
+          }
         }
+      } catch (swErr) {
+        console.warn('[Push] PushManager nativo não disponível neste contexto:', swErr);
       }
     }
 
+    // 3. Envia os dados da subscrição para o backend e persiste no Supabase
     const res = await fetch('/api/push/inscrever', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

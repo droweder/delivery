@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { LocationPickerMap } from './LocationPickerMap';
 import {
   BairroTaxa,
   CategoriaProduto,
@@ -26,6 +27,7 @@ import {
   Printer,
   DollarSign,
   AlertCircle,
+  AlertTriangle,
   Clock,
   ArrowRight,
   Star,
@@ -35,10 +37,25 @@ import {
   X,
   Tag,
   Zap,
+  Building2,
+  Loader2,
+  Users,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import {
+  apenasDigitos,
+  consultarCep,
+  consultarCnpj,
+  formatarCep,
+  formatarCpfCnpj,
+  formatarTelefone,
+  isCepValido,
+  isCnpj,
+  isCpf,
+  tipoDocumento,
+} from '../services/consultaApi';
 
 interface Props {
   clientes: Cliente[];
@@ -85,11 +102,23 @@ export const PdvModulo: React.FC<Props> = ({
   // New Client Form State
   const [novoNome, setNovoNome] = useState('');
   const [novoTelefone, setNovoTelefone] = useState('');
+  const [novoCpfCnpj, setNovoCpfCnpj] = useState('');
+  const [novoCep, setNovoCep] = useState('');
   const [novoEndereco, setNovoEndereco] = useState('');
   const [novoNumero, setNovoNumero] = useState('');
   const [novoComplemento, setNovoComplemento] = useState('');
   const [novoBairroId, setNovoBairroId] = useState(bairros[0]?.id || 'b1');
+  const [novoCidade, setNovoCidade] = useState('São Paulo');
+  const [novoEstado, setNovoEstado] = useState('SP');
+  const [novoLat, setNovoLat] = useState<number>(-23.55052);
+  const [novoLng, setNovoLng] = useState<number>(-46.633308);
   const [novaReferencia, setNovaReferencia] = useState('');
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
+  const [consultandoCep, setConsultandoCep] = useState(false);
+  const [statusCnpjInfo, setStatusCnpjInfo] = useState<string | null>(null);
+  const [erroCnpjInfo, setErroCnpjInfo] = useState<string | null>(null);
+  const [erroCepInfo, setErroCepInfo] = useState<string | null>(null);
+  const [statusCepInfo, setStatusCepInfo] = useState<string | null>(null);
 
   // Catalog, Search & ERP Modal State
   const [buscaProduto, setBuscaProduto] = useState('');
@@ -97,6 +126,7 @@ export const PdvModulo: React.FC<Props> = ({
   const [modalImportarErp, setModalImportarErp] = useState(false);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>('DINHEIRO');
+  const [taxaEntrega, setTaxaEntrega] = useState<string>('0');
   const [trocoPara, setTrocoPara] = useState<string>('');
   const [desconto, setDesconto] = useState<string>('0');
   const [observacoes, setObservacoes] = useState('');
@@ -158,10 +188,6 @@ export const PdvModulo: React.FC<Props> = ({
     return true;
   });
 
-  // Taxa de entrega do bairro do cliente selecionado
-  const bairroCliente = bairros.find((b) => b.id === clienteSelecionado?.bairroId);
-  const taxaEntrega = clienteSelecionado ? bairroCliente?.taxaEntrega || 5.0 : 0;
-
   // Totais do Carrinho
   const subtotal = carrinho.reduce((acc, item) => {
     const preco =
@@ -171,8 +197,9 @@ export const PdvModulo: React.FC<Props> = ({
     return acc + preco * item.quantidade;
   }, 0);
 
-  const valorDesconto = Math.max(0, Number(desconto) || 0);
-  const total = Math.max(0, subtotal + (clienteSelecionado ? taxaEntrega : 0) - valorDesconto);
+  const valorTaxaEntrega = Math.max(0, parseFloat(String(taxaEntrega).replace(',', '.')) || 0);
+  const valorDesconto = Math.max(0, parseFloat(String(desconto).replace(',', '.')) || 0);
+  const total = Math.max(0, subtotal + (clienteSelecionado ? valorTaxaEntrega : 0) - valorDesconto);
 
   // Cart operations
   const adicionarAoCarrinho = (produto: Produto, tipoVenda: TipoVendaItem = 'RECARGA') => {
@@ -206,6 +233,120 @@ export const PdvModulo: React.FC<Props> = ({
     setCarrinho((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleConsultarCnpjClientePdv = async (docParam?: string) => {
+    const raw = docParam || novoCpfCnpj;
+    const clean = apenasDigitos(raw);
+    if (clean.length !== 14) {
+      return;
+    }
+    try {
+      setConsultandoCnpj(true);
+      setStatusCnpjInfo(null);
+      setErroCnpjInfo(null);
+      
+      const res = await consultarCnpj(clean);
+
+            setNovoCpfCnpj(res.cnpjFormatado);
+
+      const nomeFinal = res.nomeFantasia || res.razaoSocial || '';
+      if (nomeFinal) {
+        setNovoNome(nomeFinal);
+      }
+      if (res.telefone) {
+        setNovoTelefone(formatarTelefone(res.telefone));
+      }
+      if (res.cepFormatado || res.cep) {
+        setNovoCep(res.cepFormatado || res.cep || '');
+      }
+      if (res.logradouro) {
+        setNovoEndereco(res.logradouro);
+      }
+      if (res.numero) {
+        setNovoNumero(res.numero);
+      }
+      if (res.complemento) {
+        setNovoComplemento(res.complemento);
+      }
+      if (res.cidade) {
+        setNovoCidade(res.cidade);
+      }
+      if (res.estado) {
+        setNovoEstado(res.estado);
+      }
+
+      // Auto-match bairro if possible
+      if (res.bairro) {
+        const found = bairros.find(
+          (b) => res.bairro && (b.nome.toLowerCase().includes(res.bairro.toLowerCase()) || res.bairro.toLowerCase().includes(b.nome.toLowerCase()))
+        );
+        if (found) {
+          setNovoBairroId(found.id);
+        }
+      }
+      setStatusCnpjInfo(`${res.razaoSocial || res.nomeFantasia} • ${res.cidade}/${res.estado} (${res.situacao || 'ATIVA'})`);
+      setErroCnpjInfo(null);
+
+      // Foco automático no número ou complemento
+      setTimeout(() => {
+        const el = document.getElementById('input-novo-numero');
+        if (el) el.focus();
+      }, 150);
+    } catch (err: any) {
+      const msg = err.message || 'CNPJ não localizado na Receita Federal.';
+      setErroCnpjInfo(msg);
+      setStatusCnpjInfo(null);
+          } finally {
+      setConsultandoCnpj(false);
+    }
+  };
+
+  const handleConsultarCepClientePdv = async (cepParam?: string) => {
+    const raw = cepParam || novoCep;
+    const clean = apenasDigitos(raw);
+    if (clean.length !== 8) return;
+    try {
+      setConsultandoCep(true);
+      setErroCepInfo(null);
+      setStatusCepInfo(null);
+
+      const res = await consultarCep(clean);
+      setNovoCep(res.cepFormatado);
+
+      if (res.localizado === false) {
+        setErroCepInfo(res.mensagem || `CEP ${res.cepFormatado} não localizado automaticamente nos Correios. Preencha os campos abaixo manualmente.`);
+        return;
+      }
+
+      if (res.logradouro) setNovoEndereco(res.logradouro);
+      if (res.cidade) setNovoCidade(res.cidade);
+      if (res.estado) setNovoEstado(res.estado);
+
+      if (res.bairro) {
+        const found = bairros.find(
+          (b) => res.bairro && (b.nome.toLowerCase().includes(res.bairro.toLowerCase()) || res.bairro.toLowerCase().includes(b.nome.toLowerCase()))
+        );
+        if (found) {
+          setNovoBairroId(found.id);
+        }
+      }
+
+      if (res.aviso) {
+        setStatusCepInfo(res.aviso);
+      }
+
+      // Foco no número
+      setTimeout(() => {
+        const el = document.getElementById('input-novo-numero');
+        if (el) el.focus();
+      }, 100);
+    } catch (err: any) {
+      console.warn('[PDV CEP]', err);
+      setErroCepInfo(err.message || 'Não foi possível consultar este CEP. Preencha o endereço manualmente.');
+    } finally {
+      setConsultandoCep(false);
+    }
+  };
+
   const handleCadastrarNovoCliente = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoNome || !novoTelefone || !novoEndereco || !novoNumero) {
@@ -217,14 +358,18 @@ export const PdvModulo: React.FC<Props> = ({
       id: `c_${Date.now()}`,
       nome: novoNome,
       telefone: novoTelefone,
+      cpfCnpj: novoCpfCnpj || undefined,
+      cep: novoCep || undefined,
+      cidade: novoCidade || 'São Paulo',
+      estado: novoEstado || 'SP',
       endereco: novoEndereco,
       numero: novoNumero,
       complemento: novoComplemento,
       bairroId: bairro.id,
       bairroNome: bairro.nome,
       referencia: novaReferencia,
-      lat: -23.55052 + (Math.random() - 0.5) * 0.02,
-      lng: -46.633308 + (Math.random() - 0.5) * 0.02,
+      lat: novoLat,
+      lng: novoLng,
       saldoDevedor: 0,
       totalPedidos: 0,
       vasilhamesPendentes: { P13: 0, P20L: 0 },
@@ -237,10 +382,13 @@ export const PdvModulo: React.FC<Props> = ({
     // Limpar form
     setNovoNome('');
     setNovoTelefone('');
+    setNovoCpfCnpj('');
+    setNovoCep('');
     setNovoEndereco('');
     setNovoNumero('');
     setNovoComplemento('');
     setNovaReferencia('');
+    setStatusCnpjInfo(null);
   };
 
   const handleFinalizarPedido = async (imprimirDireto = false) => {
@@ -262,6 +410,7 @@ export const PdvModulo: React.FC<Props> = ({
           tipoVenda: it.tipoVenda,
           quantidade: it.quantidade,
         })),
+        taxaEntrega: valorTaxaEntrega,
         formaPagamentoPrevista: formaPagamento,
         trocoPara: formaPagamento === 'DINHEIRO' && trocoPara ? Number(trocoPara) : undefined,
         desconto: valorDesconto,
@@ -439,9 +588,9 @@ export const PdvModulo: React.FC<Props> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] pt-1 text-slate-600">
-                  <div className="flex items-center gap-1 text-emerald-700 font-bold">
-                    <Clock className="w-3 h-3" />
-                    <span>Taxa Entrega: {formatarMoeda(taxaEntrega)}</span>
+                  <div className="flex items-center gap-1 text-blue-700 font-bold">
+                    <MapPin className="w-3 h-3 text-blue-600" />
+                    <span>Bairro: {clienteSelecionado.bairroNome}</span>
                   </div>
                   {(clienteSelecionado.vasilhamesPendentes.P13 > 0 ||
                     clienteSelecionado.vasilhamesPendentes.P20L > 0) && (
@@ -860,17 +1009,90 @@ export const PdvModulo: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* Observações / Ponto de referência */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-0.5 text-[11px]">Observações da Entrega:</label>
-                <input
-                  id="input-observacoes-pedido"
-                  type="text"
-                  value={observacoes}
-                  onChange={(e) => setObservacoes(e.target.value)}
-                  placeholder="Ex: Tocar interfone 204, portão azul..."
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-slate-50"
-                />
+              {/* Taxa de Entrega Personalizável & Desconto */}
+              <div className="space-y-2 pt-1 border-t border-slate-100">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
+                      <span>Taxa de Entrega (R$):</span>
+                      <span className="text-[10px] text-slate-400 font-normal">(definida neste pedido)</span>
+                    </label>
+                    <span className="text-[11px] font-bold font-mono text-blue-700">
+                      {valorTaxaEntrega === 0 ? 'Grátis (R$ 0,00)' : formatarMoeda(valorTaxaEntrega)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="relative flex-1">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">R$</span>
+                      <input
+                        id="input-taxa-entrega"
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={taxaEntrega}
+                        onChange={(e) => setTaxaEntrega(e.target.value)}
+                        placeholder="0,00"
+                        className="w-full pl-8 pr-2 py-1 rounded-lg border border-slate-300 text-xs font-mono font-bold bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setTaxaEntrega('0')}
+                        className={`px-2 py-1 rounded-md text-[10px] font-bold border transition-colors ${
+                          valorTaxaEntrega === 0
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        Grátis
+                      </button>
+                      {['3', '5', '8', '10'].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setTaxaEntrega(val)}
+                          className={`px-1.5 py-1 rounded-md text-[10px] font-bold border transition-colors ${
+                            taxaEntrega === val
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          R${val}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-0.5 text-[11px]">Desconto (R$):</label>
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px]">R$</span>
+                      <input
+                        id="input-desconto-pedido"
+                        type="number"
+                        min="0"
+                        value={desconto}
+                        onChange={(e) => setDesconto(e.target.value)}
+                        placeholder="0,00"
+                        className="w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-0.5 text-[11px]">Observações:</label>
+                    <input
+                      id="input-observacoes-pedido"
+                      type="text"
+                      value={observacoes}
+                      onChange={(e) => setObservacoes(e.target.value.toUpperCase())}
+                      placeholder="Ex: interfone 204..."
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Totals Breakdown */}
@@ -880,11 +1102,17 @@ export const PdvModulo: React.FC<Props> = ({
                   <span>{formatarMoeda(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600 text-[11px]">
-                  <span>
-                    Taxa ({clienteSelecionado ? clienteSelecionado.bairroNome : 'Sem cliente'}):
+                  <span>Taxa de Entrega:</span>
+                  <span className={valorTaxaEntrega === 0 ? 'text-emerald-700 font-bold' : 'text-slate-900 font-bold'}>
+                    {valorTaxaEntrega === 0 ? 'Grátis (R$ 0,00)' : `+ ${formatarMoeda(valorTaxaEntrega)}`}
                   </span>
-                  <span>{formatarMoeda(taxaEntrega)}</span>
                 </div>
+                {valorDesconto > 0 && (
+                  <div className="flex justify-between text-rose-600 text-[11px] font-bold">
+                    <span>Desconto:</span>
+                    <span>- {formatarMoeda(valorDesconto)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-bold text-sm text-slate-900 pt-1.5 border-t border-slate-200">
                   <span>TOTAL:</span>
                   <span className="text-blue-700 font-black">{formatarMoeda(total)}</span>
@@ -925,7 +1153,7 @@ export const PdvModulo: React.FC<Props> = ({
           onClick={() => setModalNovoCliente(false)}
         >
           <div
-            className="w-full max-w-lg rounded-xl bg-white shadow-xl border border-slate-200 overflow-hidden"
+            className="w-full max-w-4xl rounded-xl bg-white shadow-xl border border-slate-200 overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
@@ -941,115 +1169,253 @@ export const PdvModulo: React.FC<Props> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCadastrarNovoCliente} className="p-4 space-y-3 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-0.5">Telefone / WhatsApp *</label>
-                  <input
-                    id="input-novo-telefone"
-                    type="text"
-                    required
-                    value={novoTelefone}
-                    onChange={(e) => setNovoTelefone(e.target.value)}
-                    placeholder="(11) 98765-4321"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500"
-                  />
+            <form onSubmit={handleCadastrarNovoCliente} className="p-5 flex flex-col gap-4 text-xs">
+              <div className="flex flex-col md:flex-row gap-5">
+                
+                {/* ESQUERDA: DADOS E ENDEREÇO (2/3) */}
+                <div className="w-full md:w-[60%] space-y-4">
+                  
+                  {/* Bloco 1: Identificação */}
+                  <div className="p-3.5 rounded-xl bg-blue-50/90 border border-blue-200 shadow-xs">
+                    <label className="font-bold text-blue-950 text-xs flex items-center gap-1.5 mb-2.5">
+                      <Building2 className="w-4 h-4 text-blue-700" />
+                      <span>Identificação do Cliente</span>
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="relative">
+                        <label className="block font-bold text-blue-900 mb-1">CPF / CNPJ</label>
+                        <input
+                          type="text"
+                          value={novoCpfCnpj}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const formatted = formatarCpfCnpj(raw);
+                            setNovoCpfCnpj(formatted);
+                            const clean = apenasDigitos(raw);
+                            if (erroCnpjInfo) setErroCnpjInfo(null);
+                            if (clean.length === 14 && !consultandoCnpj) {
+                              handleConsultarCnpjClientePdv(clean);
+                            }
+                          }}
+                          placeholder="CPF ou CNPJ"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                        {consultandoCnpj && (
+                          <div className="absolute right-2 top-6 flex items-center gap-1 text-blue-700 font-bold bg-white px-1 py-0.5 rounded">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block font-bold text-blue-900 mb-1">Telefone *</label>
+                        <input
+                          type="text"
+                          required
+                          value={novoTelefone}
+                          onChange={(e) => setNovoTelefone(formatarTelefone(e.target.value))}
+                          placeholder="(11) 99999-9999"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block font-bold text-blue-900 mb-1">Nome / Razão Social *</label>
+                        <input
+                          type="text"
+                          required
+                          value={novoNome}
+                          onChange={(e) => setNovoNome(e.target.value.toUpperCase())}
+                          placeholder="Nome do cliente ou empresa"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bloco 2: Endereço */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-12 sm:col-span-4">
+                        <label className="block font-bold text-slate-900 mb-1 flex items-center justify-between">
+                          <span>CEP</span>
+                          <span className="text-[9px] text-blue-700 font-bold">Auto</span>
+                        </label>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={novoCep}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const formatted = formatarCep(raw);
+                              setNovoCep(formatted);
+                              if (erroCepInfo) setErroCepInfo(null);
+                              if (statusCepInfo) setStatusCepInfo(null);
+                              const clean = apenasDigitos(raw);
+                              if (clean.length === 8 && !consultandoCep) {
+                                handleConsultarCepClientePdv(clean);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (novoCep && isCepValido(novoCep)) handleConsultarCepClientePdv();
+                            }}
+                            placeholder="01001-000"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-950 font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleConsultarCepClientePdv()}
+                            disabled={consultandoCep}
+                            className="px-2 py-2 rounded-xl bg-slate-100 border border-slate-300 shrink-0"
+                          >
+                            {consultandoCep ? <Loader2 className="w-4 h-4 animate-spin text-blue-600" /> : <Search className="w-4 h-4 text-slate-700" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="col-span-12 sm:col-span-8">
+                        <label className="block font-bold text-slate-900 mb-1">Rua / Avenida *</label>
+                        <input
+                          type="text"
+                          required
+                          value={novoEndereco}
+                          onChange={(e) => setNovoEndereco(e.target.value.toUpperCase())}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-4 sm:col-span-3">
+                        <label className="block font-bold text-slate-900 mb-1">Número *</label>
+                        <input
+                          type="text"
+                          required
+                          value={novoNumero}
+                          onChange={(e) => setNovoNumero(e.target.value.toUpperCase())}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                      <div className="col-span-8 sm:col-span-5">
+                        <label className="block font-bold text-slate-900 mb-1">Bairro *</label>
+                        <select
+                          value={novoBairroId}
+                          onChange={(e) => setNovoBairroId(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                        >
+                          {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-8 sm:col-span-4">
+                        <label className="block font-bold text-slate-900 mb-1">Cidade / UF</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={novoCidade}
+                            onChange={(e) => setNovoCidade(e.target.value.toUpperCase())}
+                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs min-w-0"
+                          />
+                          <input
+                            type="text"
+                            maxLength={2}
+                            value={novoEstado}
+                            onChange={(e) => setNovoEstado(e.target.value.toUpperCase())}
+                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-white font-bold shadow-xs shrink-0"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-12 sm:col-span-5">
+                        <label className="block font-bold text-slate-900 mb-1">Complemento</label>
+                        <input
+                          type="text"
+                          value={novoComplemento}
+                          onChange={(e) => setNovoComplemento(e.target.value.toUpperCase())}
+                          placeholder="Apto, Bloco..."
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                      <div className="col-span-12 sm:col-span-7">
+                        <label className="block font-bold text-slate-900 mb-1">Referência</label>
+                        <input
+                          type="text"
+                          value={novaReferencia}
+                          onChange={(e) => setNovaReferencia(e.target.value.toUpperCase())}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-0.5">Nome Completo *</label>
-                  <input
-                    id="input-novo-nome"
-                    type="text"
-                    required
-                    value={novoNome}
-                    onChange={(e) => setNovoNome(e.target.value)}
-                    placeholder="Nome do cliente"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500"
-                  />
+                
+                {/* DIREITA: MAPA E AVISOS (1/3) */}
+                <div className="w-full md:w-[40%] flex flex-col gap-3">
+                  
+                  {/* Alertas */}
+                  {novoCpfCnpj && isCnpj(novoCpfCnpj) && (
+                    <div className="text-[10px] px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200 shadow-xs flex gap-2 items-start">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                      <span><strong>CNPJ:</strong> Preenchimento da Receita.</span>
+                    </div>
+                  )}
+                  {novoCpfCnpj && isCpf(novoCpfCnpj) && (
+                    <div className="text-[10px] px-2.5 py-1.5 rounded-lg bg-sky-50 text-sky-900 border border-sky-200 shadow-xs flex gap-2 items-start">
+                      <Users className="w-3.5 h-3.5 text-sky-600 mt-0.5 shrink-0" />
+                      <span><strong>CPF:</strong> Nome/Tel manuais. Preencha o CEP para o endereço.</span>
+                    </div>
+                  )}
+                  {erroCnpjInfo && (
+                    <div className="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 shadow-xs flex gap-2 items-start">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                      <span>CNPJ não localizado. Preencha manualmente.</span>
+                    </div>
+                  )}
+                  {erroCepInfo && (
+                    <div className="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 shadow-xs flex gap-2 items-start">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                      <span>CEP não localizado. Preencha manualmente.</span>
+                    </div>
+                  )}
+                  {statusCepInfo && (
+                    <div className="text-[10px] px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-900 border border-blue-200 shadow-xs flex gap-2 items-start">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
+                      <span>{statusCepInfo}</span>
+                    </div>
+                  )}
+
+                  {/* Mapa */}
+                  <div className="flex-1 min-h-[220px] flex flex-col">
+                    <label className="block font-bold text-slate-900 mb-1.5">Localização Exata</label>
+                    <div className="flex-1 w-full relative">
+                      <LocationPickerMap
+                        lat={novoLat}
+                        lng={novoLng}
+                        enderecoCompleto={`${novoEndereco}, ${novoNumero}, ${bairros.find(b => b.id === novoBairroId)?.nome || ''}, ${novoCidade} - ${novoEstado}`}
+                        onChangeLocation={(lat, lng) => {
+                          setNovoLat(lat);
+                          setNovoLng(lng);
+                        }}
+                      />
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
-                  <label className="block font-bold text-slate-700 mb-0.5">Endereço (Rua / Av) *</label>
-                  <input
-                    id="input-novo-endereco"
-                    type="text"
-                    required
-                    value={novoEndereco}
-                    onChange={(e) => setNovoEndereco(e.target.value)}
-                    placeholder="Rua das Palmeiras"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-0.5">Número *</label>
-                  <input
-                    id="input-novo-numero"
-                    type="text"
-                    required
-                    value={novoNumero}
-                    onChange={(e) => setNovoNumero(e.target.value)}
-                    placeholder="123"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-0.5">Bairro (Calcula taxa) *</label>
-                  <select
-                    id="select-novo-bairro"
-                    value={novoBairroId}
-                    onChange={(e) => setNovoBairroId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 font-semibold text-slate-800"
-                  >
-                    {bairros.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.nome} (+ {formatarMoeda(b.taxaEntrega)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-0.5">Complemento / Apto</label>
-                  <input
-                    id="input-novo-complemento"
-                    type="text"
-                    value={novoComplemento}
-                    onChange={(e) => setNovoComplemento(e.target.value)}
-                    placeholder="Apto 42, Bloco B"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-0.5">Ponto de Referência</label>
-                <input
-                  id="input-nova-referencia"
-                  type="text"
-                  value={novaReferencia}
-                  onChange={(e) => setNovaReferencia(e.target.value)}
-                  placeholder="Próximo à padaria, portão branco"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+              <div className="pt-4 flex items-center justify-end gap-2.5 border-t border-slate-200 mt-1">
                 <button
                   type="button"
                   onClick={() => setModalNovoCliente(false)}
-                  className="px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 font-semibold"
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-100 font-bold transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   id="btn-save-new-client"
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                  className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md transition-colors flex items-center gap-1.5"
                 >
+                  <UserPlus className="w-4 h-4" />
                   Salvar Cliente
                 </button>
               </div>

@@ -36,8 +36,7 @@ export type MainTab =
   | 'gerencia'
   | 'cadastros'
   | 'usuarios'
-  | 'entregador'
-  | 'arquitetura';
+  | 'entregador';
 
 interface Props {
   activeTab: MainTab;
@@ -172,13 +171,6 @@ export const Navbar: React.FC<Props> = ({
         usuarioLogado?.perfil === 'ADMIN' ||
         usuarioLogado?.perfil === 'ENTREGADOR' ||
         Boolean(usuarioLogado?.entregadorIdVinculado),
-    },
-    {
-      id: 'arquitetura',
-      label: 'Schema SQL & Arquitetura',
-      shortLabel: 'Schema SQL',
-      icon: Database,
-      permitido: isSuperAdmin || usuarioLogado?.perfil === 'ADMIN',
     },
   ];
 

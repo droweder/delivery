@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Flame,
   Globe,
+  Loader2,
   Lock,
   LogOut,
   Mail,
@@ -21,12 +22,22 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
   TrendingUp,
   Unlock,
   Users,
 } from 'lucide-react';
 import { Empresa, PlanoEmpresa, StatusEmpresa, Usuario } from '../types';
+import {
+  apenasDigitos,
+  consultarCep,
+  consultarCnpj,
+  formatarCep,
+  formatarCnpj,
+  formatarTelefone,
+  isCepValido,
+} from '../services/consultaApi';
 
 interface SuperAdminHubProps {
   usuarioSuperAdmin: Usuario;
@@ -63,15 +74,25 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   const [formCnpj, setFormCnpj] = useState('');
   const [formTelefone, setFormTelefone] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formCep, setFormCep] = useState('');
   const [formCidade, setFormCidade] = useState('');
   const [formEstado, setFormEstado] = useState('SP');
   const [formEndereco, setFormEndereco] = useState('');
+  const [formNumero, setFormNumero] = useState('');
+  const [formBairro, setFormBairro] = useState('');
+  const [formComplemento, setFormComplemento] = useState('');
   const [formPlano, setFormPlano] = useState<PlanoEmpresa>('PRO');
   const [formStatus, setFormStatus] = useState<StatusEmpresa>('ATIVO');
   const [formLimiteUsuarios, setFormLimiteUsuarios] = useState(10);
   const [formLimitePedidosMes, setFormLimitePedidosMes] = useState(5000);
   const [formValorMensalidade, setFormValorMensalidade] = useState(199);
   const [formObservacoes, setFormObservacoes] = useState('');
+
+  // Status de Consulta Externa
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
+  const [consultandoCep, setConsultandoCep] = useState(false);
+  const [cnpjInfo, setCnpjInfo] = useState<{ situacao?: string; cnae?: string; abertura?: string } | null>(null);
+  const [erroCnpj, setErroCnpj] = useState<string | null>(null);
 
   const abrirModalNovo = () => {
     setEmpresaEditando(null);
@@ -80,15 +101,21 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
     setFormCnpj('');
     setFormTelefone('');
     setFormEmail('');
+    setFormCep('');
     setFormCidade('São Paulo');
     setFormEstado('SP');
     setFormEndereco('');
+    setFormNumero('');
+    setFormBairro('');
+    setFormComplemento('');
     setFormPlano('PRO');
     setFormStatus('ATIVO');
     setFormLimiteUsuarios(10);
     setFormLimitePedidosMes(5000);
     setFormValorMensalidade(199);
     setFormObservacoes('');
+    setCnpjInfo(null);
+    setErroCnpj(null);
     setModalAberto(true);
   };
 
@@ -99,16 +126,90 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
     setFormCnpj(emp.cnpj);
     setFormTelefone(emp.telefone);
     setFormEmail(emp.email);
+    setFormCep(emp.cep || '');
     setFormCidade(emp.cidade);
     setFormEstado(emp.estado);
     setFormEndereco(emp.endereco);
+    setFormNumero(emp.numero || '');
+    setFormBairro(emp.bairro || '');
+    setFormComplemento(emp.complemento || '');
     setFormPlano(emp.plano);
     setFormStatus(emp.status);
     setFormLimiteUsuarios(emp.limiteUsuarios || 10);
     setFormLimitePedidosMes(emp.limitePedidosMes || 5000);
     setFormValorMensalidade(emp.valorMensalidade || 199);
     setFormObservacoes(emp.observacoes || '');
+    setCnpjInfo(null);
+    setErroCnpj(null);
     setModalAberto(true);
+  };
+
+  const handleConsultarCnpjEmpresa = async (cnpjParam?: string) => {
+    const raw = cnpjParam || formCnpj;
+    const clean = apenasDigitos(raw);
+    if (clean.length !== 14) {
+      return;
+    }
+
+    try {
+      setConsultandoCnpj(true);
+      setCnpjInfo(null);
+      setErroCnpj(null);
+      const res = await consultarCnpj(clean);
+
+      setFormCnpj(res.cnpjFormatado);
+      if (res.razaoSocial) setFormRazaoSocial(res.razaoSocial);
+      if (res.nomeFantasia) setFormNomeFantasia(res.nomeFantasia);
+      if (res.telefone) setFormTelefone(formatarTelefone(res.telefone));
+      if (res.email) setFormEmail(res.email);
+      if (res.cepFormatado) setFormCep(res.cepFormatado);
+      if (res.logradouro) setFormEndereco(res.logradouro);
+      if (res.numero) setFormNumero(res.numero);
+      if (res.complemento) setFormComplemento(res.complemento);
+      if (res.bairro) setFormBairro(res.bairro);
+      if (res.cidade) setFormCidade(res.cidade);
+      if (res.estado) setFormEstado(res.estado);
+
+      setCnpjInfo({
+        situacao: res.situacao,
+        cnae: res.cnae,
+        abertura: res.abertura,
+      });
+      setErroCnpj(null);
+    } catch (err: any) {
+      const msg = err.message || 'CNPJ não localizado na Receita Federal.';
+      setErroCnpj(msg);
+      setCnpjInfo(null);
+    } finally {
+      setConsultandoCnpj(false);
+    }
+  };
+
+  const handleConsultarCepEmpresa = async (cepParam?: string) => {
+    const raw = cepParam || formCep;
+    const clean = apenasDigitos(raw);
+    if (clean.length !== 8) {
+      if (!cepParam) alert('Informe um CEP com 8 dígitos.');
+      return;
+    }
+
+    try {
+      setConsultandoCep(true);
+      const res = await consultarCep(clean);
+      setFormCep(res.cepFormatado);
+      if (res.localizado === false) {
+        alert(res.mensagem || 'CEP não localizado nos Correios. Preencha os campos manualmente.');
+        return;
+      }
+      if (res.logradouro) setFormEndereco(res.logradouro);
+      if (res.bairro) setFormBairro(res.bairro);
+      if (res.cidade) setFormCidade(res.cidade);
+      if (res.estado) setFormEstado(res.estado);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao consultar CEP. Preencha os campos manualmente.');
+    } finally {
+      setConsultandoCep(false);
+    }
   };
 
   const handleSubmeterForm = async (e: React.FormEvent) => {
@@ -127,9 +228,13 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         cnpj: formCnpj.trim(),
         telefone: formTelefone.trim(),
         email: formEmail.trim(),
+        cep: formCep.trim(),
         cidade: formCidade.trim(),
         estado: formEstado.trim(),
         endereco: formEndereco.trim(),
+        numero: formNumero.trim(),
+        bairro: formBairro.trim(),
+        complemento: formComplemento.trim(),
         plano: formPlano,
         status: formStatus,
         limiteUsuarios: Number(formLimiteUsuarios),
@@ -547,18 +652,78 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
             </div>
 
             {/* Form Body */}
-            <form onSubmit={handleSubmeterForm} className="space-y-4 py-4 overflow-y-auto pr-1 flex-1">
+            <form onSubmit={handleSubmeterForm} className="space-y-4 py-4 overflow-y-auto pr-1 flex-1 text-xs">
+              {/* Bloco de Consulta Automática por CNPJ */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-amber-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>CNPJ da Empresa (Preenchimento Automático pela Receita)</span>
+                  </label>
+                  {cnpjInfo?.situacao && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      {cnpjInfo.situacao} {cnpjInfo.abertura ? `• Desde ${cnpjInfo.abertura}` : ''}
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={formCnpj}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const formatted = formatarCnpj(raw);
+                      setFormCnpj(formatted);
+                      const clean = apenasDigitos(raw);
+                      if (erroCnpj) setErroCnpj(null);
+                      if (clean.length === 14 && !consultandoCnpj) {
+                        handleConsultarCnpjEmpresa(clean);
+                      }
+                    }}
+                    placeholder="Digite CNPJ (14 dígitos) para preenchimento automático"
+                    className="w-full px-3 py-2 pr-12 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
+                  />
+                  {consultandoCnpj && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-amber-400">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="text-[10px] font-bold">Consultando Receita...</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Alerta de CNPJ Não Localizado */}
+                {erroCnpj && (
+                  <div className="p-3 bg-amber-500/20 border border-amber-500/50 rounded-xl text-amber-200 flex items-start gap-2.5 animate-fade-in shadow-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-tight space-y-0.5">
+                      <strong className="block font-bold text-amber-300">CNPJ não localizado na Receita Federal</strong>
+                      <span className="text-amber-200/90">
+                        {erroCnpj}. Verifique os números informados ou preencha os dados da empresa manualmente nos campos abaixo.
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {cnpjInfo?.cnae && (
+                  <p className="text-[10px] text-slate-400">
+                    <span className="font-semibold text-slate-300">Atividade Principal:</span> {cnpjInfo.cnae}
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Nome Fantasia */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Nome Fantasia *
                   </label>
                   <input
                     type="text"
                     required
                     value={formNomeFantasia}
-                    onChange={(e) => setFormNomeFantasia(e.target.value)}
+                    onChange={(e) => setFormNomeFantasia(e.target.value.toUpperCase())}
                     placeholder="ex: Disk Gás & Água Express"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
@@ -566,42 +731,27 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Razão Social */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Razão Social
                   </label>
                   <input
                     type="text"
                     value={formRazaoSocial}
-                    onChange={(e) => setFormRazaoSocial(e.target.value)}
+                    onChange={(e) => setFormRazaoSocial(e.target.value.toUpperCase())}
                     placeholder="ex: Disk Gás Comércio Ltda"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
 
-                {/* CNPJ */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    CNPJ *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formCnpj}
-                    onChange={(e) => setFormCnpj(e.target.value)}
-                    placeholder="00.000.000/0001-00"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-                  />
-                </div>
-
                 {/* Telefone */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Telefone / WhatsApp
                   </label>
                   <input
                     type="text"
                     value={formTelefone}
-                    onChange={(e) => setFormTelefone(e.target.value)}
+                    onChange={(e) => setFormTelefone(formatarTelefone(e.target.value))}
                     placeholder="(11) 98888-0000"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
@@ -609,32 +759,75 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Email */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     E-mail de Contato / Financeiro
                   </label>
                   <input
                     type="email"
                     value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value)}
+                    onChange={(e) => setFormEmail(e.target.value.toUpperCase())}
                     placeholder="contato@empresa.com.br"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
 
+                {/* CEP com Busca */}
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1 flex items-center justify-between">
+                    <span className="truncate mr-1">CEP</span>
+                    <span className="text-[9px] text-amber-400 font-normal whitespace-nowrap">Automático</span>
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={formCep}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const formatted = formatarCep(raw);
+                        setFormCep(formatted);
+                        const clean = apenasDigitos(raw);
+                        if (clean.length === 8 && !consultandoCep) {
+                          handleConsultarCepEmpresa(clean);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (formCep && isCepValido(formCep)) {
+                          handleConsultarCepEmpresa();
+                        }
+                      }}
+                      placeholder="01001-000"
+                      className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleConsultarCepEmpresa()}
+                      disabled={consultandoCep}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-xl transition-colors"
+                      title="Buscar dados do CEP"
+                    >
+                      {consultandoCep ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                      ) : (
+                        <Search className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Cidade / Estado */}
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2">
-                    <label className="block text-xs font-bold text-slate-300 mb-1">Cidade</label>
+                    <label className="block font-bold text-slate-300 mb-1">Cidade</label>
                     <input
                       type="text"
                       value={formCidade}
-                      onChange={(e) => setFormCidade(e.target.value)}
+                      onChange={(e) => setFormCidade(e.target.value.toUpperCase())}
                       placeholder="São Paulo"
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 mb-1">UF</label>
+                    <label className="block font-bold text-slate-300 mb-1">UF</label>
                     <input
                       type="text"
                       maxLength={2}
@@ -646,23 +839,57 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
                   </div>
                 </div>
 
-                {/* Endereço */}
+                {/* Endereço (Logradouro) */}
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
-                    Endereço Completo (Rua, Número, Bairro)
+                  <label className="block font-bold text-slate-300 mb-1">
+                    Logradouro / Rua / Avenida
                   </label>
                   <input
                     type="text"
                     value={formEndereco}
-                    onChange={(e) => setFormEndereco(e.target.value)}
-                    placeholder="Av. Paulista, 1000 - Bela Vista"
+                    onChange={(e) => setFormEndereco(e.target.value.toUpperCase())}
+                    placeholder="Av. Paulista"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
 
+                {/* Número / Bairro / Complemento */}
+                <div className="sm:col-span-2 grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Número</label>
+                    <input
+                      type="text"
+                      value={formNumero}
+                      onChange={(e) => setFormNumero(e.target.value.toUpperCase())}
+                      placeholder="1000"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      value={formBairro}
+                      onChange={(e) => setFormBairro(e.target.value.toUpperCase())}
+                      placeholder="Bela Vista"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Complemento</label>
+                    <input
+                      type="text"
+                      value={formComplemento}
+                      onChange={(e) => setFormComplemento(e.target.value.toUpperCase())}
+                      placeholder="Sala 102"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+
                 {/* Plano */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Plano SaaS</label>
+                  <label className="block font-bold text-slate-300 mb-1">Plano SaaS</label>
                   <select
                     value={formPlano}
                     onChange={(e) => setFormPlano(e.target.value as PlanoEmpresa)}
@@ -676,7 +903,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Status */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">Status da Conta</label>
+                  <label className="block font-bold text-slate-300 mb-1">Status da Conta</label>
                   <select
                     value={formStatus}
                     onChange={(e) => setFormStatus(e.target.value as StatusEmpresa)}
@@ -690,7 +917,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Valor Mensalidade */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Valor Mensalidade (R$)
                   </label>
                   <input
@@ -704,7 +931,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Limite de Usuários */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Limite de Usuários
                   </label>
                   <input
@@ -717,13 +944,13 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
                 {/* Observações */}
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-300 mb-1">
+                  <label className="block font-bold text-slate-300 mb-1">
                     Observações Internas (Super Admin)
                   </label>
                   <textarea
                     rows={2}
                     value={formObservacoes}
-                    onChange={(e) => setFormObservacoes(e.target.value)}
+                    onChange={(e) => setFormObservacoes(e.target.value.toUpperCase())}
                     placeholder="Notas sobre o cliente, particularidades de faturamento ou contatos..."
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
                   />

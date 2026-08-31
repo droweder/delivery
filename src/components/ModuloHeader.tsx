@@ -167,15 +167,6 @@ export const ModuloHeader: React.FC<ModuloHeaderProps> = ({
         usuarioLogado?.perfil === 'ENTREGADOR' ||
         Boolean(usuarioLogado?.entregadorIdVinculado),
     },
-    {
-      id: 'arquitetura',
-      numero: '⚙️',
-      label: 'Schema SQL & Arquitetura',
-      shortLabel: 'Schema SQL',
-      descricao: 'Estrutura relacional do banco de dados e auditoria',
-      icon: Database,
-      permitido: isSuperAdmin || usuarioLogado?.perfil === 'ADMIN',
-    },
   ];
 
   const opcoesDisponiveis = todasOpcoes.filter((op) => op.permitido);

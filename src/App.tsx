@@ -18,7 +18,6 @@ import { EstoqueVasilhames } from './components/EstoqueVasilhames';
 import { DashboardGerente } from './components/DashboardGerente';
 import { CadastrosHub } from './components/CadastrosHub';
 import { GestaoUsuarios } from './components/GestaoUsuarios';
-import { ArquiteturaSqlDoc } from './components/ArquiteturaSqlDoc';
 import { ThermalReceiptModal } from './components/ThermalReceiptModal';
 import { LoginScreen } from './components/LoginScreen';
 import { SuperAdminHub } from './components/SuperAdminHub';
@@ -46,8 +45,6 @@ const isAbaPermitida = (tab: MainTab, usuario: Usuario | null, isSuperAdmin: boo
       return Boolean(usuario.permissoes?.gerenciarUsuarios);
     case 'entregador':
       return usuario.perfil === 'ENTREGADOR' || Boolean(usuario.entregadorIdVinculado);
-    case 'arquitetura':
-      return false;
     default:
       return false;
   }
@@ -79,7 +76,7 @@ export default function App() {
         return null;
       }
     }
-    return INITIAL_EMPRESAS[0];
+    return INITIAL_EMPRESAS[0] || null;
   });
 
   const [empresaNome, setEmpresaNome] = useState<string>(() => {
@@ -647,18 +644,6 @@ export default function App() {
                 pedidosEmRotaCount={emRotaCount}
                 pedidosEntreguesCount={entreguesCount}
                 onPedidoAtualizadoNoServidor={carregarDadosServidor}
-              />
-            )}
-
-            {activeTab === 'arquitetura' && (
-              <ArquiteturaSqlDoc
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
               />
             )}
           </>

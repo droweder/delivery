@@ -1,6 +1,8 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { createClient } from '@supabase/supabase-js';
+import webpush from 'web-push';
 import {
   INITIAL_BAIRROS,
   INITIAL_CLIENTES,
@@ -18,11 +20,13 @@ import {
   Entregador,
   FechamentoCaixaEntregador,
   ItemPedido,
+  MovimentacaoEstoque,
   NotificacaoPush,
   Pedido,
   Produto,
   PushSubscriptionData,
   SyncQueueItem,
+  TipoMovimentacaoEstoque,
   Usuario,
 } from './src/types';
 
@@ -35,6 +39,40 @@ let entregadores: Entregador[] = [...INITIAL_ENTREGADORES];
 let usuarios: Usuario[] = [...INITIAL_USUARIOS];
 let pedidos: Pedido[] = [...INITIAL_PEDIDOS];
 let fechamentos: FechamentoCaixaEntregador[] = [];
+let movimentacoesEstoque: MovimentacaoEstoque[] = [
+  {
+    id: 'mov_init_1',
+    produtoId: 'p1',
+    produtoNome: 'Botijão de Gás P13 (Ultragaz)',
+    tipoVasilhame: 'P13',
+    tipoMovimentacao: 'ENTRADA',
+    quantidadeCheio: 50,
+    quantidadeVazio: 0,
+    estoqueCheioAnterior: 0,
+    estoqueCheioAtual: 50,
+    estoqueVazioAnterior: 30,
+    estoqueVazioAtual: 30,
+    usuarioResponsavel: 'Administrador',
+    motivo: 'Carga inicial de estoque da base',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+  },
+  {
+    id: 'mov_init_2',
+    produtoId: 'p2',
+    produtoNome: 'Água Mineral 20L (Indaiá)',
+    tipoVasilhame: 'P20L',
+    tipoMovimentacao: 'ENTRADA',
+    quantidadeCheio: 80,
+    quantidadeVazio: 0,
+    estoqueCheioAnterior: 0,
+    estoqueCheioAtual: 80,
+    estoqueVazioAnterior: 45,
+    estoqueVazioAtual: 45,
+    usuarioResponsavel: 'Administrador',
+    motivo: 'Carga inicial de estoque da base',
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+  },
+];
 let syncAuditLog: Array<{
   id: string;
   idempotencyKey: string;
@@ -43,6 +81,118 @@ let syncAuditLog: Array<{
   timestampOffline: string;
   timestampServidor: string;
 }> = [];
+
+// Helper para Registrar Movimentações de Estoque e Vasilhames (Atômico)
+function registrarMovimentacaoEstoque(dados: {
+  produtoId: string;
+  tipoMovimentacao: TipoMovimentacaoEstoque;
+  deltaCheio: number; // positivo aumenta, negativo reduz
+  deltaVazio: number; // positivo aumenta, negativo reduz
+  pedidoId?: string;
+  pedidoCodigo?: string;
+  entregadorId?: string;
+  entregadorNome?: string;
+  usuarioResponsavel?: string;
+  motivo?: string;
+}): MovimentacaoEstoque | null {
+  const prod = produtos.find((p) => p.id === dados.produtoId);
+  if (!prod) return null;
+
+  const estoqueCheioAnterior = prod.estoqueCheio;
+  const estoqueVazioAnterior = prod.estoqueVazio;
+
+  prod.estoqueCheio = Math.max(0, prod.estoqueCheio + dados.deltaCheio);
+  prod.estoqueVazio = Math.max(0, prod.estoqueVazio + dados.deltaVazio);
+
+  const mov: MovimentacaoEstoque = {
+    id: `mov_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    produtoId: prod.id,
+    produtoNome: prod.nome,
+    tipoVasilhame: prod.tipoVasilhame,
+    tipoMovimentacao: dados.tipoMovimentacao,
+    quantidadeCheio: Math.abs(dados.deltaCheio),
+    quantidadeVazio: Math.abs(dados.deltaVazio),
+    estoqueCheioAnterior,
+    estoqueCheioAtual: prod.estoqueCheio,
+    estoqueVazioAnterior,
+    estoqueVazioAtual: prod.estoqueVazio,
+    pedidoId: dados.pedidoId,
+    pedidoCodigo: dados.pedidoCodigo,
+    entregadorId: dados.entregadorId,
+    entregadorNome: dados.entregadorNome,
+    usuarioResponsavel: dados.usuarioResponsavel || 'Sistema',
+    motivo: dados.motivo,
+    timestamp: new Date().toISOString(),
+  };
+
+  movimentacoesEstoque.unshift(mov);
+  if (movimentacoesEstoque.length > 500) movimentacoesEstoque.pop();
+
+  // Tenta sincronizar com Supabase se configurado
+  try {
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('movimentacoes_estoque').insert([mov]).catch(() => {});
+      supabase
+        .from('produtos')
+        .update({
+          estoque_cheio: prod.estoqueCheio,
+          estoque_vazio: prod.estoqueVazio,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq('id', prod.id)
+        .catch(() => {});
+    }
+  } catch (e) {}
+
+  return mov;
+}
+
+// Supabase Lazy Client
+let supabaseClient: any = null;
+
+function getSupabase() {
+  if (!supabaseClient) {
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      return null;
+    }
+    supabaseClient = createClient(url, key, {
+      db: { schema: 'delivery' },
+    });
+  }
+  return supabaseClient;
+}
+
+// VAPID Web Push Keys Setup (Supabase / W3C Standard)
+let vapidKeys = {
+  publicKey: process.env.VAPID_PUBLIC_KEY || '',
+  privateKey: process.env.VAPID_PRIVATE_KEY || '',
+};
+
+if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
+  try {
+    const generated = webpush.generateVAPIDKeys();
+    vapidKeys = generated;
+    console.log('[Web Push / Supabase] Chaves VAPID geradas automaticamente para Web Push W3C.');
+  } catch (e) {
+    console.warn('[Web Push] Aviso ao gerar chaves VAPID:', e);
+  }
+}
+
+try {
+  if (vapidKeys.publicKey && vapidKeys.privateKey) {
+    webpush.setVapidDetails(
+      'mailto:admin@diskentrega.com.br',
+      vapidKeys.publicKey,
+      vapidKeys.privateKey
+    );
+    console.log('[Web Push / Supabase] VAPID Details configurados com sucesso.');
+  }
+} catch (e) {
+  console.warn('[Web Push] Aviso ao configurar VAPID details:', e);
+}
 
 // Push Subscriptions & Push Notifications Log (Supabase / Web Push)
 let pushSubscriptions: PushSubscriptionData[] = [];
@@ -85,7 +235,9 @@ let pushNotificationsLog: NotificacaoPush[] = [
 
 const pushSSEClients: Array<{ entregadorId?: string; res: express.Response }> = [];
 
-function dispararNotificacaoPush(dados: Partial<NotificacaoPush> & { entregadorId: string; titulo: string; corpo: string }): NotificacaoPush {
+async function dispararNotificacaoPush(
+  dados: Partial<NotificacaoPush> & { entregadorId: string; titulo: string; corpo: string }
+): Promise<NotificacaoPush> {
   const notificacao: NotificacaoPush = {
     id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     entregadorId: dados.entregadorId,
@@ -111,7 +263,56 @@ function dispararNotificacaoPush(dados: Partial<NotificacaoPush> & { entregadorI
   pushNotificationsLog.unshift(notificacao);
   if (pushNotificationsLog.length > 100) pushNotificationsLog.pop();
 
-  // Envia via Server-Sent Events para conexões ativas
+  // 1. Tenta persistir no Supabase (se configurado)
+  try {
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('notificacoes_push').insert([notificacao]).catch(() => {});
+    }
+  } catch (e) {
+    // Modo fallback
+  }
+
+  // 2. Disparo Web Push Real (W3C Push via VAPID para os navegadores do entregador)
+  const subsDoEntregador = pushSubscriptions.filter((s) => s.entregadorId === dados.entregadorId && s.ativo);
+  const payloadPush = JSON.stringify({
+    title: notificacao.titulo,
+    body: notificacao.corpo,
+    pedidoId: notificacao.pedidoId,
+    pedidoCodigo: notificacao.pedidoCodigo,
+    prioridade: notificacao.prioridade,
+    url: `/entregador?pedido=${notificacao.pedidoId || ''}`,
+    timestamp: notificacao.timestamp,
+  });
+
+  subsDoEntregador.forEach((sub) => {
+    if (sub.endpoint && sub.p256dh && sub.authKey && !sub.endpoint.includes('supabase.push.gateway')) {
+      webpush
+        .sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dh,
+              auth: sub.authKey,
+            },
+          },
+          payloadPush
+        )
+        .then(() => {
+          console.log(`[Web Push] Push entregue via W3C para endpoint: ${sub.endpoint.substring(0, 45)}...`);
+        })
+        .catch((err: any) => {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            console.log(`[Web Push] Inscrição expirada ou cancelada: ${sub.endpoint.substring(0, 45)}...`);
+            sub.ativo = false;
+          } else {
+            console.warn('[Web Push] Falha ao entregar push nativo:', err.message || err);
+          }
+        });
+    }
+  });
+
+  // 3. Envia via Server-Sent Events (SSE) para conexões abertas no navegador
   pushSSEClients.forEach((client) => {
     if (!client.entregadorId || client.entregadorId === notificacao.entregadorId) {
       try {
@@ -168,9 +369,13 @@ async function startServer() {
       cnpj: dados.cnpj,
       telefone: dados.telefone || '',
       email: dados.email || '',
+      cep: dados.cep || '',
       cidade: dados.cidade || 'São Paulo',
       estado: dados.estado || 'SP',
       endereco: dados.endereco || '',
+      numero: dados.numero || '',
+      bairro: dados.bairro || '',
+      complemento: dados.complemento || '',
       plano: dados.plano || 'PRO',
       status: dados.status || 'ATIVO',
       limiteUsuarios: Number(dados.limiteUsuarios) || 10,
@@ -199,9 +404,13 @@ async function startServer() {
     if (dados.cnpj !== undefined) emp.cnpj = dados.cnpj;
     if (dados.telefone !== undefined) emp.telefone = dados.telefone;
     if (dados.email !== undefined) emp.email = dados.email;
+    if (dados.cep !== undefined) emp.cep = dados.cep;
     if (dados.cidade !== undefined) emp.cidade = dados.cidade;
     if (dados.estado !== undefined) emp.estado = dados.estado;
     if (dados.endereco !== undefined) emp.endereco = dados.endereco;
+    if (dados.numero !== undefined) emp.numero = dados.numero;
+    if (dados.bairro !== undefined) emp.bairro = dados.bairro;
+    if (dados.complemento !== undefined) emp.complemento = dados.complemento;
     if (dados.plano !== undefined) emp.plano = dados.plano;
     if (dados.status !== undefined) emp.status = dados.status;
     if (dados.limiteUsuarios !== undefined) emp.limiteUsuarios = Number(dados.limiteUsuarios);
@@ -222,78 +431,451 @@ async function startServer() {
     res.json({ sucesso: true, empresa: removida });
   });
 
-  // 1.2 Autenticação Unificada (Supabase Ready)
-  app.post('/api/auth/login', (req, res) => {
-    const { login, senha, pin } = req.body;
-    const termo = (login || '').toLowerCase().trim();
-    const senhaDigitada = (senha !== undefined ? String(senha) : pin !== undefined ? String(pin) : '').trim();
+  // --------------------------------------------------------------------------
+  // CONSULTA EXTERNA: CNPJ, CEP E ENDEREÇOS (BrasilAPI + ReceitaWS + ViaCEP)
+  // --------------------------------------------------------------------------
+  app.get('/api/consulta/cnpj/:cnpj', async (req, res) => {
+    const rawCnpj = String(req.params.cnpj || '').replace(/\D/g, '');
+    if (rawCnpj.length !== 14) {
+      return res.status(400).json({ sucesso: false, mensagem: 'CNPJ inválido. Forneça exatamente 14 dígitos numéricos.' });
+    }
 
-    // Busca usuário por email, login ou PIN
-    const usuario = usuarios.find((u) => {
-      if (!u.ativo) return false;
-      const matchIdentificador =
-        (termo && (u.login.toLowerCase() === termo || (u.email && u.email.toLowerCase() === termo))) ||
-        (termo === 'superadmin' && u.perfil === 'SUPER_ADMIN') ||
-        (pin && u.pinAcesso === String(pin).trim());
+    try {
+      // 1. Tenta BrasilAPI primeiro
+      let data: any = null;
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 7000);
+        const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${rawCnpj}`, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+        });
+        clearTimeout(timeout);
+        if (resp.ok) {
+          data = await resp.json();
+        }
+      } catch (err) {
+        // Fallback para ReceitaWS se timeout/erro
+      }
 
-      if (!matchIdentificador) return false;
-
-      // Validação de senha se fornecida
-      if (senhaDigitada) {
-        const senhaCadastrada = (u.senha || u.pinAcesso || '').trim();
-        if (senhaCadastrada && senhaCadastrada !== senhaDigitada) {
-          return false;
+      // 2. Se BrasilAPI falhar, tenta ReceitaWS
+      if (!data || !data.razao_social) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 7000);
+          const resp = await fetch(`https://receitaws.com.br/v1/cnpj/${rawCnpj}`, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            const rawReceita = await resp.json();
+            if (rawReceita && rawReceita.status !== 'ERROR') {
+              data = {
+                cnpj: rawReceita.cnpj?.replace(/\D/g, '') || rawCnpj,
+                razao_social: rawReceita.nome,
+                nome_fantasia: rawReceita.fantasia || rawReceita.nome,
+                ddd_telefone_1: rawReceita.telefone,
+                email: rawReceita.email,
+                cep: rawReceita.cep?.replace(/\D/g, ''),
+                logradouro: rawReceita.logradouro,
+                numero: rawReceita.numero,
+                complemento: rawReceita.complemento,
+                bairro: rawReceita.bairro,
+                municipio: rawReceita.municipio,
+                uf: rawReceita.uf,
+                descricao_situacao_cadastral: rawReceita.situacao,
+                cnae_fiscal_descricao: rawReceita.atividade_principal?.[0]?.text,
+                data_inicio_atividade: rawReceita.abertura,
+              };
+            }
+          }
+        } catch (err) {
+          // Erro de rede no fallback
         }
       }
 
-      return true;
-    });
+      if (!data || (!data.razao_social && !data.nome)) {
+        return res.status(404).json({
+          sucesso: false,
+          mensagem: `CNPJ ${rawCnpj} não foi localizado na Receita Federal. Verifique os dígitos e tente novamente.`,
+        });
+      }
 
-    if (!usuario) {
-      return res.status(401).json({
-        error: 'Credenciais inválidas. Verifique seu login/e-mail e senha de acesso.',
+      const cnpjFormatado = `${rawCnpj.slice(0, 2)}.${rawCnpj.slice(2, 5)}.${rawCnpj.slice(5, 8)}/${rawCnpj.slice(8, 12)}-${rawCnpj.slice(12)}`;
+      const cepClean = (data.cep || '').replace(/\D/g, '');
+      const cepFormatado = cepClean.length === 8 ? `${cepClean.slice(0, 5)}-${cepClean.slice(5)}` : cepClean;
+
+      let logradouroFinal = '';
+      if (data.descricao_tipo_de_logradouro && data.logradouro) {
+        logradouroFinal = `${data.descricao_tipo_de_logradouro} ${data.logradouro}`.trim();
+      } else {
+        logradouroFinal = (data.logradouro || data.descricao_tipo_de_logradouro || '').trim();
+      }
+
+      res.json({
+        sucesso: true,
+        cnpj: rawCnpj,
+        cnpjFormatado,
+        razaoSocial: data.razao_social || data.nome || '',
+        nomeFantasia: data.nome_fantasia || data.fantasia || data.razao_social || data.nome || '',
+        telefone: data.ddd_telefone_1 || data.telefone || data.ddd_telefone_2 || '',
+        email: data.email || '',
+        cep: cepClean,
+        cepFormatado,
+        logradouro: logradouroFinal,
+        numero: data.numero || '',
+        complemento: data.complemento || '',
+        bairro: data.bairro || '',
+        cidade: data.municipio || data.cidade || '',
+        estado: (data.uf || data.estado || '').toUpperCase(),
+        situacao: data.descricao_situacao_cadastral || data.situacao || 'ATIVA',
+        cnae: data.cnae_fiscal_descricao || '',
+        abertura: data.data_inicio_atividade || data.abertura || '',
+      });
+    } catch (err: any) {
+      console.error('[API Consulta CNPJ] Erro:', err);
+      res.status(500).json({ sucesso: false, mensagem: 'Erro interno ao consultar serviço de CNPJ.' });
+    }
+  });
+
+  app.get('/api/consulta/cep/:cep', async (req, res) => {
+    const rawCep = String(req.params.cep || '').replace(/\D/g, '');
+    if (rawCep.length !== 8) {
+      return res.status(400).json({ sucesso: false, mensagem: 'CEP inválido. Forneça exatamente 8 dígitos numéricos.' });
+    }
+
+    const cepFormatado = `${rawCep.slice(0, 5)}-${rawCep.slice(5)}`;
+
+    try {
+      let data: any = null;
+
+      // 1. Tenta BrasilAPI v2 (com coordenadas geográficas)
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${rawCep}`, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+        });
+        clearTimeout(timeout);
+        if (resp.ok) {
+          data = await resp.json();
+        }
+      } catch (err) {
+        // Fallback
+      }
+
+      // 2. Tenta BrasilAPI v1 se v2 falhar
+      if (!data || (!data.street && !data.city)) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 4000);
+          const resp = await fetch(`https://brasilapi.com.br/api/cep/v1/${rawCep}`, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            data = await resp.json();
+          }
+        } catch (err) {
+          // Fallback
+        }
+      }
+
+      // 3. Fallback para ViaCEP
+      if (!data || (!data.street && !data.city)) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 4000);
+          const resp = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            const rawViaCep = await resp.json();
+            if (!rawViaCep.erro) {
+              data = {
+                cep: rawViaCep.cep?.replace(/\D/g, '') || rawCep,
+                state: rawViaCep.uf,
+                city: rawViaCep.localidade,
+                neighborhood: rawViaCep.bairro,
+                street: rawViaCep.logradouro,
+                complemento: rawViaCep.complemento,
+              };
+            }
+          }
+        } catch (err) {
+          // Erro de rede
+        }
+      }
+
+      // 4. Fallback para AwesomeAPI CEP
+      if (!data || (!data.street && !data.city && !data.localidade)) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 4000);
+          const resp = await fetch(`https://cep.awesomeapi.com.br/json/${rawCep}`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            const rawAwesome = await resp.json();
+            if (rawAwesome.cep) {
+              data = {
+                cep: rawAwesome.cep.replace(/\D/g, ''),
+                state: rawAwesome.state,
+                city: rawAwesome.city,
+                neighborhood: rawAwesome.district,
+                street: rawAwesome.address,
+                location: {
+                  coordinates: {
+                    latitude: rawAwesome.lat,
+                    longitude: rawAwesome.lng,
+                  }
+                }
+              };
+            }
+          }
+        } catch (err) {
+          // Erro de rede
+        }
+      }
+
+      // 5. Fallback para CEP geral do município (ex: 89370-000 ou 89300-000)
+      if (!data || (!data.street && !data.city && !data.localidade && !data.neighborhood)) {
+        const baseCep5 = `${rawCep.slice(0, 5)}000`;
+        const baseCep2 = `${rawCep.slice(0, 2)}000000`;
+
+        for (const fallbackCep of [baseCep5, baseCep2]) {
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+            const resp = await fetch(`https://viacep.com.br/ws/${fallbackCep}/json/`, { signal: controller.signal });
+            clearTimeout(timeout);
+            if (resp.ok) {
+              const rawFallback = await resp.json();
+              if (!rawFallback.erro && rawFallback.localidade) {
+                data = {
+                  cep: rawCep,
+                  state: rawFallback.uf,
+                  city: rawFallback.localidade,
+                  neighborhood: rawFallback.bairro || '',
+                  street: '',
+                  aviso: 'Cidade identificada por aproximação regional. Preencha rua e número.',
+                };
+                break;
+              }
+            }
+          } catch (err) {
+            // Continua
+          }
+        }
+      }
+
+      // Se mesmo assim não for encontrado em nenhuma base oficial
+      if (!data || (!data.street && !data.city && !data.localidade && !data.neighborhood && !data.state)) {
+        return res.json({
+          sucesso: true,
+          localizado: false,
+          cep: rawCep,
+          cepFormatado,
+          logradouro: '',
+          bairro: '',
+          cidade: '',
+          estado: '',
+          mensagem: `CEP ${cepFormatado} não foi localizado automaticamente nas bases dos Correios. Preencha os campos de endereço manualmente.`,
+        });
+      }
+
+      const lat = data.location?.coordinates?.latitude ? Number(data.location.coordinates.latitude) : undefined;
+      const lng = data.location?.coordinates?.longitude ? Number(data.location.coordinates.longitude) : undefined;
+
+      res.json({
+        sucesso: true,
+        localizado: true,
+        cep: rawCep,
+        cepFormatado,
+        logradouro: data.street || data.logradouro || data.address || '',
+        bairro: data.neighborhood || data.bairro || data.district || '',
+        cidade: data.city || data.localidade || '',
+        estado: (data.state || data.uf || '').toUpperCase(),
+        complemento: data.complemento || '',
+        aviso: data.aviso || undefined,
+        lat,
+        lng,
+      });
+    } catch (err: any) {
+      console.error('[API Consulta CEP] Erro:', err);
+      res.json({
+        sucesso: true,
+        localizado: false,
+        cep: rawCep,
+        cepFormatado,
+        logradouro: '',
+        bairro: '',
+        cidade: '',
+        estado: '',
+        mensagem: `CEP ${cepFormatado} não localizado no momento. Preencha o endereço manualmente.`,
+      });
+    }
+  });
+
+  app.get('/api/consulta/endereco', async (req, res) => {
+    const { uf, cidade, logradouro } = req.query as { uf?: string; cidade?: string; logradouro?: string };
+    if (!uf || !cidade || !logradouro || logradouro.length < 3) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Parâmetros uf, cidade e logradouro (min 3 letras) são obrigatórios.',
       });
     }
 
-    // Se usuário não é Super Admin, localiza a empresa vinculada
-    let empresaVinculada: Empresa | null = null;
-    if (usuario.perfil !== 'SUPER_ADMIN') {
-      const empId = usuario.empresaId || 'emp1';
-      empresaVinculada = empresas.find((e) => e.id === empId) || empresas[0];
-
-      if (empresaVinculada && empresaVinculada.status === 'BLOQUEADO') {
-        return res.status(403).json({
-          error: 'O acesso desta empresa está temporariamente bloqueado. Contate o administrador da plataforma.',
-        });
+    try {
+      const resp = await fetch(
+        `https://viacep.com.br/ws/${encodeURIComponent(uf)}/${encodeURIComponent(cidade)}/${encodeURIComponent(logradouro)}/json/`
+      );
+      if (resp.ok) {
+        const list = await resp.json();
+        return res.json({ sucesso: true, resultados: Array.isArray(list) ? list : [] });
       }
+      res.json({ sucesso: true, resultados: [] });
+    } catch (err) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao buscar endereços.' });
     }
+  });
 
-    usuario.ultimoAcesso = new Date().toISOString();
-    if (empresaVinculada) {
-      empresaVinculada.ultimoAcesso = new Date().toISOString();
-    }
-
+  // 1.2 Status de Integração Supabase & Servidor
+  app.get('/api/status/supabase', (req, res) => {
+    const supabase = getSupabase();
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     res.json({
-      sucesso: true,
-      usuario,
-      empresa: empresaVinculada,
-      token: `jwt_session_${usuario.id}_${Date.now()}`,
+      conectado: Boolean(supabase),
+      url: url ? `${url.substring(0, 25)}...` : 'Não configurado (Usando modo Local/Demo)',
+      pushVapidAtivo: Boolean(vapidKeys.publicKey),
+      tabelasDisponiveis: [
+        'empresas',
+        'usuarios',
+        'bairros_taxas',
+        'produtos',
+        'clientes',
+        'entregadores',
+        'pedidos',
+        'itens_pedido',
+        'fechamentos_caixa',
+        'movimentacoes_estoque',
+        'push_subscriptions',
+        'notificacoes_push',
+      ],
+      totalProdutos: produtos.length,
+      totalClientes: clientes.length,
+      totalPedidos: pedidos.length,
+      totalMovimentacoesEstoque: movimentacoesEstoque.length,
     });
   });
 
-  app.post('/api/auth/esqueci-senha', (req, res) => {
+  // 1.3 Autenticação Unificada (Supabase Ready + Local Fallback)
+  app.post('/api/auth/login', async (req, res) => {
+    const { login, senha, pin } = req.body;
+    const loginFormatado = String(login || '').toLowerCase().trim();
+
+    try {
+      const supabase = getSupabase();
+      if (supabase && (loginFormatado.includes('@') || senha)) {
+        // Tenta autenticação real no Supabase Auth se houver e-mail
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: loginFormatado,
+          password: senha || pin || '',
+        });
+
+        if (!error && data?.user) {
+          let usuarioEncontrado = usuarios.find((u) => u.email === loginFormatado || u.id === data.user.id);
+          if (!usuarioEncontrado) {
+            usuarioEncontrado = {
+              id: data.user.id,
+              nome: data.user.user_metadata?.nome || data.user.email?.split('@')[0] || 'Usuário Supabase',
+              login: loginFormatado,
+              email: data.user.email,
+              perfil: (data.user.user_metadata?.perfil as any) || 'ADMIN',
+              cargo: data.user.user_metadata?.cargo || 'Administrador',
+              ativo: true,
+              permissoes: {
+                emitirPedidos: true,
+                despacharPedidos: true,
+                cancelarPedidos: true,
+                editarPedidos: true,
+                devolverPedidos: true,
+                realizarAcertoCaixa: true,
+                ajustarEstoque: true,
+                verDashboardGerencial: true,
+                acessarCadastros: true,
+                gerenciarUsuarios: true,
+                importarErp: true,
+              },
+              criadoEm: new Date().toISOString(),
+            };
+            usuarios.push(usuarioEncontrado);
+          }
+
+          return res.json({
+            sucesso: true,
+            usuario: usuarioEncontrado,
+            token: data.session?.access_token,
+            modo: 'SUPABASE_AUTH',
+          });
+        }
+      }
+
+      // Fallback em memória para PIN / credenciais locais de desenvolvimento
+      const usuarioLocal = usuarios.find(
+        (u) =>
+          u.ativo &&
+          (u.login.toLowerCase() === loginFormatado ||
+            (u.pinAcesso && (u.pinAcesso === pin || u.pinAcesso === senha || u.pinAcesso === loginFormatado)) ||
+            (u.email && u.email.toLowerCase() === loginFormatado))
+      );
+
+      if (usuarioLocal) {
+        usuarioLocal.ultimoAcesso = new Date().toISOString();
+        return res.json({
+          sucesso: true,
+          usuario: usuarioLocal,
+          token: `jwt_local_demo_${usuarioLocal.id}_${Date.now()}`,
+          modo: 'LOCAL_DEV',
+        });
+      }
+
+      return res.status(401).json({ error: 'Credenciais inválidas. Verifique seu login, e-mail ou PIN.' });
+    } catch (err: any) {
+      console.error('[Auth] Login error:', err);
+      res.status(500).json({ error: 'Erro interno na autenticação.' });
+    }
+  });
+
+  app.post('/api/auth/esqueci-senha', async (req, res) => {
     const { email } = req.body;
     if (!email) {
       return res.status(400).json({ error: 'E-mail é obrigatório para recuperação' });
     }
 
-    // Simula a chamada do Supabase: supabase.auth.resetPasswordForEmail(email)
-    console.log(`[Supabase Auth] Link de restauração de senha gerado e disparado para: ${email}`);
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${process.env.APP_URL}/auth/reset-password`, // Assumindo uma rota de reset
+      });
 
-    res.json({
-      sucesso: true,
-      mensagem: `Um link seguro de redefinição de senha foi enviado para ${email}. Verifique sua caixa de entrada e spam.`,
-    });
+      if (error) {
+        return res.status(400).json({ error: error.message });
+      }
+
+      res.json({
+        sucesso: true,
+        mensagem: `Um link seguro de redefinição de senha foi enviado para ${email}. Verifique sua caixa de entrada e spam.`,
+      });
+    } catch (err: any) {
+      console.error('[Auth] Reset password error:', err);
+      res.status(500).json({ error: 'Erro interno ao processar recuperação de senha.' });
+    }
   });
 
   // 2. Bairros e Taxas de Entrega
@@ -519,14 +1101,63 @@ async function startServer() {
 
   app.put('/api/produtos/:id/estoque', (req, res) => {
     const { id } = req.params;
-    const { estoqueCheio, estoqueVazio } = req.body;
+    const { estoqueCheio, estoqueVazio, motivo, usuarioResponsavel } = req.body;
     const prod = produtos.find((p) => p.id === id);
     if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
 
-    if (typeof estoqueCheio === 'number') prod.estoqueCheio = Math.max(0, estoqueCheio);
-    if (typeof estoqueVazio === 'number') prod.estoqueVazio = Math.max(0, estoqueVazio);
+    const deltaCheio = typeof estoqueCheio === 'number' ? estoqueCheio - prod.estoqueCheio : 0;
+    const deltaVazio = typeof estoqueVazio === 'number' ? estoqueVazio - prod.estoqueVazio : 0;
+
+    registrarMovimentacaoEstoque({
+      produtoId: prod.id,
+      tipoMovimentacao: 'AJUSTE_MANUAL',
+      deltaCheio,
+      deltaVazio,
+      usuarioResponsavel: usuarioResponsavel || 'Gerência',
+      motivo: motivo || 'Ajuste direto no painel de produtos',
+    });
 
     res.json(prod);
+  });
+
+  // 3.1 Histórico & Ledger de Movimentações de Estoque e Vasilhames
+  app.get('/api/estoque/movimentacoes', (req, res) => {
+    const { produtoId, tipoVasilhame, tipoMovimentacao } = req.query as {
+      produtoId?: string;
+      tipoVasilhame?: string;
+      tipoMovimentacao?: string;
+    };
+
+    let lista = [...movimentacoesEstoque];
+    if (produtoId) lista = lista.filter((m) => m.produtoId === produtoId);
+    if (tipoVasilhame) lista = lista.filter((m) => m.tipoVasilhame === tipoVasilhame);
+    if (tipoMovimentacao) lista = lista.filter((m) => m.tipoMovimentacao === tipoMovimentacao);
+
+    res.json(lista);
+  });
+
+  // 3.2 Ajuste Manual / Entrada de Carga de Vasilhames & Gás
+  app.post('/api/estoque/ajustar', (req, res) => {
+    const { produtoId, tipoMovimentacao, quantidadeCheio, quantidadeVazio, motivo, usuarioResponsavel } = req.body;
+    const prod = produtos.find((p) => p.id === produtoId);
+    if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+
+    const qtdCheio = Number(quantidadeCheio) || 0;
+    const qtdVazio = Number(quantidadeVazio) || 0;
+
+    const deltaCheio = tipoMovimentacao === 'ENTRADA' ? qtdCheio : -qtdCheio;
+    const deltaVazio = tipoMovimentacao === 'ENTRADA' ? -qtdVazio : qtdVazio;
+
+    const mov = registrarMovimentacaoEstoque({
+      produtoId: prod.id,
+      tipoMovimentacao: tipoMovimentacao || 'AJUSTE_MANUAL',
+      deltaCheio,
+      deltaVazio,
+      usuarioResponsavel: usuarioResponsavel || 'Gerência',
+      motivo: motivo || 'Ajuste manual de estoque',
+    });
+
+    res.json({ sucesso: true, produto: prod, movimentacao: mov });
   });
 
   // 4. Clientes (Busca rápida por telefone/nome no PDV)
@@ -554,11 +1185,16 @@ async function startServer() {
       id: dados.id || `c_${Date.now()}`,
       nome: dados.nome,
       telefone: dados.telefone,
+      cpfCnpj: dados.cpfCnpj || '',
+      email: dados.email || '',
+      cep: dados.cep || '',
       endereco: dados.endereco,
       numero: dados.numero,
       complemento: dados.complemento || '',
       bairroId: bairro.id,
       bairroNome: bairro.nome,
+      cidade: dados.cidade || 'São Paulo',
+      estado: dados.estado || 'SP',
       referencia: dados.referencia || '',
       lat: dados.lat || -23.55052,
       lng: dados.lng || -46.633308,
@@ -578,9 +1214,14 @@ async function startServer() {
     const dados = req.body;
     if (dados.nome !== undefined) cliente.nome = dados.nome;
     if (dados.telefone !== undefined) cliente.telefone = dados.telefone;
+    if (dados.cpfCnpj !== undefined) cliente.cpfCnpj = dados.cpfCnpj;
+    if (dados.email !== undefined) cliente.email = dados.email;
+    if (dados.cep !== undefined) cliente.cep = dados.cep;
     if (dados.endereco !== undefined) cliente.endereco = dados.endereco;
     if (dados.numero !== undefined) cliente.numero = dados.numero;
     if (dados.complemento !== undefined) cliente.complemento = dados.complemento;
+    if (dados.cidade !== undefined) cliente.cidade = dados.cidade;
+    if (dados.estado !== undefined) cliente.estado = dados.estado;
     if (dados.bairroId !== undefined) {
       const b = bairros.find((bx) => bx.id === dados.bairroId);
       if (b) {
@@ -589,6 +1230,8 @@ async function startServer() {
       }
     }
     if (dados.referencia !== undefined) cliente.referencia = dados.referencia;
+    if (dados.lat !== undefined) cliente.lat = dados.lat;
+    if (dados.lng !== undefined) cliente.lng = dados.lng;
     if (dados.saldoDevedor !== undefined) cliente.saldoDevedor = Number(dados.saldoDevedor);
     if (dados.vasilhamesPendentes !== undefined) {
       cliente.vasilhamesPendentes = {
@@ -1030,6 +1673,7 @@ async function startServer() {
         clienteId,
         clienteNovo,
         itens,
+        taxaEntrega: taxaRecebida,
         formaPagamentoPrevista,
         trocoPara,
         observacoes,
@@ -1068,7 +1712,11 @@ async function startServer() {
       }
 
       const bairro = bairros.find((b) => b.id === cliente.bairroId) || bairros[0];
-      const taxaEntrega = bairro ? bairro.taxaEntrega : 5.0;
+      const taxaEntrega = typeof taxaRecebida === 'number'
+        ? Math.max(0, taxaRecebida)
+        : (taxaRecebida !== undefined && taxaRecebida !== null
+            ? Math.max(0, Number(taxaRecebida) || 0)
+            : 0);
 
       let subtotal = 0;
       const itensProcessados: ItemPedido[] = itens.map((item: any, idx: number) => {
@@ -1277,7 +1925,7 @@ async function startServer() {
   });
 
   // 8. Despacho: Atribuir Pedidos ao Entregador e Mudar para "EM_ROTA"
-  app.post('/api/despacho/atribuir', (req, res) => {
+  app.post('/api/despacho/atribuir', async (req, res) => {
     const { pedidosIds, entregadorId, despachadoPor } = req.body;
     const entregador = entregadores.find((e) => e.id === entregadorId);
 
@@ -1335,7 +1983,7 @@ async function startServer() {
           ? `${primeiro.cliente.nome} • ${primeiro.cliente.endereco}, ${primeiro.cliente.numero} (${primeiro.cliente.bairroNome}) • Total: R$ ${primeiro.total.toFixed(2)}`
           : `Total: R$ ${totalValor.toFixed(2)} • Bairros: ${bairrosUnicos} • ${resumoItens}...`;
 
-      const notif = dispararNotificacaoPush({
+      const notif = await dispararNotificacaoPush({
         entregadorId: entregador.id,
         titulo,
         corpo,
@@ -1365,8 +2013,16 @@ async function startServer() {
   // ROTAS DE NOTIFICAÇÕES PUSH (SUPABASE & WEB PUSH)
   // --------------------------------------------------------------------------
 
+  // Obter Chave Pública VAPID para Inscrição no PWA (W3C Web Push)
+  app.get('/api/push/vapid-public-key', (req, res) => {
+    res.json({
+      publicKey: vapidKeys.publicKey,
+      servidorPronto: Boolean(vapidKeys.publicKey),
+    });
+  });
+
   // Registrar Token de Notificação / Subscrição do Dispositivo
-  app.post('/api/push/inscrever', (req, res) => {
+  app.post('/api/push/inscrever', async (req, res) => {
     const { entregadorId, endpoint, p256dh, authKey, plataforma, userAgent } = req.body;
     if (!entregadorId || !endpoint) {
       return res.status(400).json({ error: 'entregadorId e endpoint são obrigatórios' });
@@ -1388,12 +2044,35 @@ async function startServer() {
     };
 
     pushSubscriptions.push(novaSub);
+
+    // Tenta persistir no Supabase
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('push_subscriptions').upsert([
+          {
+            id: novaSub.id,
+            entregador_id: entregadorId,
+            endpoint,
+            p256dh,
+            auth_key: authKey,
+            user_agent: userAgent,
+            plataforma: plataforma || 'WEB',
+            ativo: true,
+            atualizado_em: new Date().toISOString(),
+          },
+        ]);
+      }
+    } catch (e) {
+      // Ignora erro em modo offline/demo
+    }
+
     console.log(`[Push] Dispositivo registrado com sucesso para entregador ${entregadorId}`);
     res.json({ sucesso: true, subscription: novaSub });
   });
 
   // Enviar Push de Teste (Simulador / Painel de Controle)
-  app.post('/api/push/enviar-teste', (req, res) => {
+  app.post('/api/push/enviar-teste', async (req, res) => {
     const { entregadorId, tipo, prioridade, titulo, corpo, pedidoCodigo, valorTotal, bairroNome } = req.body;
     const entregador = entregadores.find((e) => e.id === entregadorId);
 
@@ -1417,7 +2096,7 @@ async function startServer() {
             valorTotal ? valorTotal.toFixed(2) : '120.00'
           }`;
 
-    const notif = dispararNotificacaoPush({
+    const notif = await dispararNotificacaoPush({
       entregadorId,
       titulo: titulo || defaultTitulo,
       corpo: corpo || defaultCorpo,
@@ -1680,6 +2359,14 @@ async function startServer() {
 
     fechamentos.push(fechamento);
 
+    // Tenta persistir no Supabase
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('fechamentos_caixa').insert([fechamento]).catch(() => {});
+      }
+    } catch (e) {}
+
     // Libera o entregador para status DISPONIVEL
     entregador.status = 'DISPONIVEL';
     entregador.pedidosAtivosCount = 0;
@@ -1690,6 +2377,20 @@ async function startServer() {
       fechamento,
       entregador,
     });
+  });
+
+  // Histórico de Fechamentos de Caixa Realizados
+  app.get('/api/acerto/fechamentos', (req, res) => {
+    const { entregadorId } = req.query as { entregadorId?: string };
+    let lista = [...fechamentos];
+    if (entregadorId) {
+      lista = lista.filter((f) => f.entregadorId === entregadorId);
+    }
+    res.json(lista);
+  });
+
+  app.get('/api/acerto/historico', (req, res) => {
+    res.json(fechamentos);
   });
 
   // 12. Balanço Geral de Vasilhames (Cheios, Vazios, Em Trânsito, Pendentes c/ Clientes)
