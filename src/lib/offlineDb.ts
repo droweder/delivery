@@ -1,4 +1,4 @@
-import { FormaPagamento, Pedido, SyncQueueItem } from '../types';
+import { FormaPagamento, Pedido, SyncQueueItem, PagamentoItem } from '../types';
 
 const DB_NAME = 'DiskEntregaOfflineDB';
 const DB_VERSION = 1;
@@ -114,6 +114,7 @@ export async function darBaixaOffline(
   entregadorId: string,
   dados: {
     formaPagamentoRealizada: FormaPagamento;
+    pagamentosRealizados?: PagamentoItem[];
     valorRecebido: number;
     trocoDevolvido: number;
     vasilhamesRecolhidos: { P13: number; P20L: number };
@@ -150,6 +151,9 @@ export async function darBaixaOffline(
       if (pedidoExistente) {
         pedidoExistente.status = 'ENTREGUE';
         pedidoExistente.formaPagamentoRealizada = dados.formaPagamentoRealizada;
+        if (dados.pagamentosRealizados && dados.pagamentosRealizados.length > 0) {
+          pedidoExistente.pagamentosRealizados = dados.pagamentosRealizados;
+        }
         pedidoExistente.valorRecebido = dados.valorRecebido;
         pedidoExistente.entregueEm = timestampOffline;
         pedidoExistente.origemOffline = true;

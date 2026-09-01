@@ -680,16 +680,20 @@ export const GestaoUsuarios: React.FC<Props> = ({
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      Login / Usuário de Acesso *
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                      <span>E-mail de Acesso (Login Supabase) *</span>
+                      <span className="text-[10px] text-blue-500 font-normal">Identificador único</span>
                     </label>
                     <input
-                      type="text"
+                      type="email"
                       required
-                      value={usuarioModal.login || ''}
-                      onChange={(e) => setUsuarioModal({ ...usuarioModal, login: e.target.value })}
-                      placeholder="Ex: joao.silva"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                      value={usuarioModal.email || usuarioModal.login || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.toLowerCase().trim();
+                        setUsuarioModal({ ...usuarioModal, email: val, login: val });
+                      }}
+                      placeholder="Ex: joao@empresa.com.br"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 font-mono text-xs"
                     />
                   </div>
 

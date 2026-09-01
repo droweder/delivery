@@ -283,6 +283,14 @@ export const DespachoKanban: React.FC<Props> = ({
                       </div>
                     </div>
 
+                    {/* Agendamento Badge */}
+                    {pedido.tipoEntrega === 'AGENDADA' && pedido.dataHoraEntregaAgendada && (
+                      <div className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-bold">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        <span>Agendado: {formatarDataHora(pedido.dataHoraEntregaAgendada)}</span>
+                      </div>
+                    )}
+
                     {/* Items chips */}
                     <div className="pt-1.5 border-t border-slate-100 space-y-0.5">
                       {pedido.itens.map((it, idx) => (
@@ -363,9 +371,25 @@ export const DespachoKanban: React.FC<Props> = ({
                     </div>
                   </div>
 
+                  {/* Agendamento Badge */}
+                  {pedido.tipoEntrega === 'AGENDADA' && pedido.dataHoraEntregaAgendada && (
+                    <div className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-bold">
+                      <Clock className="w-3 h-3 text-amber-600" />
+                      <span>Agendado: {formatarDataHora(pedido.dataHoraEntregaAgendada)}</span>
+                    </div>
+                  )}
+
                   {/* Pagamento Previsto */}
                   <div className="p-1.5 rounded bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600">Forma: {pedido.formaPagamentoPrevista}</span>
+                    <div className="text-slate-600">
+                      {pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 1 ? (
+                        <span className="font-semibold text-purple-700">
+                          Múltiplos ({pedido.pagamentosPrevistos.map((p) => p.forma).join('+')})
+                        </span>
+                      ) : (
+                        <span>Forma: {pedido.formaPagamentoPrevista}</span>
+                      )}
+                    </div>
                     <span className="font-black font-mono text-slate-900">{formatarMoeda(pedido.total)}</span>
                   </div>
 
@@ -426,8 +450,16 @@ export const DespachoKanban: React.FC<Props> = ({
                   <div className="text-xs text-slate-600 space-y-0.5">
                     <div className="font-bold text-slate-900">{pedido.cliente.nome}</div>
                     <div className="text-[11px] text-slate-800 font-mono">
-                      Pago: {pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista} (
-                      {formatarMoeda(pedido.valorRecebido || pedido.total)})
+                      {pedido.pagamentosRealizados && pedido.pagamentosRealizados.length > 1 ? (
+                        <span className="text-purple-700 font-semibold">
+                          Pago Dividido: {pedido.pagamentosRealizados.map((p) => `${p.forma} (${formatarMoeda(p.valor)})`).join(', ')}
+                        </span>
+                      ) : (
+                        <span>
+                          Pago: {pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista} (
+                          {formatarMoeda(pedido.valorRecebido || pedido.total)})
+                        </span>
+                      )}
                     </div>
                   </div>
 

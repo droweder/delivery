@@ -16,6 +16,9 @@ import {
   CheckCircle2,
   Ban,
   Package,
+  CalendarClock,
+  Split,
+  Coins,
 } from 'lucide-react';
 import {
   BairroTaxa,
@@ -23,9 +26,11 @@ import {
   Entregador,
   FormaPagamento,
   ItemPedido,
+  PagamentoItem,
   Pedido,
   Produto,
   StatusPedido,
+  TipoEntrega,
   TipoVendaItem,
 } from '../types';
 
@@ -81,6 +86,41 @@ export const ModalEditarPedido: React.FC<Props> = ({
   const [observacoes, setObservacoes] = useState<string>(pedido.observacoes || '');
   const [motivoAjuste, setMotivoAjuste] = useState<string>('');
 
+  // Agendamento & Multi-Pagamento
+  const [tipoEntrega, setTipoEntrega] = useState<TipoEntrega>(pedido.tipoEntrega || 'IMEDIATA');
+  const [dataEntregaAgendada, setDataEntregaAgendada] = useState<string>(() => {
+    if (pedido.dataHoraEntregaAgendada) {
+      return pedido.dataHoraEntregaAgendada.split('T')[0] || new Date().toISOString().split('T')[0];
+    }
+    return new Date().toISOString().split('T')[0];
+  });
+  const [horaEntregaAgendada, setHoraEntregaAgendada] = useState<string>(() => {
+    if (pedido.dataHoraEntregaAgendada) {
+      const parts = pedido.dataHoraEntregaAgendada.split('T');
+      if (parts[1]) return parts[1].substring(0, 5);
+    }
+    const d = new Date();
+    d.setHours(d.getHours() + 1);
+    return `${String(d.getHours()).padStart(2, '0')}:00`;
+  });
+
+  const [modoMultiploPagamento, setModoMultiploPagamento] = useState<boolean>(
+    Boolean(pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 1)
+  );
+  const [pagamentosMultiplos, setPagamentosMultiplos] = useState<PagamentoItem[]>(() => {
+    if (pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 0) {
+      return pedido.pagamentosPrevistos.map((p) => ({ ...p }));
+    }
+    return [
+      {
+        id: 'pg_1',
+        forma: pedido.formaPagamentoPrevista,
+        valor: pedido.total,
+        trocoPara: pedido.trocoPara,
+      },
+    ];
+  });
+
   // Itens
   const [itens, setItens] = useState<ItemPedido[]>(JSON.parse(JSON.stringify(pedido.itens || [])));
 
@@ -117,12 +157,82 @@ export const ModalEditarPedido: React.FC<Props> = ({
       setItens(JSON.parse(JSON.stringify(pedido.itens || [])));
       setModalCancelarAberto(false);
       setMotivoCancelamento('');
+
+      // Agendamento
+      setTipoEntrega(pedido.tipoEntrega || 'IMEDIATA');
+      if (pedido.dataHoraEntregaAgendada) {
+        const parts = pedido.dataHoraEntregaAgendada.split('T');
+        setDataEntregaAgendada(parts[0] || new Date().toISOString().split('T')[0]);
+        if (parts[1]) setHoraEntregaAgendada(parts[1].substring(0, 5));
+      } else {
+        setDataEntregaAgendada(new Date().toISOString().split('T')[0]);
+        const d = new Date();
+        d.setHours(d.getHours() + 1);
+        setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:00`);
+      }
+
+      // Multi-pagamento
+      if (pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 0) {
+        setPagamentosMultiplos(pedido.pagamentosPrevistos.map((p) => ({ ...p })));
+        setModoMultiploPagamento(pedido.pagamentosPrevistos.length > 1);
+      } else {
+        setPagamentosMultiplos([
+          {
+            id: 'pg_1',
+            forma: pedido.formaPagamentoPrevista,
+            valor: pedido.total,
+            trocoPara: pedido.trocoPara,
+          },
+        ]);
+        setModoMultiploPagamento(false);
+      }
     }
   }, [pedido, bairros]);
 
   // Recalcula subtotal e total
   const subtotalCalculado = itens.reduce((acc, item) => acc + item.precoUnitario * item.quantidade, 0);
   const totalCalculado = Math.max(0, subtotalCalculado + (Number(taxaEntrega) || 0) - (Number(desconto) || 0));
+
+  // Funções de Multi-Pagamento
+  const handleAddFormaPagamento = (formaPadrao: FormaPagamento = 'PIX') => {
+    const somaAtual = pagamentosMultiplos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+    const restante = Math.max(0, parseFloat((totalCalculado - somaAtual).toFixed(2)));
+    setPagamentosMultiplos((prev) => [
+      ...prev,
+      {
+        id: `pg_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+        forma: formaPadrao,
+        valor: restante,
+        trocoPara: undefined,
+      },
+    ]);
+  };
+
+  const handleRemoverFormaPagamento = (index: number) => {
+    if (pagamentosMultiplos.length <= 1) return;
+    setPagamentosMultiplos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAlterarPagamentoItem = (
+    index: number,
+    campo: keyof PagamentoItem,
+    valor: any
+  ) => {
+    setPagamentosMultiplos((prev) => {
+      const clone = [...prev];
+      clone[index] = { ...clone[index], [campo]: valor };
+      return clone;
+    });
+  };
+
+  const handlePreencherRestante = (index: number) => {
+    const outrosSoma = pagamentosMultiplos.reduce(
+      (acc, p, i) => (i === index ? acc : acc + (Number(p.valor) || 0)),
+      0
+    );
+    const restante = Math.max(0, totalCalculado - outrosSoma);
+    handleAlterarPagamentoItem(index, 'valor', parseFloat(restante.toFixed(2)));
+  };
 
   // Ações de itens
   const handleAlterarQtdItem = (index: number, novaQtd: number) => {
@@ -205,6 +315,44 @@ export const ModalEditarPedido: React.FC<Props> = ({
       return;
     }
 
+    let pagamentosPrevistosFinal: PagamentoItem[] = [];
+    let formaPrevistaFinal: FormaPagamento = formaPagamentoPrevista;
+
+    if (modoMultiploPagamento) {
+      const validos = pagamentosMultiplos.filter((p) => Number(p.valor) > 0);
+      if (validos.length === 0) {
+        alert('Adicione pelo menos uma forma de pagamento com valor positivo.');
+        return;
+      }
+      const somaPagamentos = validos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+      if (Math.abs(somaPagamentos - totalCalculado) > 0.05) {
+        if (!confirm(`A soma das formas de pagamento (R$ ${somaPagamentos.toFixed(2)}) difere do total do pedido (R$ ${totalCalculado.toFixed(2)}). Deseja salvar mesmo assim?`)) {
+          return;
+        }
+      }
+      pagamentosPrevistosFinal = validos.map((p) => ({
+        forma: p.forma,
+        valor: Number(p.valor),
+        trocoPara: p.forma === 'DINHEIRO' && p.trocoPara ? Number(p.trocoPara) : undefined,
+        observacao: p.observacao,
+      }));
+      formaPrevistaFinal = pagamentosPrevistosFinal[0]?.forma || 'DINHEIRO';
+    } else {
+      formaPrevistaFinal = formaPagamentoPrevista;
+      pagamentosPrevistosFinal = [
+        {
+          forma: formaPagamentoPrevista,
+          valor: totalCalculado,
+          trocoPara: formaPagamentoPrevista === 'DINHEIRO' && trocoPara ? Number(trocoPara) : undefined,
+        },
+      ];
+    }
+
+    const dataHoraEntregaAgendadaFinal =
+      tipoEntrega === 'AGENDADA' && dataEntregaAgendada && horaEntregaAgendada
+        ? `${dataEntregaAgendada}T${horaEntregaAgendada}:00`
+        : undefined;
+
     try {
       setSalvando(true);
       const bairroSelecionado = bairros.find((b) => b.id === bairroId) || bairros[0];
@@ -213,6 +361,8 @@ export const ModalEditarPedido: React.FC<Props> = ({
         id: pedido.id,
         status,
         entregadorId: entregadorId || undefined,
+        tipoEntrega,
+        dataHoraEntregaAgendada: dataHoraEntregaAgendadaFinal,
         cliente: {
           ...pedido.cliente,
           nome: nomeCliente,
@@ -227,7 +377,9 @@ export const ModalEditarPedido: React.FC<Props> = ({
         itens,
         taxaEntrega: Number(taxaEntrega) || 0,
         desconto: Number(desconto) || 0,
-        formaPagamentoPrevista,
+        total: totalCalculado,
+        formaPagamentoPrevista: formaPrevistaFinal,
+        pagamentosPrevistos: pagamentosPrevistosFinal,
         formaPagamentoRealizada: formaPagamentoRealizada || undefined,
         trocoPara: trocoPara ? Number(trocoPara) : undefined,
         valorRecebido: valorRecebido ? Number(valorRecebido) : undefined,
@@ -469,6 +621,91 @@ export const ModalEditarPedido: React.FC<Props> = ({
                 />
               </div>
             </div>
+
+            {/* Agendamento de Entrega */}
+            <div className="mt-3 pt-3 border-t border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <label className="text-[11px] font-bold text-slate-800 flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Programação / Horário da Entrega:</span>
+                </label>
+                <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('IMEDIATA')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                      tipoEntrega === 'IMEDIATA'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Entrega Imediata
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('AGENDADA')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                      tipoEntrega === 'AGENDADA'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ⏰ Agendar Horário
+                  </button>
+                </div>
+              </div>
+
+              {tipoEntrega === 'AGENDADA' && (
+                <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg flex flex-wrap items-center gap-3 animate-fade-in text-xs">
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Data de Entrega:</label>
+                    <input
+                      type="date"
+                      value={dataEntregaAgendada}
+                      onChange={(e) => setDataEntregaAgendada(e.target.value)}
+                      className="w-full bg-[#eaecf0] border border-amber-300 rounded px-2 py-1 font-bold text-slate-900"
+                    />
+                  </div>
+
+                  <div className="w-32">
+                    <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Horário Estimado:</label>
+                    <input
+                      type="time"
+                      value={horaEntregaAgendada}
+                      onChange={(e) => setHoraEntregaAgendada(e.target.value)}
+                      className="w-full bg-[#eaecf0] border border-amber-300 rounded px-2 py-1 font-bold text-slate-900"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 self-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                        d.setHours(d.getHours() + 1);
+                        setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:00`);
+                      }}
+                      className="px-2 py-1 bg-[#eaecf0] hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-bold"
+                    >
+                      +1h Hoje
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const amanha = new Date();
+                        amanha.setDate(amanha.getDate() + 1);
+                        setDataEntregaAgendada(amanha.toISOString().split('T')[0]);
+                        setHoraEntregaAgendada('09:00');
+                      }}
+                      className="px-2 py-1 bg-[#eaecf0] hover:bg-amber-100 text-amber-900 border border-amber-300 rounded text-[10px] font-bold"
+                    >
+                      Amanhã 09h
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Section: Itens do Pedido */}
@@ -623,42 +860,37 @@ export const ModalEditarPedido: React.FC<Props> = ({
           </div>
 
           {/* Section: Pagamento, Taxa, Desconto e Total */}
-          <div className="border border-slate-200 rounded-lg p-3.5 bg-[#eaecf0]">
-            <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2.5 flex items-center gap-1.5 text-blue-700">
-              <DollarSign className="w-4 h-4" /> 3. Fechamento Financeiro e Meio de Pagamento
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Forma de Pagamento (Prevista)</label>
-                <select
-                  value={formaPagamentoPrevista}
-                  onChange={(e) => setFormaPagamentoPrevista(e.target.value as FormaPagamento)}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-bold"
-                >
-                  <option value="PIX">⚡ PIX (Chave ou QR Code)</option>
-                  <option value="DINHEIRO">💵 Dinheiro em Espécie</option>
-                  <option value="CARTAO_DEBITO">💳 Cartão de Débito (Maquininha)</option>
-                  <option value="CARTAO_CREDITO">💳 Cartão de Crédito (Maquininha)</option>
-                  <option value="A_PRAZO_FIADO">📝 A Prazo / Fiado (Conta Cliente)</option>
-                </select>
-              </div>
+          <div className="border border-slate-200 rounded-lg p-3.5 bg-[#eaecf0] space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-blue-700">
+                <DollarSign className="w-4 h-4" /> 3. Fechamento Financeiro e Meio de Pagamento
+              </h4>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Forma Realizada (Na Entrega)</label>
-                <select
-                  value={formaPagamentoRealizada || ''}
-                  onChange={(e) => setFormaPagamentoRealizada((e.target.value as FormaPagamento) || undefined)}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-semibold"
-                >
-                  <option value="">-- Igual à Prevista --</option>
-                  <option value="PIX">PIX</option>
-                  <option value="DINHEIRO">Dinheiro</option>
-                  <option value="CARTAO_DEBITO">Cartão de Débito</option>
-                  <option value="CARTAO_CREDITO">Cartão de Crédito</option>
-                  <option value="A_PRAZO_FIADO">A Prazo / Fiado</option>
-                </select>
-              </div>
+              {/* Botão de alternância Múltiplas Formas */}
+              <button
+                type="button"
+                onClick={() => {
+                  const novoModo = !modoMultiploPagamento;
+                  setModoMultiploPagamento(novoModo);
+                  if (novoModo && pagamentosMultiplos.length === 0) {
+                    setPagamentosMultiplos([
+                      { id: 'pg_1', forma: formaPagamentoPrevista, valor: totalCalculado, trocoPara: trocoPara ? Number(trocoPara) : undefined },
+                    ]);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                  modoMultiploPagamento
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                    : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                <Split className="w-3.5 h-3.5" />
+                <span>{modoMultiploPagamento ? '✓ Múltiplas Formas Ativas' : '+ Dividir em Múltiplas Formas'}</span>
+              </button>
+            </div>
 
+            {/* Ajustes de Taxa, Desconto e Resumo de Total */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
               <div>
                 <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Taxa de Entrega (R$)</label>
                 <input
@@ -667,7 +899,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
                   min="0"
                   value={taxaEntrega}
                   onChange={(e) => setTaxaEntrega(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-semibold"
+                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-semibold text-xs bg-[#eaecf0]"
                 />
               </div>
 
@@ -679,44 +911,220 @@ export const ModalEditarPedido: React.FC<Props> = ({
                   min="0"
                   value={desconto}
                   onChange={(e) => setDesconto(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-rose-600 font-bold"
+                  className="w-full border border-slate-300 rounded px-2 py-1 text-rose-600 font-bold text-xs bg-[#eaecf0]"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Troco para (se Dinheiro)</label>
-                <input
-                  type="number"
-                  step="5"
-                  placeholder="Ex: 150.00"
-                  value={trocoPara}
-                  onChange={(e) => setTrocoPara(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Valor Recebido Real (R$)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  placeholder="Ex: 140.00"
-                  value={valorRecebido}
-                  onChange={(e) => setValorRecebido(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-bold"
-                />
-              </div>
-
-              <div className="sm:col-span-2 bg-blue-50 border border-blue-200 p-2.5 rounded-md flex items-center justify-between">
+              <div className="bg-blue-50 border border-blue-200 p-2 rounded-md flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900">Total do Pedido</span>
-                  <p className="text-[11px] text-blue-700">Subtotal R$ {subtotalCalculado.toFixed(2)} + Taxa R$ {Number(taxaEntrega || 0).toFixed(2)} - Desconto R$ {Number(desconto || 0).toFixed(2)}</p>
+                  <p className="text-[10px] text-blue-700">Subtotal R$ {subtotalCalculado.toFixed(2)}</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xl font-black text-blue-950">R$ {totalCalculado.toFixed(2)}</span>
+                  <span className="text-base font-black text-blue-950 font-mono">R$ {totalCalculado.toFixed(2)}</span>
                 </div>
               </div>
             </div>
+
+            {/* Seletor Simples vs Editor de Múltiplos Pagamentos */}
+            {!modoMultiploPagamento ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Forma Prevista</label>
+                  <select
+                    value={formaPagamentoPrevista}
+                    onChange={(e) => {
+                      const novaForma = e.target.value as FormaPagamento;
+                      setFormaPagamentoPrevista(novaForma);
+                      setPagamentosMultiplos([
+                        { id: 'pg_1', forma: novaForma, valor: totalCalculado, trocoPara: trocoPara ? Number(trocoPara) : undefined },
+                      ]);
+                    }}
+                    className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-bold text-xs bg-[#eaecf0]"
+                  >
+                    <option value="PIX">⚡ PIX</option>
+                    <option value="DINHEIRO">💵 Dinheiro</option>
+                    <option value="CARTAO_DEBITO">💳 Cartão Débito</option>
+                    <option value="CARTAO_CREDITO">💳 Cartão Crédito</option>
+                    <option value="A_PRAZO_FIADO">📝 A Prazo / Fiado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Forma Realizada (Opcional)</label>
+                  <select
+                    value={formaPagamentoRealizada || ''}
+                    onChange={(e) => setFormaPagamentoRealizada((e.target.value as FormaPagamento) || undefined)}
+                    className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-semibold text-xs bg-[#eaecf0]"
+                  >
+                    <option value="">-- Igual à Prevista --</option>
+                    <option value="PIX">PIX</option>
+                    <option value="DINHEIRO">Dinheiro</option>
+                    <option value="CARTAO_DEBITO">Cartão Débito</option>
+                    <option value="CARTAO_CREDITO">Cartão Crédito</option>
+                    <option value="A_PRAZO_FIADO">A Prazo / Fiado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Troco para (Dinheiro)</label>
+                  <input
+                    type="number"
+                    step="5"
+                    placeholder="Ex: 150.00"
+                    value={trocoPara}
+                    onChange={(e) => setTrocoPara(e.target.value)}
+                    className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 text-xs bg-[#eaecf0]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Valor Recebido Real</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    placeholder="Ex: 140.00"
+                    value={valorRecebido}
+                    onChange={(e) => setValorRecebido(e.target.value)}
+                    className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 font-bold text-xs bg-[#eaecf0]"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Editor de Múltiplos Pagamentos */
+              <div className="p-3 bg-purple-50/70 border border-purple-200 rounded-lg space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-purple-700" />
+                    Divisão das Formas de Pagamento Previstas:
+                  </span>
+                  <div className="text-xs font-mono font-bold">
+                    {(() => {
+                      const soma = pagamentosMultiplos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+                      const dif = totalCalculado - soma;
+                      return (
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-600">Soma: R$ {soma.toFixed(2)}</span>
+                          {Math.abs(dif) < 0.01 ? (
+                            <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> 100% Coberto
+                            </span>
+                          ) : dif > 0 ? (
+                            <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[10px]">
+                              Falta R$ {dif.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-rose-700 bg-rose-100 px-2 py-0.5 rounded text-[10px]">
+                              Excesso R$ {Math.abs(dif).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {pagamentosMultiplos.map((item, idx) => (
+                    <div
+                      key={item.id || idx}
+                      className="p-2.5 bg-white rounded-lg border border-purple-200 shadow-2xs space-y-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={item.forma}
+                          onChange={(e) =>
+                            handleAlterarPagamentoItem(idx, 'forma', e.target.value as FormaPagamento)
+                          }
+                          className="px-2 py-1 rounded border border-slate-300 text-xs font-bold bg-[#eaecf0] text-slate-800 shrink-0"
+                        >
+                          <option value="DINHEIRO">💵 Dinheiro</option>
+                          <option value="PIX">⚡ PIX</option>
+                          <option value="CARTAO_DEBITO">💳 Débito</option>
+                          <option value="CARTAO_CREDITO">💳 Crédito</option>
+                          <option value="A_PRAZO_FIADO">📝 Fiado</option>
+                        </select>
+
+                        <div className="relative flex-1">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">
+                            R$
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.valor || ''}
+                            onChange={(e) =>
+                              handleAlterarPagamentoItem(
+                                idx,
+                                'valor',
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
+                            placeholder="0,00"
+                            className="w-full pl-8 pr-2 py-1 rounded border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePreencherRestante(idx)}
+                          className="px-2.5 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-900 text-xs font-bold border border-purple-300 shrink-0 transition-colors"
+                        >
+                          Completar Restante
+                        </button>
+
+                        {pagamentosMultiplos.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoverFormaPagamento(idx)}
+                            className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {item.forma === 'DINHEIRO' && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-slate-100 text-[11px]">
+                          <span className="text-slate-600 font-medium">Troco para nota de:</span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-bold text-slate-500">R$</span>
+                            <input
+                              type="number"
+                              value={item.trocoPara || ''}
+                              onChange={(e) =>
+                                handleAlterarPagamentoItem(
+                                  idx,
+                                  'trocoPara',
+                                  e.target.value ? Number(e.target.value) : undefined
+                                )
+                              }
+                              placeholder="Ex: 50,00"
+                              className="w-24 px-2 py-0.5 rounded border border-slate-300 text-xs font-bold bg-[#eaecf0]"
+                            />
+                          </div>
+                          {item.trocoPara && item.trocoPara > item.valor && (
+                            <span className="text-amber-700 font-bold ml-auto font-mono">
+                              Troco: R$ {(item.trocoPara - item.valor).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleAddFormaPagamento('PIX')}
+                  className="flex items-center gap-1 text-xs font-bold text-purple-700 hover:text-purple-900 transition-colors pt-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Adicionar outra forma de pagamento</span>
+                </button>
+              </div>
+            )}
 
             <div className="mt-3">
               <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Observações Gerais e Histórico de Alterações</label>

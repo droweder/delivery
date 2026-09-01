@@ -36,17 +36,30 @@ CREATE TABLE IF NOT EXISTS delivery.empresas (
     cnpj VARCHAR(20),
     telefone VARCHAR(20),
     email VARCHAR(150),
+    cep VARCHAR(10),
     cidade VARCHAR(100),
     estado VARCHAR(2),
     endereco TEXT,
+    numero VARCHAR(20),
+    bairro VARCHAR(100),
+    complemento VARCHAR(100),
     plano VARCHAR(20) NOT NULL DEFAULT 'BASICO',
     status VARCHAR(20) NOT NULL DEFAULT 'ATIVO',
     limite_usuarios INT NOT NULL DEFAULT 5,
     limite_pedidos_mes INT NOT NULL DEFAULT 1000,
     valor_mensalidade NUMERIC(10,2) NOT NULL DEFAULT 99.00,
+    observacoes TEXT,
+    configuracoes JSONB DEFAULT '{}'::jsonb,
     criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     ultimo_acesso TIMESTAMPTZ
 );
+
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS cep VARCHAR(10);
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS numero VARCHAR(20);
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS bairro VARCHAR(100);
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS complemento VARCHAR(100);
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS observacoes TEXT;
+ALTER TABLE delivery.empresas ADD COLUMN IF NOT EXISTS configuracoes JSONB DEFAULT '{}'::jsonb;
 
 -- 2.2 USUÁRIOS E CONTROLE DE ACESSO RBAC
 CREATE TABLE IF NOT EXISTS delivery.usuarios (
@@ -165,7 +178,12 @@ CREATE TABLE IF NOT EXISTS delivery.pedidos (
     desconto NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     forma_pagamento VARCHAR(50) NOT NULL DEFAULT 'DINHEIRO',
+    forma_pagamento_prevista VARCHAR(50),
+    pagamentos_previstos JSONB DEFAULT '[]'::jsonb,
     forma_pagamento_realizada VARCHAR(50),
+    pagamentos_realizados JSONB DEFAULT '[]'::jsonb,
+    tipo_entrega VARCHAR(20) NOT NULL DEFAULT 'IMEDIATA',
+    data_hora_entrega_agendada TIMESTAMPTZ,
     troco_para NUMERIC(10,2),
     valor_recebido NUMERIC(10,2),
     precisa_troco BOOLEAN NOT NULL DEFAULT FALSE,
@@ -177,6 +195,11 @@ CREATE TABLE IF NOT EXISTS delivery.pedidos (
     cancelado_em TIMESTAMPTZ,
     motivo_cancelamento TEXT
 );
+
+ALTER TABLE delivery.pedidos ADD COLUMN IF NOT EXISTS pagamentos_previstos JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE delivery.pedidos ADD COLUMN IF NOT EXISTS pagamentos_realizados JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE delivery.pedidos ADD COLUMN IF NOT EXISTS tipo_entrega VARCHAR(20) DEFAULT 'IMEDIATA';
+ALTER TABLE delivery.pedidos ADD COLUMN IF NOT EXISTS data_hora_entrega_agendada TIMESTAMPTZ;
 
 -- 2.8 ITENS DO PEDIDO
 CREATE TABLE IF NOT EXISTS delivery.itens_pedido (

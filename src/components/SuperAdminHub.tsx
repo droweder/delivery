@@ -133,6 +133,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   } | null>(null);
 
   const [copiadoFeedback, setCopiadoFeedback] = useState(false);
+  const [toastMensagem, setToastMensagem] = useState<string | null>(null);
 
   // Status de Consulta Externa
   const [consultandoCnpj, setConsultandoCnpj] = useState(false);
@@ -195,20 +196,20 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   const abrirModalEdicao = async (emp: Empresa) => {
     setEmpresaEditando(emp);
     setAbaAtivaModal('empresa');
-    setFormRazaoSocial(emp.razaoSocial);
+    setFormRazaoSocial(emp.razaoSocial || emp.nomeFantasia);
     setFormNomeFantasia(emp.nomeFantasia);
     setFormCnpj(emp.cnpj);
-    setFormTelefone(emp.telefone);
-    setFormEmail(emp.email);
+    setFormTelefone(emp.telefone || '');
+    setFormEmail(emp.email || '');
     setFormCep(emp.cep || '');
-    setFormCidade(emp.cidade);
-    setFormEstado(emp.estado);
-    setFormEndereco(emp.endereco);
+    setFormCidade(emp.cidade || 'São Paulo');
+    setFormEstado(emp.estado || 'SP');
+    setFormEndereco(emp.endereco || '');
     setFormNumero(emp.numero || '');
     setFormBairro(emp.bairro || '');
     setFormComplemento(emp.complemento || '');
-    setFormPlano(emp.plano);
-    setFormStatus(emp.status);
+    setFormPlano(emp.plano || 'PRO');
+    setFormStatus(emp.status || 'ATIVO');
     setFormLimiteUsuarios(emp.limiteUsuarios || 10);
     setFormLimitePedidosMes(emp.limitePedidosMes || 5000);
     setFormValorMensalidade(emp.valorMensalidade || 199);
@@ -217,9 +218,11 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
     setErroCnpj(null);
 
     // Carrega dados atuais do Administrador Master desta empresa
+    const cleanFantasia = emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const emailSugestao = emp.email?.includes('@') ? emp.email : `admin@${cleanFantasia || emp.id}.com.br`;
     setFormAdminNome(`Admin ${emp.nomeFantasia}`);
-    setFormAdminLogin(`admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`);
-    setFormAdminEmail(emp.email || '');
+    setFormAdminLogin(emailSugestao);
+    setFormAdminEmail(emailSugestao);
     setFormAdminSenha(''); // Vazio por padrão na edição: indica manter a mesma se não preenchido
     setFormAdminPin('1234');
     setFormAdminTelefone(emp.telefone || '');
@@ -234,8 +237,13 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         const json = await res.json();
         if (json.usuario) {
           if (json.usuario.nome) setFormAdminNome(json.usuario.nome);
-          if (json.usuario.login) setFormAdminLogin(json.usuario.login);
-          if (json.usuario.email) setFormAdminEmail(json.usuario.email);
+          const emailEncontrado = json.usuario.email || (json.usuario.login?.includes('@') ? json.usuario.login : '');
+          if (emailEncontrado) {
+            setFormAdminEmail(emailEncontrado);
+            setFormAdminLogin(emailEncontrado);
+          } else if (json.usuario.login) {
+            setFormAdminLogin(json.usuario.login);
+          }
           if (json.usuario.telefone) setFormAdminTelefone(json.usuario.telefone);
           if (json.usuario.pinAcesso) setFormAdminPin(json.usuario.pinAcesso);
         }
@@ -337,6 +345,21 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
       return;
     }
 
+    // Validação do E-mail de Acesso do Administrador Master (Supabase Auth)
+    const cleanFantasia = formNomeFantasia.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const emailAdminFinal = (
+      formAdminEmail.trim() ||
+      formEmail.trim() ||
+      formAdminLogin.trim() ||
+      `admin@${cleanFantasia || 'empresa'}.com.br`
+    ).toLowerCase();
+
+    if (!empresaEditando && (!emailAdminFinal || !emailAdminFinal.includes('@') || !emailAdminFinal.includes('.'))) {
+      alert('O login do sistema exige um e-mail válido para autenticação no Supabase Auth (ex: admin@empresa.com.br ou contato@dominio.com). Por favor, preencha o E-mail de Acesso na aba "Acesso Master".');
+      setAbaAtivaModal('admin');
+      return;
+    }
+
     setSalvando(true);
     try {
       const payload: any = {
@@ -345,7 +368,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         nomeFantasia: formNomeFantasia.trim(),
         cnpj: formCnpj.trim(),
         telefone: formTelefone.trim(),
-        email: formEmail.trim(),
+        email: formEmail.trim().toLowerCase(),
         cep: formCep.trim(),
         cidade: formCidade.trim(),
         estado: formEstado.trim(),
@@ -364,8 +387,8 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
       if (!empresaEditando) {
         payload.adminInicial = {
           nome: formAdminNome.trim() || `Admin ${formNomeFantasia.trim()}`,
-          login: formAdminLogin.trim() || formAdminEmail.trim() || formEmail.trim() || `admin_${formNomeFantasia.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-          email: formAdminEmail.trim() || formEmail.trim(),
+          login: emailAdminFinal,
+          email: emailAdminFinal,
           senha: formAdminSenha.trim() || 'Admin@123',
           pinAcesso: formAdminPin.trim() || '1234',
           telefone: formAdminTelefone.trim() || formTelefone.trim(),
@@ -374,8 +397,8 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         // Na edição, envia dados do admin se houver alterações ou nova senha informada
         payload.adminData = {
           nome: formAdminNome.trim() || `Admin ${formNomeFantasia.trim()}`,
-          login: formAdminLogin.trim() || formAdminEmail.trim() || formEmail.trim(),
-          email: formAdminEmail.trim() || formEmail.trim(),
+          login: emailAdminFinal,
+          email: emailAdminFinal,
           senha: formAdminSenha.trim() || undefined, // undefined se vazio para não sobrescrever
           pinAcesso: formAdminPin.trim() || '1234',
           telefone: formAdminTelefone.trim() || formTelefone.trim(),
@@ -384,6 +407,8 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
       const res = await onSalvarEmpresa(payload);
       setModalAberto(false);
+      setToastMensagem(empresaEditando ? `Dados da empresa "${formNomeFantasia.trim()}" gravados com sucesso!` : `Empresa "${formNomeFantasia.trim()}" cadastrada com sucesso!`);
+      setTimeout(() => setToastMensagem(null), 4000);
 
       if (res?.credenciais && (!empresaEditando || Boolean(formAdminSenha.trim()))) {
         setCredenciaisModal({
@@ -401,6 +426,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
   const gerarTextoCredenciais = (cred: any) => {
     const urlSistema = window.location.origin;
+    const emailLogin = cred.email || cred.login;
     return `🚀 *ACESSO AO SISTEMA DELIVERY & CONVENIÊNCIA*
 
 Olá *${cred.nome}*, seu acesso de Administrador Master para a empresa *${cred.empresaNome}* foi liberado com sucesso!
@@ -410,14 +436,14 @@ Olá *${cred.nome}*, seu acesso de Administrador Master para a empresa *${cred.e
 • *Perfil:* Administrador Master
 • *Painel de Acesso:* ${urlSistema}
 
-🔑 *Credenciais de Acesso:*
-• *Login / E-mail:* ${cred.login || cred.email}
+🔑 *Credenciais de Acesso (Supabase Auth):*
+• *E-mail de Login:* ${emailLogin}
 • *Senha Inicial:* ${cred.senha}
 • *PIN Rápido (PDV/Balcão):* ${cred.pinAcesso}
 
 💡 *Primeiros Passos:*
 1. Acesse o endereço acima no navegador do seu computador ou celular.
-2. Faça login com seu e-mail/login e a senha fornecida.
+2. Faça login com seu e-mail (*${emailLogin}*) e a senha informada.
 3. No painel, você já pode emitir pedidos, gerenciar seu estoque de gás/água, cadastrar entregadores e configurar taxas de entrega.
 
 Em caso de dúvidas, estamos à disposição!`;
@@ -542,6 +568,28 @@ Em caso de dúvidas, estamos à disposição!`;
 
       {/* Main Container */}
       <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex-1 space-y-6">
+        {/* Toast / Feedback de Sucesso */}
+        {toastMensagem && (
+          <div className="p-4 bg-emerald-950/80 border border-emerald-500/50 rounded-2xl flex items-center justify-between text-emerald-200 text-sm shadow-xl animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-bold text-white">{toastMensagem}</p>
+                <p className="text-xs text-emerald-400/80">Dados gravados e sincronizados com sucesso no sistema.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToastMensagem(null)}
+              className="p-1.5 rounded-lg hover:bg-emerald-900/50 text-emerald-400"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* KPI Metric Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-lg">
@@ -1015,7 +1063,14 @@ Em caso de dúvidas, estamos à disposição!`;
                       <input
                         type="email"
                         value={formEmail}
-                        onChange={(e) => setFormEmail(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          const val = e.target.value.toLowerCase().trim();
+                          setFormEmail(val);
+                          if (!empresaEditando && (!formAdminEmail || formAdminEmail.includes('@'))) {
+                            setFormAdminEmail(val);
+                            setFormAdminLogin(val);
+                          }
+                        }}
                         placeholder="contato@empresa.com.br"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
@@ -1264,16 +1319,25 @@ Em caso de dúvidas, estamos à disposição!`;
                       </div>
 
                       <div>
-                        <label className="block font-bold text-slate-300 mb-1">
-                          Login ou E-mail de Acesso *
+                        <label className="block font-bold text-slate-300 mb-1 flex items-center justify-between">
+                          <span>E-mail de Acesso (Login Supabase) *</span>
+                          <span className="text-[10px] text-amber-400 font-normal">Identificador único de entrada</span>
                         </label>
-                        <input
-                          type="text"
-                          value={formAdminLogin}
-                          onChange={(e) => setFormAdminLogin(e.target.value.toLowerCase())}
-                          placeholder="ex: admin_empresa ou email"
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-                        />
+                        <div className="relative">
+                          <input
+                            type="email"
+                            required
+                            value={formAdminEmail || formAdminLogin}
+                            onChange={(e) => {
+                              const val = e.target.value.toLowerCase().trim();
+                              setFormAdminEmail(val);
+                              setFormAdminLogin(val);
+                            }}
+                            placeholder="ex: admin@empresa.com.br ou seu-email@dominio.com"
+                            className="w-full pl-8 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                          />
+                          <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5 pointer-events-none" />
+                        </div>
                       </div>
 
                       <div>
@@ -1440,9 +1504,9 @@ Em caso de dúvidas, estamos à disposição!`;
                 </div>
 
                 <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
-                  <span className="text-slate-400 text-[11px]">Login / E-mail:</span>
+                  <span className="text-slate-400 text-[11px]">E-mail de Acesso (Login):</span>
                   <span className="text-amber-300 font-bold text-[11px]">
-                    {credenciaisModal.credenciais.login || credenciaisModal.credenciais.email}
+                    {credenciaisModal.credenciais.email || credenciaisModal.credenciais.login}
                   </span>
                 </div>
 

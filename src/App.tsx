@@ -299,9 +299,18 @@ export default function App() {
     }
 
     const saved = await res.json();
-    const empId = saved.empresa?.id || saved.id;
+    const empresaSalva: Empresa = saved.empresa || saved;
+    const empId = empresaSalva?.id || saved.id;
+    if (empresaSalva && empId) {
+      setEmpresas((prev) => {
+        const existe = prev.some((e) => e.id === empId);
+        if (existe) {
+          return prev.map((e) => (e.id === empId ? { ...e, ...empresaSalva } : e));
+        }
+        return [empresaSalva, ...prev];
+      });
+    }
     if (empresaAtual && empresaAtual.id === empId) {
-      const empresaSalva = saved.empresa || saved;
       setEmpresaAtual(empresaSalva);
       setEmpresaNome(empresaSalva.nomeFantasia);
     }
@@ -315,6 +324,7 @@ export default function App() {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir empresa');
     }
+    setEmpresas((prev) => prev.filter((e) => e.id !== id));
     await carregarDadosServidor();
   };
 

@@ -8,6 +8,16 @@ export type StatusPedido = 'PENDENTE' | 'EM_ROTA' | 'ENTREGUE' | 'CONCLUIDO' | '
 
 export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'CARTAO_DEBITO' | 'CARTAO_CREDITO' | 'A_PRAZO_FIADO';
 
+export type TipoEntrega = 'IMEDIATA' | 'AGENDADA';
+
+export interface PagamentoItem {
+  id?: string;
+  forma: FormaPagamento;
+  valor: number;
+  trocoPara?: number;
+  observacao?: string;
+}
+
 export type StatusEntregador = 'DISPONIVEL' | 'EM_ROTA' | 'FOLGA';
 
 export type PerfilUsuario = 'SUPER_ADMIN' | 'ADMIN' | 'GERENTE' | 'ATENDENTE_PDV' | 'ENTREGADOR';
@@ -165,11 +175,18 @@ export interface Pedido {
   desconto: number;
   total: number;
   formaPagamentoPrevista: FormaPagamento;
+  pagamentosPrevistos?: PagamentoItem[];
   trocoPara?: number;
   formaPagamentoRealizada?: FormaPagamento;
+  pagamentosRealizados?: PagamentoItem[];
   valorRecebido?: number;
   observacoes?: string;
   
+  // Agendamento / Data e Hora de Entrega
+  tipoEntrega?: TipoEntrega;
+  dataHoraEntregaAgendada?: string; // Formato ISO ou YYYY-MM-DDTHH:mm
+  previsaoMinutos?: number;
+
   // Auditoria de Controle de Usuário
   emitidoPorId?: string;
   emitidoPorNome?: string;
@@ -236,6 +253,7 @@ export interface SyncQueueItem {
   timestampOffline: string;
   payload: {
     formaPagamentoRealizada: FormaPagamento;
+    pagamentosRealizados?: PagamentoItem[];
     valorRecebido: number;
     trocoDevolvido: number;
     vasilhamesRecolhidos: {

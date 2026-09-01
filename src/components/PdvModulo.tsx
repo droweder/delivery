@@ -5,8 +5,10 @@ import {
   CategoriaProduto,
   Cliente,
   FormaPagamento,
+  PagamentoItem,
   Pedido,
   Produto,
+  TipoEntrega,
   TipoVendaItem,
   Usuario,
 } from '../types';
@@ -40,6 +42,11 @@ import {
   Building2,
   Loader2,
   Users,
+  Calendar,
+  CalendarClock,
+  Split,
+  Coins,
+  CreditCard,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
@@ -129,11 +136,32 @@ export const PdvModulo: React.FC<Props> = ({
   const [categoriaAtiva, setCategoriaAtiva] = useState<CategoriaProduto | 'TODOS' | 'MAIS_UTILIZADOS'>('TODOS');
   const [modalImportarErp, setModalImportarErp] = useState(false);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
+  
+  // Pagamentos (Único ou Múltiplo)
+  const [modoMultiploPagamento, setModoMultiploPagamento] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamento>('DINHEIRO');
+  const [pagamentosMultiplos, setPagamentosMultiplos] = useState<PagamentoItem[]>([
+    { id: 'pg_1', forma: 'DINHEIRO', valor: 0, trocoPara: undefined },
+  ]);
   const [taxaEntrega, setTaxaEntrega] = useState<string>('0');
   const [trocoPara, setTrocoPara] = useState<string>('');
   const [desconto, setDesconto] = useState<string>('0');
   const [observacoes, setObservacoes] = useState('');
+
+  // Agendamento de Entrega (Imediata vs Agendada)
+  const [tipoEntrega, setTipoEntrega] = useState<TipoEntrega>('IMEDIATA');
+  const [dataEntregaAgendada, setDataEntregaAgendada] = useState<string>(() => {
+    const hoje = new Date();
+    return hoje.toISOString().split('T')[0];
+  });
+  const [horaEntregaAgendada, setHoraEntregaAgendada] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 60);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(Math.ceil(d.getMinutes() / 15) * 15 % 60).padStart(2, '0');
+    return `${hh}:${mm}`;
+  });
+
   const [salvando, setSalvando] = useState(false);
   const [sucessoFeedback, setSucessoFeedback] = useState<string | null>(null);
 
@@ -204,6 +232,52 @@ export const PdvModulo: React.FC<Props> = ({
   const valorTaxaEntrega = Math.max(0, parseFloat(String(taxaEntrega).replace(',', '.')) || 0);
   const valorDesconto = Math.max(0, parseFloat(String(desconto).replace(',', '.')) || 0);
   const total = Math.max(0, subtotal + (clienteSelecionado ? valorTaxaEntrega : 0) - valorDesconto);
+
+  // Multi-Payment Helpers
+  const somaPagamentosMultiplos = pagamentosMultiplos.reduce(
+    (acc, p) => acc + (Number(p.valor) || 0),
+    0
+  );
+  const diferencaPagamento = total - somaPagamentosMultiplos;
+
+  const handleAddFormaPagamento = (formaPadrao: FormaPagamento = 'PIX') => {
+    const valorSugerido = Math.max(0, parseFloat(diferencaPagamento.toFixed(2)));
+    setPagamentosMultiplos((prev) => [
+      ...prev,
+      {
+        id: `pg_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+        forma: formaPadrao,
+        valor: valorSugerido,
+        trocoPara: undefined,
+      },
+    ]);
+  };
+
+  const handleRemoverFormaPagamento = (index: number) => {
+    if (pagamentosMultiplos.length <= 1) return;
+    setPagamentosMultiplos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAlterarPagamentoItem = (
+    index: number,
+    campo: keyof PagamentoItem,
+    valor: any
+  ) => {
+    setPagamentosMultiplos((prev) => {
+      const clone = [...prev];
+      clone[index] = { ...clone[index], [campo]: valor };
+      return clone;
+    });
+  };
+
+  const handlePreencherRestante = (index: number) => {
+    const outrosSoma = pagamentosMultiplos.reduce(
+      (acc, p, i) => (i === index ? acc : acc + (Number(p.valor) || 0)),
+      0
+    );
+    const restante = Math.max(0, total - outrosSoma);
+    handleAlterarPagamentoItem(index, 'valor', parseFloat(restante.toFixed(2)));
+  };
 
   // Cart operations
   const adicionarAoCarrinho = (produto: Produto, tipoVenda: TipoVendaItem = 'RECARGA') => {
@@ -434,6 +508,49 @@ export const PdvModulo: React.FC<Props> = ({
       return;
     }
 
+    // Se estiver em modo múltiplo pagamento, valida se tem pagamentos preenchidos
+    let pagamentosPrevistosPayload: PagamentoItem[] | undefined = undefined;
+    let formaPrincipal: FormaPagamento = formaPagamento;
+    let trocoParaPayload: number | undefined = undefined;
+
+    if (modoMultiploPagamento) {
+      const pagamentosValidos = pagamentosMultiplos.filter(
+        (p) => Number(p.valor) > 0
+      );
+      if (pagamentosValidos.length === 0) {
+        alert('Informe ao menos uma forma de pagamento com valor maior que zero!');
+        return;
+      }
+      pagamentosPrevistosPayload = pagamentosValidos.map((p) => ({
+        forma: p.forma,
+        valor: Number(p.valor),
+        trocoPara: p.forma === 'DINHEIRO' && p.trocoPara ? Number(p.trocoPara) : undefined,
+        observacao: p.observacao,
+      }));
+      formaPrincipal = pagamentosPrevistosPayload[0]?.forma || 'DINHEIRO';
+      trocoParaPayload = pagamentosPrevistosPayload.find((p) => p.forma === 'DINHEIRO')?.trocoPara;
+    } else {
+      formaPrincipal = formaPagamento;
+      trocoParaPayload = formaPagamento === 'DINHEIRO' && trocoPara ? Number(trocoPara) : undefined;
+      pagamentosPrevistosPayload = [
+        {
+          forma: formaPagamento,
+          valor: total,
+          trocoPara: trocoParaPayload,
+        },
+      ];
+    }
+
+    // Agendamento de entrega
+    let dataHoraEntregaAgendadaPayload: string | undefined = undefined;
+    if (tipoEntrega === 'AGENDADA') {
+      if (!dataEntregaAgendada || !horaEntregaAgendada) {
+        alert('Selecione a data e a hora da entrega agendada!');
+        return;
+      }
+      dataHoraEntregaAgendadaPayload = `${dataEntregaAgendada}T${horaEntregaAgendada}:00`;
+    }
+
     setSalvando(true);
     try {
       const payload = {
@@ -444,8 +561,11 @@ export const PdvModulo: React.FC<Props> = ({
           quantidade: it.quantidade,
         })),
         taxaEntrega: valorTaxaEntrega,
-        formaPagamentoPrevista: formaPagamento,
-        trocoPara: formaPagamento === 'DINHEIRO' && trocoPara ? Number(trocoPara) : undefined,
+        formaPagamentoPrevista: formaPrincipal,
+        pagamentosPrevistos: pagamentosPrevistosPayload,
+        trocoPara: trocoParaPayload,
+        tipoEntrega,
+        dataHoraEntregaAgendada: dataHoraEntregaAgendadaPayload,
         desconto: valorDesconto,
         observacoes,
         emitidoPorId: usuarioLogado?.id || 'u_pdv1',
@@ -470,6 +590,9 @@ export const PdvModulo: React.FC<Props> = ({
       setTrocoPara('');
       setDesconto('0');
       setObservacoes('');
+      setModoMultiploPagamento(false);
+      setPagamentosMultiplos([{ id: 'pg_1', forma: 'DINHEIRO', valor: 0 }]);
+      setTipoEntrega('IMEDIATA');
       setTimeout(() => setSucessoFeedback(null), 4000);
     } catch (err: any) {
       console.error(err);
@@ -995,52 +1118,365 @@ export const PdvModulo: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Payment Method & Delivery Totals */}
-            <div className="space-y-2.5 pt-2 border-t border-slate-100 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1 text-[11px]">Forma de Pagamento:</label>
-                <div className="grid grid-cols-3 gap-1">
-                  {(
-                    [
-                      ['DINHEIRO', 'Dinheiro'],
-                      ['PIX', 'Pix'],
-                      ['CARTAO_DEBITO', 'Débito'],
-                      ['CARTAO_CREDITO', 'Crédito'],
-                      ['A_PRAZO_FIADO', 'Fiado'],
-                    ] as const
-                  ).map(([tipo, label]) => (
-                    <button
-                      key={tipo}
-                      type="button"
-                      onClick={() => setFormaPagamento(tipo)}
-                      className={`px-1.5 py-1 rounded-md text-[11px] font-bold transition-all border ${
-                        formaPagamento === tipo
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+            {/* Agendamento de Entrega (Imediata vs Agendada) */}
+            <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Data / Hora de Entrega:</span>
+                </label>
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('IMEDIATA')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
+                      tipoEntrega === 'IMEDIATA'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ⚡ Imediata
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('AGENDADA')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
+                      tipoEntrega === 'AGENDADA'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ⏰ Agendada
+                  </button>
                 </div>
               </div>
 
-              {formaPagamento === 'DINHEIRO' && (
-                <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2">
-                  <span className="text-emerald-900 font-bold text-xs">Troco para quanto?</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs font-bold text-emerald-800">R$</span>
-                    <input
-                      id="input-troco-para"
-                      type="number"
-                      value={trocoPara}
-                      onChange={(e) => setTrocoPara(e.target.value)}
-                      placeholder={total > 0 ? String(Math.ceil(total / 10) * 10) : '0'}
-                      className="w-20 px-2 py-0.5 rounded border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-[#eaecf0]"
-                    />
+              {tipoEntrega === 'IMEDIATA' ? (
+                <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-100 flex items-center justify-between text-[11px] text-blue-900">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Despacho imediato</span>
                   </div>
+                  <span className="font-bold text-[10px] bg-blue-100 px-2 py-0.5 rounded text-blue-800 font-mono">
+                    ~25-35 min
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200/80 space-y-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Data da Entrega:</label>
+                      <input
+                        id="input-data-entrega-agendada"
+                        type="date"
+                        value={dataEntregaAgendada}
+                        onChange={(e) => setDataEntregaAgendada(e.target.value)}
+                        className="w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Horário Previsto:</label>
+                      <input
+                        id="input-hora-entrega-agendada"
+                        type="time"
+                        value={horaEntregaAgendada}
+                        onChange={(e) => setHoraEntregaAgendada(e.target.value)}
+                        className="w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Atalhos Rápidos de Agendamento */}
+                  <div>
+                    <span className="text-[10px] text-amber-800 font-medium block mb-1">Atalhos de horário:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        {
+                          label: '+30 min',
+                          calc: () => {
+                            const d = new Date();
+                            d.setMinutes(d.getMinutes() + 30);
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+                          },
+                        },
+                        {
+                          label: '+1 hora',
+                          calc: () => {
+                            const d = new Date();
+                            d.setHours(d.getHours() + 1);
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+                          },
+                        },
+                        {
+                          label: '+2 horas',
+                          calc: () => {
+                            const d = new Date();
+                            d.setHours(d.getHours() + 2);
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+                          },
+                        },
+                        {
+                          label: 'Hoje 18:00',
+                          calc: () => {
+                            const d = new Date();
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada('18:00');
+                          },
+                        },
+                        {
+                          label: 'Amanhã 09:00',
+                          calc: () => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 1);
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada('09:00');
+                          },
+                        },
+                        {
+                          label: 'Amanhã 14:00',
+                          calc: () => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 1);
+                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
+                            setHoraEntregaAgendada('14:00');
+                          },
+                        },
+                      ].map((item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={item.calc}
+                          className="px-1.5 py-0.5 rounded bg-white hover:bg-amber-100/60 border border-amber-300 text-[10px] font-bold text-amber-900 transition-colors shadow-2xs"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {dataEntregaAgendada && horaEntregaAgendada && (
+                    <div className="pt-1 border-t border-amber-200/60 flex items-center justify-between text-[11px] font-bold text-amber-900">
+                      <span>Entrega Programada:</span>
+                      <span className="font-mono bg-amber-200/60 px-1.5 py-0.5 rounded text-amber-950">
+                        {dataEntregaAgendada.split('-').reverse().join('/')} às {horaEntregaAgendada}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
+            </div>
+
+            {/* Payment Method & Delivery Totals */}
+            <div className="space-y-2.5 pt-2 border-t border-slate-100 text-xs">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
+                    <Coins className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Forma de Pagamento:</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const novoModo = !modoMultiploPagamento;
+                      setModoMultiploPagamento(novoModo);
+                      if (novoModo && pagamentosMultiplos.length === 0) {
+                        setPagamentosMultiplos([
+                          { id: 'pg_1', forma: formaPagamento, valor: total, trocoPara: trocoPara ? Number(trocoPara) : undefined },
+                        ]);
+                      } else if (novoModo && pagamentosMultiplos.length === 1 && pagamentosMultiplos[0].valor === 0) {
+                        setPagamentosMultiplos([
+                          { id: 'pg_1', forma: formaPagamento, valor: total, trocoPara: trocoPara ? Number(trocoPara) : undefined },
+                        ]);
+                      }
+                    }}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                      modoMultiploPagamento
+                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Split className="w-3 h-3" />
+                    <span>{modoMultiploPagamento ? '✓ Múltiplas Formas' : '+ Dividir Pagamento'}</span>
+                  </button>
+                </div>
+
+                {!modoMultiploPagamento ? (
+                  /* Modo Pagamento Único */
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-1">
+                      {(
+                        [
+                          ['DINHEIRO', 'Dinheiro'],
+                          ['PIX', 'Pix'],
+                          ['CARTAO_DEBITO', 'Débito'],
+                          ['CARTAO_CREDITO', 'Crédito'],
+                          ['A_PRAZO_FIADO', 'Fiado'],
+                        ] as const
+                      ).map(([tipo, label]) => (
+                        <button
+                          key={tipo}
+                          type="button"
+                          onClick={() => setFormaPagamento(tipo)}
+                          className={`px-1.5 py-1.5 rounded-md text-[11px] font-bold transition-all border ${
+                            formaPagamento === tipo
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {formaPagamento === 'DINHEIRO' && (
+                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2">
+                        <span className="text-emerald-900 font-bold text-xs">Troco para quanto?</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-bold text-emerald-800">R$</span>
+                          <input
+                            id="input-troco-para"
+                            type="number"
+                            value={trocoPara}
+                            onChange={(e) => setTrocoPara(e.target.value)}
+                            placeholder={total > 0 ? String(Math.ceil(total / 10) * 10) : '0'}
+                            className="w-20 px-2 py-0.5 rounded border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-[#eaecf0]"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Modo Múltiplas Formas de Pagamento */
+                  <div className="space-y-2 p-2.5 rounded-xl bg-purple-50/70 border border-purple-200">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-purple-900">
+                      <span>Distribuição dos Valores:</span>
+                      <span className="font-mono">Total: {formatarMoeda(total)}</span>
+                    </div>
+
+                    {/* Lista de formas adicionadas */}
+                    <div className="space-y-1.5">
+                      {pagamentosMultiplos.map((item, idx) => (
+                        <div
+                          key={item.id || idx}
+                          className="p-2 rounded-lg bg-white border border-purple-200 shadow-2xs space-y-1.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={item.forma}
+                              onChange={(e) =>
+                                handleAlterarPagamentoItem(idx, 'forma', e.target.value as FormaPagamento)
+                              }
+                              className="px-2 py-1 rounded border border-slate-300 text-xs font-bold bg-[#eaecf0] text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500 shrink-0"
+                            >
+                              <option value="DINHEIRO">Dinheiro</option>
+                              <option value="PIX">Pix</option>
+                              <option value="CARTAO_DEBITO">Cartão Débito</option>
+                              <option value="CARTAO_CREDITO">Cartão Crédito</option>
+                              <option value="A_PRAZO_FIADO">A Prazo / Fiado</option>
+                            </select>
+
+                            <div className="relative flex-1">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px]">
+                                R$
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={item.valor || ''}
+                                onChange={(e) =>
+                                  handleAlterarPagamentoItem(
+                                    idx,
+                                    'valor',
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                placeholder="0,00"
+                                className="w-full pl-7 pr-2 py-1 rounded border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handlePreencherRestante(idx)}
+                              title="Preencher restante do total nesta forma"
+                              className="px-2 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-900 text-[10px] font-bold border border-purple-300 shrink-0 transition-colors"
+                            >
+                              Completar
+                            </button>
+
+                            {pagamentosMultiplos.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoverFormaPagamento(idx)}
+                                className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
+                                title="Remover esta forma"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
+                          {item.forma === 'DINHEIRO' && (
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[10px]">
+                              <span className="text-slate-600 font-medium">Troco para este valor:</span>
+                              <div className="flex items-center gap-1">
+                                <span className="font-bold text-slate-500">R$</span>
+                                <input
+                                  type="number"
+                                  value={item.trocoPara || ''}
+                                  onChange={(e) =>
+                                    handleAlterarPagamentoItem(
+                                      idx,
+                                      'trocoPara',
+                                      e.target.value ? Number(e.target.value) : undefined
+                                    )
+                                  }
+                                  placeholder="0,00"
+                                  className="w-16 px-1.5 py-0.5 rounded border border-slate-300 text-[10px] font-bold bg-[#eaecf0]"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Botão Adicionar outra forma */}
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleAddFormaPagamento('PIX')}
+                        className="flex items-center gap-1 text-[10px] font-bold text-purple-700 hover:text-purple-900 transition-colors"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Adicionar outra forma</span>
+                      </button>
+
+                      {/* Status de Cobertura */}
+                      <div className="text-[10px] font-bold font-mono">
+                        {Math.abs(diferencaPagamento) < 0.01 ? (
+                          <span className="text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            100% Coberto ({formatarMoeda(somaPagamentosMultiplos)})
+                          </span>
+                        ) : diferencaPagamento > 0 ? (
+                          <span className="text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
+                            Falta {formatarMoeda(diferencaPagamento)}
+                          </span>
+                        ) : (
+                          <span className="text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
+                            Excesso {formatarMoeda(Math.abs(diferencaPagamento))}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Taxa de Entrega Personalizável & Desconto */}
               <div className="space-y-2 pt-1 border-t border-slate-100">

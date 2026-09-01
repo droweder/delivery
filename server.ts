@@ -21,10 +21,12 @@ import {
   ItemPedido,
   MovimentacaoEstoque,
   NotificacaoPush,
+  PagamentoItem,
   Pedido,
   Produto,
   PushSubscriptionData,
   SyncQueueItem,
+  TipoEntrega,
   TipoMovimentacaoEstoque,
   Usuario,
 } from './src/types.js';
@@ -131,19 +133,19 @@ function registrarMovimentacaoEstoque(dados: {
   try {
     const supabase = getSupabase();
     if (supabase) {
-      supabase.from('movimentacoes_estoque').insert([mov]).catch(() => {});
-      supabase
-        .from('produtos')
-        .update({
-          estoque_cheio: prod.estoqueCheio,
-          estoque_vazio: prod.estoqueVazio,
-          atualizado_em: new Date().toISOString(),
-        })
-        .eq('id', prod.id)
-        .catch(() => {});
-
-        }
-    } catch (e) {}
+      Promise.resolve(supabase.from('movimentacoes_estoque').insert([mov])).catch(() => {});
+      Promise.resolve(
+        supabase
+          .from('produtos')
+          .update({
+            estoque_cheio: prod.estoqueCheio,
+            estoque_vazio: prod.estoqueVazio,
+            atualizado_em: new Date().toISOString(),
+          })
+          .eq('id', prod.id)
+      ).catch(() => {});
+    }
+  } catch (e) {}
 
   return mov;
 }
@@ -533,7 +535,7 @@ async function dispararNotificacaoPush(
   try {
     const supabase = getSupabase();
     if (supabase) {
-      supabase.from('notificacoes_push').insert([notificacao]).catch(() => {});
+      Promise.resolve(supabase.from('notificacoes_push').insert([notificacao])).catch(() => {});
     }
   } catch (e) {
     // Modo fallback
@@ -659,12 +661,15 @@ app.use(express.json());
 
     empresas.push(novaEmpresa);
 
-    // 1. Criação Automática do Usuário Administrador (Master) da Empresa
+    // 1. Criação Automática do Usuário Administrador (Master) da Empresa (Supabase Auth Ready)
     const adminData = dados.adminInicial || {};
     const adminNome = adminData.nome?.trim() || `Admin ${novaEmpresa.nomeFantasia}`;
-    const adminEmail = adminData.email?.trim().toLowerCase() || dados.email?.trim().toLowerCase() || '';
     const cleanFantasia = novaEmpresa.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const adminLogin = adminData.login?.trim().toLowerCase() || adminEmail || (cleanFantasia ? `admin_${cleanFantasia}` : `admin_${empresaId}`);
+    let adminEmail = (adminData.email || adminData.login || dados.email || '').trim().toLowerCase();
+    if (!adminEmail || !adminEmail.includes('@')) {
+      adminEmail = `admin@${cleanFantasia || novaEmpresa.id}.com.br`;
+    }
+    const adminLogin = adminEmail;
     const adminSenha = adminData.senha?.trim() || 'Admin@123';
     const adminPin = adminData.pinAcesso?.trim() || Math.floor(1000 + Math.random() * 9000).toString();
     const adminTelefone = adminData.telefone?.trim() || dados.telefone?.trim() || '';
@@ -748,11 +753,11 @@ app.use(express.json());
     };
     produtos.push(prodGas, prodAgua);
 
-    // 3. Sincronização assíncrona com Supabase se configurado
+    // 3. Sincronização com Supabase se configurado
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase
+        await supabase
           .from('empresas')
           .insert([
             {
@@ -777,11 +782,9 @@ app.use(express.json());
               observacoes: novaEmpresa.observacoes,
               configuracoes: novaEmpresa.configuracoes,
             },
-          ])
-          .then(() => {})
-          .catch((e: any) => console.warn('[Supabase] Erro ao salvar empresa:', e.message));
+          ]);
 
-        supabase
+        await supabase
           .from('usuarios')
           .insert([
             {
@@ -798,11 +801,9 @@ app.use(express.json());
               ativo: true,
               permissoes: novoUsuarioAdmin.permissoes,
             },
-          ])
-          .then(() => {})
-          .catch((e: any) => console.warn('[Supabase] Erro ao salvar usuário admin:', e.message));
+          ]);
 
-        supabase
+        await supabase
           .from('bairros_taxas')
           .insert([
             {
@@ -813,11 +814,9 @@ app.use(express.json());
               tempo_medio_min: bairroCentro.tempoMedioMin,
               ativo: true,
             },
-          ])
-          .then(() => {})
-          .catch(() => {});
+          ]);
 
-        supabase
+        await supabase
           .from('produtos')
           .insert([
             {
@@ -854,12 +853,10 @@ app.use(express.json());
               permite_venda_casco: prodAgua.permiteVendaCasco,
               mais_utilizado: true,
             },
-          ])
-          .then(() => {})
-          .catch(() => {});
+          ]);
       }
     } catch (err: any) {
-      console.error('[Supabase Sync Error]:', err.message);
+      console.warn('[Supabase Sync Error]:', err?.message || err);
     }
 
     res.status(201).json({
@@ -881,7 +878,7 @@ app.use(express.json());
     });
   });
 
-  app.put('/api/empresas/:id', (req, res) => {
+  app.put('/api/empresas/:id', async (req, res) => {
     const { id } = req.params;
     const emp = empresas.find((e) => e.id === id);
     if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
@@ -906,6 +903,7 @@ app.use(express.json());
     if (dados.valorMensalidade !== undefined) emp.valorMensalidade = Number(dados.valorMensalidade);
     if (dados.observacoes !== undefined) emp.observacoes = dados.observacoes;
     if (dados.configuracoes !== undefined) emp.configuracoes = { ...emp.configuracoes, ...dados.configuracoes };
+    emp.ultimoAcesso = new Date().toISOString();
 
     // Atualização opcional do Administrador Master da Empresa existente
     let usuarioAdminAtualizado: Usuario | null = null;
@@ -915,20 +913,22 @@ app.use(express.json());
     if (adminData) {
       let adminUsr = usuarios.find((u) => u.empresaId === emp.id && (u.perfil === 'ADMIN' || u.perfil === 'GERENTE'));
       const adminNome = adminData.nome?.trim();
-      const adminEmail = adminData.email?.trim().toLowerCase();
-      const adminLogin = adminData.login?.trim().toLowerCase();
+      const adminEmail = (adminData.email || adminData.login || '').trim().toLowerCase();
+      const adminLogin = adminEmail || adminData.login?.trim().toLowerCase();
       const adminSenha = adminData.senha?.trim();
       const adminPin = adminData.pinAcesso?.trim();
       const adminTelefone = adminData.telefone?.trim();
 
       if (!adminUsr) {
         // Se a empresa ainda não tinha um admin cadastrado, cria um agora
+        const cleanFantasia = emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const emailFinal = adminEmail || emp.email || `admin@${cleanFantasia || emp.id}.com.br`;
         adminUsr = {
           id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
           empresaId: emp.id,
           nome: adminNome || `Admin ${emp.nomeFantasia}`,
-          login: adminLogin || adminEmail || `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-          email: adminEmail || emp.email || '',
+          login: emailFinal,
+          email: emailFinal,
           senha: adminSenha || 'Admin@123',
           pinAcesso: adminPin || '1234',
           telefone: adminTelefone || emp.telefone || '',
@@ -953,8 +953,12 @@ app.use(express.json());
         usuarios.push(adminUsr);
       } else {
         if (adminNome) adminUsr.nome = adminNome;
-        if (adminLogin) adminUsr.login = adminLogin;
-        if (adminEmail) adminUsr.email = adminEmail;
+        if (adminEmail) {
+          adminUsr.email = adminEmail;
+          adminUsr.login = adminEmail;
+        } else if (adminLogin) {
+          adminUsr.login = adminLogin;
+        }
         if (adminTelefone !== undefined) adminUsr.telefone = adminTelefone;
         if (adminPin) adminUsr.pinAcesso = adminPin;
         if (adminSenha) adminUsr.senha = adminSenha;
@@ -982,7 +986,7 @@ app.use(express.json());
       try {
         const supabase = getSupabase();
         if (supabase) {
-          supabase
+          await supabase
             .from('usuarios')
             .upsert([
               {
@@ -999,45 +1003,71 @@ app.use(express.json());
                 ativo: adminUsr.ativo,
                 permissoes: adminUsr.permissoes,
               },
-            ])
-            .then(() => {})
-            .catch((e: any) => console.warn('[Supabase] Erro ao atualizar admin da empresa:', e.message));
+            ]);
         }
-      } catch (e) {}
+      } catch (e: any) {
+        console.warn('[Supabase] Erro ao atualizar admin da empresa:', e.message);
+      }
     }
 
-    // Sincroniza empresa no Supabase
+    // Sincroniza empresa no Supabase com resiliência
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase
+        const payloadCompleto: any = {
+          razao_social: emp.razaoSocial,
+          nome_fantasia: emp.nomeFantasia,
+          cnpj: emp.cnpj,
+          telefone: emp.telefone,
+          email: emp.email,
+          cep: emp.cep,
+          cidade: emp.cidade,
+          estado: emp.estado,
+          endereco: emp.endereco,
+          numero: emp.numero,
+          bairro: emp.bairro,
+          complemento: emp.complemento,
+          plano: emp.plano,
+          status: emp.status,
+          limite_usuarios: emp.limiteUsuarios,
+          limite_pedidos_mes: emp.limitePedidosMes,
+          valor_mensalidade: emp.valorMensalidade,
+          observacoes: emp.observacoes,
+          configuracoes: emp.configuracoes,
+          ultimo_acesso: emp.ultimoAcesso,
+        };
+
+        const { error: updateError } = await supabase
           .from('empresas')
-          .update({
-            razao_social: emp.razaoSocial,
-            nome_fantasia: emp.nomeFantasia,
-            cnpj: emp.cnpj,
-            telefone: emp.telefone,
-            email: emp.email,
-            cep: emp.cep,
-            cidade: emp.cidade,
-            estado: emp.estado,
-            endereco: emp.endereco,
-            numero: emp.numero,
-            bairro: emp.bairro,
-            complemento: emp.complemento,
-            plano: emp.plano,
-            status: emp.status,
-            limite_usuarios: emp.limiteUsuarios,
-            limite_pedidos_mes: emp.limitePedidosMes,
-            valor_mensalidade: emp.valorMensalidade,
-            observacoes: emp.observacoes,
-            configuracoes: emp.configuracoes,
-          })
-          .eq('id', emp.id)
-          .then(() => {})
-          .catch((e: any) => console.warn('[Supabase] Erro ao atualizar empresa:', e.message));
+          .update(payloadCompleto)
+          .eq('id', emp.id);
+
+        if (updateError) {
+          console.warn('[Supabase] Tentando update com campos essenciais:', updateError.message);
+          // Fallback para schema anterior caso alguma coluna customizada não exista ainda
+          await supabase
+            .from('empresas')
+            .update({
+              razao_social: emp.razaoSocial,
+              nome_fantasia: emp.nomeFantasia,
+              cnpj: emp.cnpj,
+              telefone: emp.telefone,
+              email: emp.email,
+              cidade: emp.cidade,
+              estado: emp.estado,
+              endereco: emp.endereco,
+              plano: emp.plano,
+              status: emp.status,
+              limite_usuarios: emp.limiteUsuarios,
+              limite_pedidos_mes: emp.limitePedidosMes,
+              valor_mensalidade: emp.valorMensalidade,
+            })
+            .eq('id', emp.id);
+        }
       }
-    } catch (e) {}
+    } catch (e: any) {
+      console.warn('[Supabase] Erro ao sincronizar empresa:', e.message);
+    }
 
     res.json({
       sucesso: true,
@@ -1118,14 +1148,15 @@ app.use(express.json());
 
     const novaSenha = senha?.trim() || Math.random().toString(36).slice(-8) + '!';
     const novoPin = pinAcesso?.trim() || Math.floor(1000 + Math.random() * 9000).toString();
+    const emailFinal = (email || login || emp.email || '').trim().toLowerCase();
 
     if (!admin) {
       admin = {
         id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         empresaId: emp.id,
         nome: nome?.trim() || `Admin ${emp.nomeFantasia}`,
-        login: login?.trim().toLowerCase() || email?.trim().toLowerCase() || `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-        email: email?.trim().toLowerCase() || emp.email || '',
+        login: emailFinal || `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        email: emailFinal || emp.email || '',
         senha: novaSenha,
         pinAcesso: novoPin,
         telefone: telefone?.trim() || emp.telefone || '',
@@ -1150,8 +1181,10 @@ app.use(express.json());
       usuarios.push(admin);
     } else {
       if (nome) admin.nome = nome.trim();
-      if (login) admin.login = login.trim().toLowerCase();
-      if (email) admin.email = email.trim().toLowerCase();
+      if (emailFinal) {
+        admin.email = emailFinal;
+        admin.login = emailFinal;
+      }
       if (telefone !== undefined) admin.telefone = telefone.trim();
       admin.senha = novaSenha;
       admin.pinAcesso = novoPin;
@@ -1162,7 +1195,7 @@ app.use(express.json());
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase
+        await supabase
           .from('usuarios')
           .upsert([
             {
@@ -1179,11 +1212,11 @@ app.use(express.json());
               ativo: true,
               permissoes: admin.permissoes,
             },
-          ])
-          .then(() => {})
-          .catch((e: any) => console.warn('[Supabase] Erro ao redefinir acesso:', e.message));
+          ]);
       }
-    } catch (e) {}
+    } catch (e: any) {
+      console.warn('[Supabase] Erro ao redefinir acesso:', e?.message || e);
+    }
 
     res.json({
       sucesso: true,
@@ -1699,7 +1732,7 @@ app.use(express.json());
     res.json(resultado);
   });
 
-  app.post('/api/bairros', (req, res) => {
+  app.post('/api/bairros', async (req, res) => {
     const empId = getTargetEmpresaId(req) || 'emp1';
     const { nome, taxaEntrega, tempoMedioMin, ativo = true } = req.body;
     if (!nome) return res.status(400).json({ error: 'Nome do bairro é obrigatório' });
@@ -1714,25 +1747,29 @@ app.use(express.json());
     };
     bairros.push(novoBairro);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('bairros_taxas').upsert([{
-        id: novoBairro.id,
-        empresa_id: novoBairro.empresaId,
-        nome: novoBairro.nome,
-        taxa_entrega: novoBairro.taxaEntrega,
-        taxa: novoBairro.taxaEntrega,
-        tempo_medio_min: novoBairro.tempoMedioMin,
-        prazo_estimado: novoBairro.tempoMedioMin,
-        ativo: novoBairro.ativo,
-        status: novoBairro.ativo ? 'ATIVO' : 'INATIVO'
-      }]).catch((err: any) => console.warn('[Supabase Sync] Erro bairro:', err.message));
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('bairros_taxas').upsert([{
+          id: novoBairro.id,
+          empresa_id: novoBairro.empresaId,
+          nome: novoBairro.nome,
+          taxa_entrega: novoBairro.taxaEntrega,
+          taxa: novoBairro.taxaEntrega,
+          tempo_medio_min: novoBairro.tempoMedioMin,
+          prazo_estimado: novoBairro.tempoMedioMin,
+          ativo: novoBairro.ativo,
+          status: novoBairro.ativo ? 'ATIVO' : 'INATIVO'
+        }]);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro bairro:', err?.message || err);
     }
 
     res.status(201).json(novoBairro);
   });
 
-  app.put('/api/bairros/:id', (req, res) => {
+  app.put('/api/bairros/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const bairro = bairros.find((b) => b.id === id);
@@ -1747,23 +1784,27 @@ app.use(express.json());
     if (tempoMedioMin !== undefined) bairro.tempoMedioMin = Number(tempoMedioMin);
     if (ativo !== undefined) bairro.ativo = Boolean(ativo);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('bairros_taxas').update({
-        nome: bairro.nome,
-        taxa_entrega: bairro.taxaEntrega,
-        taxa: bairro.taxaEntrega,
-        tempo_medio_min: bairro.tempoMedioMin,
-        prazo_estimado: bairro.tempoMedioMin,
-        ativo: bairro.ativo,
-        status: bairro.ativo ? 'ATIVO' : 'INATIVO'
-      }).eq('id', id).catch(() => {});
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('bairros_taxas').update({
+          nome: bairro.nome,
+          taxa_entrega: bairro.taxaEntrega,
+          taxa: bairro.taxaEntrega,
+          tempo_medio_min: bairro.tempoMedioMin,
+          prazo_estimado: bairro.tempoMedioMin,
+          ativo: bairro.ativo,
+          status: bairro.ativo ? 'ATIVO' : 'INATIVO'
+        }).eq('id', id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro update bairro:', err?.message || err);
     }
 
     res.json(bairro);
   });
 
-  app.delete('/api/bairros/:id', (req, res) => {
+  app.delete('/api/bairros/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = bairros.findIndex((b) => b.id === id);
@@ -1773,10 +1814,12 @@ app.use(express.json());
     }
 
     const [removido] = bairros.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('bairros_taxas').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('bairros_taxas').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true, bairro: removido });
   });
 
@@ -1787,7 +1830,7 @@ app.use(express.json());
     res.json(resultado);
   });
 
-  app.post('/api/produtos', (req, res) => {
+  app.post('/api/produtos', async (req, res) => {
     const dados = req.body;
     if (!dados.nome) {
       return res.status(400).json({ error: 'Nome do produto é obrigatório' });
@@ -1820,31 +1863,35 @@ app.use(express.json());
 
     produtos.push(novoProduto);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('produtos').upsert([{
-        id: novoProduto.id,
-        empresa_id: novoProduto.empresaId,
-        codigo: novoProduto.codigo,
-        nome: novoProduto.nome,
-        marca: novoProduto.marca,
-        unidade_medida: novoProduto.unidadeMedida,
-        categoria: novoProduto.categoria,
-        tipo_vasilhame: novoProduto.tipoVasilhame,
-        preco_recarga: novoProduto.precoRecarga,
-        preco_completo: novoProduto.precoCompleto,
-        estoque_cheio: novoProduto.estoqueCheio,
-        estoque_atual: novoProduto.estoqueCheio,
-        estoque_vazio: novoProduto.estoqueVazio,
-        estoque_minimo: novoProduto.estoqueMinimo,
-        ativo: true
-      }]).catch((err: any) => console.warn('[Supabase Sync] Erro produto:', err.message));
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('produtos').upsert([{
+          id: novoProduto.id,
+          empresa_id: novoProduto.empresaId,
+          codigo: novoProduto.codigo,
+          nome: novoProduto.nome,
+          marca: novoProduto.marca,
+          unidade_medida: novoProduto.unidadeMedida,
+          categoria: novoProduto.categoria,
+          tipo_vasilhame: novoProduto.tipoVasilhame,
+          preco_recarga: novoProduto.precoRecarga,
+          preco_completo: novoProduto.precoCompleto,
+          estoque_cheio: novoProduto.estoqueCheio,
+          estoque_atual: novoProduto.estoqueCheio,
+          estoque_vazio: novoProduto.estoqueVazio,
+          estoque_minimo: novoProduto.estoqueMinimo,
+          ativo: true
+        }]);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro produto:', err?.message || err);
     }
 
     res.status(201).json(novoProduto);
   });
 
-  app.put('/api/produtos/:id', (req, res) => {
+  app.put('/api/produtos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const dados = req.body;
@@ -1868,23 +1915,25 @@ app.use(express.json());
     if (dados.permiteVendaCasco !== undefined) prod.permiteVendaCasco = Boolean(dados.permiteVendaCasco);
     if (dados.maisUtilizado !== undefined) prod.maisUtilizado = Boolean(dados.maisUtilizado);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('produtos').update({
-        nome: prod.nome,
-        codigo: prod.codigo,
-        marca: prod.marca,
-        unidade_medida: prod.unidadeMedida,
-        categoria: prod.categoria,
-        tipo_vasilhame: prod.tipoVasilhame,
-        preco_recarga: prod.precoRecarga,
-        preco_completo: prod.precoCompleto,
-        estoque_cheio: prod.estoqueCheio,
-        estoque_atual: prod.estoqueCheio,
-        estoque_vazio: prod.estoqueVazio,
-        estoque_minimo: prod.estoqueMinimo,
-      }).eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('produtos').update({
+          nome: prod.nome,
+          codigo: prod.codigo,
+          marca: prod.marca,
+          unidade_medida: prod.unidadeMedida,
+          categoria: prod.categoria,
+          tipo_vasilhame: prod.tipoVasilhame,
+          preco_recarga: prod.precoRecarga,
+          preco_completo: prod.precoCompleto,
+          estoque_cheio: prod.estoqueCheio,
+          estoque_atual: prod.estoqueCheio,
+          estoque_vazio: prod.estoqueVazio,
+          estoque_minimo: prod.estoqueMinimo,
+        }).eq('id', id);
+      }
+    } catch (err: any) {}
 
     res.json(prod);
   });
@@ -2005,7 +2054,7 @@ app.use(express.json());
   app.post('/api/produtos/importar', handleImportacaoProdutos);
   app.post('/api/produtos/importar-erp', handleImportacaoProdutos);
 
-  app.delete('/api/produtos/:id', (req, res) => {
+  app.delete('/api/produtos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = produtos.findIndex((p) => p.id === id);
@@ -2015,10 +2064,12 @@ app.use(express.json());
     }
 
     produtos.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('produtos').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('produtos').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true });
   });
 
@@ -2114,7 +2165,7 @@ app.use(express.json());
     res.json(filtrados);
   });
 
-  app.post('/api/clientes', (req, res) => {
+  app.post('/api/clientes', async (req, res) => {
     const dados = req.body;
     const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
     const bairro = bairros.find((b) => b.id === dados.bairroId) || bairros[0];
@@ -2142,33 +2193,37 @@ app.use(express.json());
     };
     clientes.push(novoCliente);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('clientes').upsert([{
-        id: novoCliente.id,
-        empresa_id: novoCliente.empresaId,
-        nome: novoCliente.nome,
-        telefone: novoCliente.telefone,
-        cpf_cnpj: novoCliente.cpfCnpj,
-        email: novoCliente.email,
-        cep: novoCliente.cep,
-        endereco: novoCliente.endereco,
-        numero: novoCliente.numero,
-        complemento: novoCliente.complemento,
-        bairro_id: novoCliente.bairroId,
-        bairro_nome: novoCliente.bairroNome,
-        cidade: novoCliente.cidade,
-        estado: novoCliente.estado,
-        referencia: novoCliente.referencia,
-        lat: novoCliente.lat,
-        lng: novoCliente.lng,
-      }]).catch((err: any) => console.warn('[Supabase Sync] Erro cliente:', err.message));
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('clientes').upsert([{
+          id: novoCliente.id,
+          empresa_id: novoCliente.empresaId,
+          nome: novoCliente.nome,
+          telefone: novoCliente.telefone,
+          cpf_cnpj: novoCliente.cpfCnpj,
+          email: novoCliente.email,
+          cep: novoCliente.cep,
+          endereco: novoCliente.endereco,
+          numero: novoCliente.numero,
+          complemento: novoCliente.complemento,
+          bairro_id: novoCliente.bairroId,
+          bairro_nome: novoCliente.bairroNome,
+          cidade: novoCliente.cidade,
+          estado: novoCliente.estado,
+          referencia: novoCliente.referencia,
+          lat: novoCliente.lat,
+          lng: novoCliente.lng,
+        }]);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro cliente:', err?.message || err);
     }
 
     res.status(201).json(novoCliente);
   });
 
-  app.put('/api/clientes/:id', (req, res) => {
+  app.put('/api/clientes/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const cliente = clientes.find((c) => c.id === id);
@@ -2206,31 +2261,33 @@ app.use(express.json());
       };
     }
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('clientes').update({
-        nome: cliente.nome,
-        telefone: cliente.telefone,
-        cpf_cnpj: cliente.cpfCnpj,
-        email: cliente.email,
-        cep: cliente.cep,
-        endereco: cliente.endereco,
-        numero: cliente.numero,
-        complemento: cliente.complemento,
-        bairro_id: cliente.bairroId,
-        bairro_nome: cliente.bairroNome,
-        cidade: cliente.cidade,
-        estado: cliente.estado,
-        referencia: cliente.referencia,
-        lat: cliente.lat,
-        lng: cliente.lng,
-      }).eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('clientes').update({
+          nome: cliente.nome,
+          telefone: cliente.telefone,
+          cpf_cnpj: cliente.cpfCnpj,
+          email: cliente.email,
+          cep: cliente.cep,
+          endereco: cliente.endereco,
+          numero: cliente.numero,
+          complemento: cliente.complemento,
+          bairro_id: cliente.bairroId,
+          bairro_nome: cliente.bairroNome,
+          cidade: cliente.cidade,
+          estado: cliente.estado,
+          referencia: cliente.referencia,
+          lat: cliente.lat,
+          lng: cliente.lng,
+        }).eq('id', id);
+      }
+    } catch (err: any) {}
 
     res.json(cliente);
   });
 
-  app.delete('/api/clientes/:id', (req, res) => {
+  app.delete('/api/clientes/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = clientes.findIndex((c) => c.id === id);
@@ -2240,10 +2297,12 @@ app.use(express.json());
     }
 
     const [removido] = clientes.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('clientes').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('clientes').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true, cliente: removido });
   });
 
@@ -2260,7 +2319,7 @@ app.use(express.json());
     res.json(lista);
   });
 
-  app.post('/api/entregadores', (req, res) => {
+  app.post('/api/entregadores', async (req, res) => {
     const dados = req.body;
     if (!dados.nome) return res.status(400).json({ error: 'Nome do entregador é obrigatório' });
     const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
@@ -2281,17 +2340,21 @@ app.use(express.json());
 
     entregadores.push(novoEntregador);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('entregadores').upsert([{
-        id: novoEntregador.id,
-        empresa_id: novoEntregador.empresaId,
-        nome: novoEntregador.nome,
-        telefone: novoEntregador.telefone,
-        veiculo: novoEntregador.veiculo,
-        placa: novoEntregador.placa,
-        ativo: true
-      }]).catch((err: any) => console.warn('[Supabase Sync] Erro entregador:', err.message));
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('entregadores').upsert([{
+          id: novoEntregador.id,
+          empresa_id: novoEntregador.empresaId,
+          nome: novoEntregador.nome,
+          telefone: novoEntregador.telefone,
+          veiculo: novoEntregador.veiculo,
+          placa: novoEntregador.placa,
+          ativo: true
+        }]);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro entregador:', err?.message || err);
     }
 
     res.status(201).json(novoEntregador);
@@ -2317,7 +2380,7 @@ app.use(express.json());
     res.json(ent);
   });
 
-  app.delete('/api/entregadores/:id', (req, res) => {
+  app.delete('/api/entregadores/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = entregadores.findIndex((e) => e.id === id);
@@ -2327,10 +2390,12 @@ app.use(express.json());
     }
 
     const [removido] = entregadores.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('entregadores').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('entregadores').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true, entregador: removido });
   });
 
@@ -2344,7 +2409,7 @@ app.use(express.json());
     }
   });
 
-  app.post('/api/usuarios', (req, res) => {
+  app.post('/api/usuarios', async (req, res) => {
     const dados = req.body;
     if (!dados.nome || !dados.login) {
       return res.status(400).json({ error: 'Nome e login são obrigatórios' });
@@ -2428,19 +2493,23 @@ app.use(express.json());
 
     usuarios.push(novoUsuario);
 
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('usuarios').upsert([{
-        id: novoUsuario.id,
-        empresa_id: novoUsuario.empresaId,
-        nome: novoUsuario.nome,
-        login: novoUsuario.login,
-        email: novoUsuario.email,
-        perfil: novoUsuario.perfil,
-        cargo: novoUsuario.cargo,
-        ativo: novoUsuario.ativo,
-        pin_acesso: novoUsuario.pinAcesso,
-      }]).catch((err: any) => console.warn('[Supabase Sync] Erro usuario:', err.message));
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('usuarios').upsert([{
+          id: novoUsuario.id,
+          empresa_id: novoUsuario.empresaId,
+          nome: novoUsuario.nome,
+          login: novoUsuario.login,
+          email: novoUsuario.email,
+          perfil: novoUsuario.perfil,
+          cargo: novoUsuario.cargo,
+          ativo: novoUsuario.ativo,
+          pin_acesso: novoUsuario.pinAcesso,
+        }]);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase Sync] Erro usuario:', err?.message || err);
     }
 
     res.status(201).json(novoUsuario);
@@ -2485,7 +2554,7 @@ app.use(express.json());
     res.json(user);
   });
 
-  app.delete('/api/usuarios/:id', (req, res) => {
+  app.delete('/api/usuarios/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = usuarios.findIndex((u) => u.id === id);
@@ -2495,10 +2564,12 @@ app.use(express.json());
     }
 
     const [removido] = usuarios.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('usuarios').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('usuarios').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true, usuario: removido });
   });
 
@@ -2561,10 +2632,15 @@ app.use(express.json());
       taxaEntrega,
       desconto,
       formaPagamentoPrevista,
+      pagamentosPrevistos,
       formaPagamentoRealizada,
+      pagamentosRealizados,
       trocoPara,
       valorRecebido,
       observacoes,
+      tipoEntrega,
+      dataHoraEntregaAgendada,
+      previsaoMinutos,
       status,
       entregadorId,
       motivoAjuste,
@@ -2623,10 +2699,15 @@ app.use(express.json());
     pedido.total = Math.max(0, pedido.subtotal + pedido.taxaEntrega - pedido.desconto);
 
     if (formaPagamentoPrevista) pedido.formaPagamentoPrevista = formaPagamentoPrevista;
+    if (pagamentosPrevistos !== undefined) pedido.pagamentosPrevistos = pagamentosPrevistos;
     if (formaPagamentoRealizada) pedido.formaPagamentoRealizada = formaPagamentoRealizada;
+    if (pagamentosRealizados !== undefined) pedido.pagamentosRealizados = pagamentosRealizados;
     if (trocoPara !== undefined) pedido.trocoPara = trocoPara ? Number(trocoPara) : undefined;
     if (valorRecebido !== undefined) pedido.valorRecebido = valorRecebido ? Number(valorRecebido) : undefined;
     if (observacoes !== undefined) pedido.observacoes = observacoes;
+    if (tipoEntrega !== undefined) pedido.tipoEntrega = tipoEntrega;
+    if (dataHoraEntregaAgendada !== undefined) pedido.dataHoraEntregaAgendada = dataHoraEntregaAgendada;
+    if (previsaoMinutos !== undefined) pedido.previsaoMinutos = previsaoMinutos;
 
     // Atualização de status e entregador
     const statusAnterior = pedido.status;
@@ -2733,7 +2814,7 @@ app.use(express.json());
   });
 
   // 6.5 Excluir Pedido
-  app.delete('/api/pedidos/:id', (req, res) => {
+  app.delete('/api/pedidos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = pedidos.findIndex((p) => p.id === id);
@@ -2743,15 +2824,17 @@ app.use(express.json());
     }
 
     const [removido] = pedidos.splice(index, 1);
-    const supabase = getSupabase();
-    if (supabase) {
-      supabase.from('pedidos').delete().eq('id', id).catch(() => {});
-    }
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('pedidos').delete().eq('id', id);
+      }
+    } catch (err: any) {}
     res.json({ sucesso: true, pedido: removido });
   });
 
   // 7. PDV: Criar Novo Pedido
-  app.post('/api/pdv/pedidos', (req, res) => {
+  app.post('/api/pdv/pedidos', async (req, res) => {
     try {
       const empId = getTargetEmpresaId(req) || req.body.empresaId || 'emp1';
       const {
@@ -2760,8 +2843,12 @@ app.use(express.json());
         itens,
         taxaEntrega: taxaRecebida,
         formaPagamentoPrevista,
+        pagamentosPrevistos,
         trocoPara,
         observacoes,
+        tipoEntrega = 'IMEDIATA',
+        dataHoraEntregaAgendada,
+        previsaoMinutos,
         desconto = 0,
         emitidoPorId,
         emitidoPorNome,
@@ -2845,9 +2932,13 @@ app.use(express.json());
         taxaEntrega,
         desconto,
         total,
-        formaPagamentoPrevista,
+        formaPagamentoPrevista: formaPagamentoPrevista || (pagamentosPrevistos && pagamentosPrevistos[0]?.forma) || 'DINHEIRO',
+        pagamentosPrevistos: pagamentosPrevistos && pagamentosPrevistos.length > 0 ? pagamentosPrevistos : undefined,
         trocoPara: trocoPara ? Number(trocoPara) : undefined,
         observacoes,
+        tipoEntrega,
+        dataHoraEntregaAgendada,
+        previsaoMinutos,
         emitidoPorId: emitidoPorId || 'u3',
         emitidoPorNome: emitidoPorNome || 'Atendente PDV',
         emitidoPorPerfil: emitidoPorPerfil || 'ATENDENTE_PDV',
@@ -2858,29 +2949,33 @@ app.use(express.json());
 
       pedidos.unshift(novoPedido);
 
-      const supabase = getSupabase();
-      if (supabase) {
-        supabase.from('pedidos').upsert([{
-          id: novoPedido.id,
-          empresa_id: novoPedido.empresaId,
-          codigo: novoPedido.codigo,
-          numero_pedido: novoPedido.codigo,
-          cliente_id: novoPedido.clienteId,
-          status: novoPedido.status,
-          subtotal: novoPedido.subtotal,
-          taxa_entrega: novoPedido.taxaEntrega,
-          desconto: novoPedido.desconto,
-          total: novoPedido.total,
-          forma_pagamento_prevista: novoPedido.formaPagamentoPrevista,
-          troco_para: novoPedido.trocoPara,
-          observacoes: novoPedido.observacoes,
-          emitido_por_id: novoPedido.emitidoPorId,
-          emitido_por_nome: novoPedido.emitidoPorNome,
-          emitido_por_perfil: novoPedido.emitidoPorPerfil,
-          criado_em: novoPedido.criadoEm,
-          sincronizado: true,
-          versao: novoPedido.versao
-        }]).catch((err: any) => console.warn('[Supabase Sync] Erro pedido:', err.message));
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          await supabase.from('pedidos').upsert([{
+            id: novoPedido.id,
+            empresa_id: novoPedido.empresaId,
+            codigo: novoPedido.codigo,
+            numero_pedido: novoPedido.codigo,
+            cliente_id: novoPedido.clienteId,
+            status: novoPedido.status,
+            subtotal: novoPedido.subtotal,
+            taxa_entrega: novoPedido.taxaEntrega,
+            desconto: novoPedido.desconto,
+            total: novoPedido.total,
+            forma_pagamento_prevista: novoPedido.formaPagamentoPrevista,
+            troco_para: novoPedido.trocoPara,
+            observacoes: novoPedido.observacoes,
+            emitido_por_id: novoPedido.emitidoPorId,
+            emitido_por_nome: novoPedido.emitidoPorNome,
+            emitido_por_perfil: novoPedido.emitidoPorPerfil,
+            criado_em: novoPedido.criadoEm,
+            sincronizado: true,
+            versao: novoPedido.versao
+          }]);
+        }
+      } catch (err: any) {
+        console.warn('[Supabase Sync] Erro pedido:', err?.message || err);
       }
 
       res.status(201).json(novoPedido);
@@ -3358,6 +3453,9 @@ app.use(express.json());
       // 2. Aplicar as baixas nos pedidos
       pedido.status = 'ENTREGUE';
       pedido.formaPagamentoRealizada = syncItem.payload.formaPagamentoRealizada;
+      if (syncItem.payload.pagamentosRealizados && syncItem.payload.pagamentosRealizados.length > 0) {
+        pedido.pagamentosRealizados = syncItem.payload.pagamentosRealizados;
+      }
       pedido.valorRecebido = syncItem.payload.valorRecebido;
       pedido.entregueEm = syncItem.timestampOffline;
       pedido.origemOffline = true;
@@ -3402,7 +3500,7 @@ app.use(express.json());
   });
 
   // 11. Fechamento e Acerto de Caixa do Entregador
-  app.post('/api/acerto/fechamento', (req, res) => {
+  app.post('/api/acerto/fechamento', async (req, res) => {
     const {
       entregadorId,
       pedidosIds,
@@ -3428,16 +3526,29 @@ app.use(express.json());
       p.status = 'CONCLUIDO';
       p.concluidoEm = new Date().toISOString();
 
-      const forma = p.formaPagamentoRealizada || p.formaPagamentoPrevista;
-      const valor = p.valorRecebido || p.total;
+      const pagamentos: PagamentoItem[] =
+        p.pagamentosRealizados && p.pagamentosRealizados.length > 0
+          ? p.pagamentosRealizados
+          : p.pagamentosPrevistos && p.pagamentosPrevistos.length > 0
+          ? p.pagamentosPrevistos
+          : [
+              {
+                forma: p.formaPagamentoRealizada || p.formaPagamentoPrevista,
+                valor: p.valorRecebido || p.total,
+              },
+            ];
 
-      if (forma === 'DINHEIRO') {
-        totalDinheiroEsperado += p.total;
-      } else if (forma === 'PIX') {
-        totalPix += valor;
-      } else if (forma === 'CARTAO_DEBITO' || forma === 'CARTAO_CREDITO') {
-        totalCartao += valor;
-      }
+      pagamentos.forEach((pg) => {
+        const f = pg.forma;
+        const v = Number(pg.valor) || 0;
+        if (f === 'DINHEIRO') {
+          totalDinheiroEsperado += v;
+        } else if (f === 'PIX') {
+          totalPix += v;
+        } else if (f === 'CARTAO_DEBITO' || f === 'CARTAO_CREDITO') {
+          totalCartao += v;
+        }
+      });
 
       p.itens.forEach((it) => {
         if (it.tipoVasilhame === 'P13') {
@@ -3486,7 +3597,7 @@ app.use(express.json());
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase.from('fechamentos_caixa').insert([fechamento]).catch(() => {});
+        await supabase.from('fechamentos_caixa').insert([fechamento]);
       }
     } catch (e) {}
 

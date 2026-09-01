@@ -28,6 +28,13 @@ export function gerarTextoComandaTermica(pedido: Pedido): string {
   txt += `${linha}\n`;
   txt += `PEDIDO: ${pedido.codigo}    DATA: ${formatarDataHora(pedido.criadoEm)}\n`;
   txt += `STATUS: ${pedido.status}\n`;
+
+  if (pedido.tipoEntrega === 'AGENDADA' && pedido.dataHoraEntregaAgendada) {
+    txt += `[!] ENTREGA AGENDADA: ${formatarDataHora(pedido.dataHoraEntregaAgendada)}\n`;
+  } else {
+    txt += `TIPO: ENTREGA IMEDIATA\n`;
+  }
+
   if (pedido.entregadorNome) {
     txt += `ENTREGADOR: ${pedido.entregadorNome}\n`;
   }
@@ -64,12 +71,25 @@ export function gerarTextoComandaTermica(pedido: Pedido): string {
   }
   txt += `TOTAL A PAGAR:               ${formatarMoeda(pedido.total).padStart(12, ' ')}\n`;
   txt += `${linhaDiv}\n`;
-  txt += `FORMA PAGTO: ${pedido.formaPagamentoPrevista}\n`;
-  if (pedido.trocoPara && pedido.formaPagamentoPrevista === 'DINHEIRO') {
-    const troco = pedido.trocoPara - pedido.total;
-    txt += `PAGTO EM DINHEIRO: LEVAR TROCO P/ ${formatarMoeda(pedido.trocoPara)}\n`;
-    txt += `VALOR DO TROCO A DEVOLVER: ${formatarMoeda(troco)}\n`;
+
+  if (pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 1) {
+    txt += `FORMA PAGTO: MULTIPLAS FORMAS (${pedido.pagamentosPrevistos.length})\n`;
+    pedido.pagamentosPrevistos.forEach((pg, i) => {
+      txt += `  ${i + 1}. ${pg.forma}: ${formatarMoeda(pg.valor)}`;
+      if (pg.forma === 'DINHEIRO' && pg.trocoPara) {
+        txt += ` (Troco p/ ${formatarMoeda(pg.trocoPara)} -> Devolver ${formatarMoeda(pg.trocoPara - pg.valor)})`;
+      }
+      txt += `\n`;
+    });
+  } else {
+    txt += `FORMA PAGTO: ${pedido.formaPagamentoPrevista}\n`;
+    if (pedido.trocoPara && pedido.formaPagamentoPrevista === 'DINHEIRO') {
+      const troco = pedido.trocoPara - pedido.total;
+      txt += `PAGTO EM DINHEIRO: LEVAR TROCO P/ ${formatarMoeda(pedido.trocoPara)}\n`;
+      txt += `VALOR DO TROCO A DEVOLVER: ${formatarMoeda(troco)}\n`;
+    }
   }
+
   if (pedido.observacoes) {
     txt += `OBS: ${pedido.observacoes}\n`;
   }
@@ -121,6 +141,11 @@ export function imprimirComanda(pedido: Pedido) {
           <span>${formatarDataHora(pedido.criadoEm)}</span>
         </div>
         <div><strong>Status:</strong> ${pedido.status}</div>
+        ${
+          pedido.tipoEntrega === 'AGENDADA' && pedido.dataHoraEntregaAgendada
+            ? `<div class="box-aviso">⏰ ENTREGA AGENDADA: ${formatarDataHora(pedido.dataHoraEntregaAgendada)}</div>`
+            : '<div><strong>Entrega:</strong> Imediata</div>'
+        }
         ${pedido.entregadorNome ? `<div><strong>Entregador:</strong> ${pedido.entregadorNome}</div>` : ''}
         
         <div class="divider"></div>
@@ -161,11 +186,34 @@ export function imprimirComanda(pedido: Pedido) {
         </div>
         
         <div class="divider"></div>
-        <div class="bold">FORMA DE PAGAMENTO: ${pedido.formaPagamentoPrevista}</div>
         ${
-          pedido.trocoPara && pedido.formaPagamentoPrevista === 'DINHEIRO'
-            ? `<div class="box-aviso">LEVAR TROCO P/ ${formatarMoeda(pedido.trocoPara)} (TROCO: ${formatarMoeda(pedido.trocoPara - pedido.total)})</div>`
-            : ''
+          pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 1
+            ? `
+          <div class="bold">FORMA DE PAGTO: MULTIPLAS (${pedido.pagamentosPrevistos.length})</div>
+          ${pedido.pagamentosPrevistos
+            .map(
+              (p) => `
+            <div class="flex-between" style="font-size: 11px;">
+              <span>• ${p.forma}:</span>
+              <span>${formatarMoeda(p.valor)}</span>
+            </div>
+            ${
+              p.forma === 'DINHEIRO' && p.trocoPara
+                ? `<div style="font-size: 10px; padding-left: 8px;">Troco p/ ${formatarMoeda(p.trocoPara)} (Devolver: ${formatarMoeda(p.trocoPara - p.valor)})</div>`
+                : ''
+            }
+          `
+            )
+            .join('')}
+        `
+            : `
+          <div class="bold">FORMA DE PAGAMENTO: ${pedido.formaPagamentoPrevista}</div>
+          ${
+            pedido.trocoPara && pedido.formaPagamentoPrevista === 'DINHEIRO'
+              ? `<div class="box-aviso">LEVAR TROCO P/ ${formatarMoeda(pedido.trocoPara)} (TROCO: ${formatarMoeda(pedido.trocoPara - pedido.total)})</div>`
+              : ''
+          }
+        `
         }
         ${pedido.observacoes ? `<div><strong>OBS:</strong> ${pedido.observacoes}</div>` : ''}
         
