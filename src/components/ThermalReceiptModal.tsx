@@ -18,7 +18,7 @@ export const ThermalReceiptModal: React.FC<Props> = ({ pedido, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl overflow-hidden border border-slate-200 animate-scale-in"
+        className="relative w-full max-w-sm rounded-xl bg-[#eaecf0] shadow-2xl overflow-hidden border border-slate-200 animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Header */}
@@ -43,7 +43,7 @@ export const ThermalReceiptModal: React.FC<Props> = ({ pedido, onClose }) => {
 
         {/* Paper Receipt Simulation */}
         <div className="p-3 bg-slate-100 max-h-[65vh] overflow-y-auto">
-          <div className="bg-white p-3.5 rounded-lg shadow-xs border border-slate-200 font-mono text-[11px] text-slate-800 space-y-2.5">
+          <div className="bg-[#eaecf0] p-3.5 rounded-lg shadow-xs border border-slate-200 font-mono text-[11px] text-slate-800 space-y-2.5">
             <div className="text-center border-b border-dashed border-slate-300 pb-2">
               <div className="font-black text-xs tracking-wider uppercase text-slate-900">Logi-Gás Pro • Conveniência</div>
               <div className="text-[10px] text-slate-500">Água Mineral, Gás GLP & Bebidas</div>
@@ -151,7 +151,7 @@ export const ThermalReceiptModal: React.FC<Props> = ({ pedido, onClose }) => {
         </div>
 
         {/* Footer Actions */}
-        <div className="p-2.5 bg-white border-t border-slate-100 flex items-center justify-between gap-2">
+        <div className="p-2.5 bg-[#eaecf0] border-t border-slate-100 flex items-center justify-between gap-2">
           <button
             id="btn-close-thermal-dialog"
             onClick={onClose}

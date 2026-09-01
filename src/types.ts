@@ -81,6 +81,7 @@ export interface Usuario {
 
 export interface BairroTaxa {
   id: string;
+  empresaId?: string;
   nome: string;
   taxaEntrega: number;
   tempoMedioMin: number;
@@ -89,6 +90,7 @@ export interface BairroTaxa {
 
 export interface Cliente {
   id: string;
+  empresaId?: string;
   nome: string;
   telefone: string;
   cpfCnpj?: string;
@@ -114,6 +116,7 @@ export interface Cliente {
 
 export interface Produto {
   id: string;
+  empresaId?: string;
   codigo: string;
   nome: string;
   marca?: string;
@@ -133,6 +136,7 @@ export interface Produto {
 
 export interface ItemPedido {
   id: string;
+  empresaId?: string;
   produtoId: string;
   nomeProduto: string;
   categoria: CategoriaProduto;
@@ -148,6 +152,7 @@ export interface ItemPedido {
 
 export interface Pedido {
   id: string;
+  empresaId?: string;
   codigo: string; // Ex: #1042
   clienteId: string;
   cliente: Cliente;
@@ -190,6 +195,7 @@ export interface Pedido {
 
 export interface Entregador {
   id: string;
+  empresaId?: string;
   nome: string;
   telefone: string;
   veiculo: string; // 'Moto 01 (Honda Fan)', 'Carro 01 (Fiorino)'
@@ -203,6 +209,7 @@ export interface Entregador {
 
 export interface FechamentoCaixaEntregador {
   id: string;
+  empresaId?: string;
   entregadorId: string;
   entregadorNome: string;
   data: string;
@@ -297,6 +304,7 @@ export type TipoMovimentacaoEstoque =
 
 export interface MovimentacaoEstoque {
   id: string;
+  empresaId?: string;
   produtoId: string;
   produtoNome: string;
   tipoVasilhame: TipoVasilhame;

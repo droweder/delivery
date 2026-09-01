@@ -249,7 +249,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
       {balanco && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {/* Card P13 */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+          <div className="bg-[#eaecf0] p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-500 text-white shadow-xs">
@@ -299,7 +299,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
           </div>
 
           {/* Card Água 20L */}
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+          <div className="bg-[#eaecf0] p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-600 text-white shadow-xs">
@@ -381,7 +381,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
 
       {/* VIEW 1: Catálogo Geral de Produtos & Estoque */}
       {subTab === 'catalogo' && (
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <div className="bg-[#eaecf0] p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
             <div>
               <h3 className="font-black text-slate-900 text-xs sm:text-sm">
@@ -397,7 +397,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <button
                 onClick={() => setCategoriaFiltro('TODOS')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                  categoriaFiltro === 'TODOS' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                  categoriaFiltro === 'TODOS' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
                 Todos ({produtos.length})
@@ -405,7 +405,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <button
                 onClick={() => setCategoriaFiltro('GAS')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                  categoriaFiltro === 'GAS' ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-600'
+                  categoriaFiltro === 'GAS' ? 'bg-[#eaecf0] text-amber-800 shadow-xs' : 'text-slate-600'
                 }`}
               >
                 Gás
@@ -413,7 +413,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <button
                 onClick={() => setCategoriaFiltro('AGUA')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                  categoriaFiltro === 'AGUA' ? 'bg-white text-blue-800 shadow-xs' : 'text-slate-600'
+                  categoriaFiltro === 'AGUA' ? 'bg-[#eaecf0] text-blue-800 shadow-xs' : 'text-slate-600'
                 }`}
               >
                 Água
@@ -421,7 +421,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <button
                 onClick={() => setCategoriaFiltro('BEBIDAS')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                  categoriaFiltro === 'BEBIDAS' ? 'bg-white text-indigo-800 shadow-xs' : 'text-slate-600'
+                  categoriaFiltro === 'BEBIDAS' ? 'bg-[#eaecf0] text-indigo-800 shadow-xs' : 'text-slate-600'
                 }`}
               >
                 Bebidas
@@ -429,7 +429,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <button
                 onClick={() => setCategoriaFiltro('CONVENIENCIA')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                  categoriaFiltro === 'CONVENIENCIA' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                  categoriaFiltro === 'CONVENIENCIA' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
                 Conveniência
@@ -445,7 +445,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               value={buscaEstoque}
               onChange={(e) => setBuscaEstoque(e.target.value)}
               placeholder="Buscar por produto, marca, código ou medida..."
-              className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 font-medium"
+              className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 font-medium"
             />
             {buscaEstoque && (
               <button
@@ -473,7 +473,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                   <th className="p-2.5 text-center">Estoque Vazio (Base)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
                 {produtosFiltrados.map((prod) => (
                   <tr key={prod.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-2.5 text-center">
@@ -572,7 +572,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
 
       {/* VIEW 2: Livro-Razão & Histórico de Movimentações */}
       {subTab === 'historico' && (
-        <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <div className="bg-[#eaecf0] p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
             <div>
               <h3 className="font-black text-slate-900 text-xs sm:text-sm">
@@ -590,7 +590,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                   key={tipo}
                   onClick={() => setFiltroTipoMov(tipo)}
                   className={`px-2.5 py-1 rounded-md font-bold transition-all ${
-                    filtroTipoMov === tipo ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                    filtroTipoMov === tipo ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600'
                   }`}
                 >
                   {tipo.replace('_', ' ')}
@@ -611,7 +611,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                   <th className="p-2.5">Responsável / Motivo</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
                 {movimentacoes
                   .filter((m) => filtroTipoMov === 'TODOS' || m.tipoMovimentacao === filtroTipoMov)
                   .map((mov) => {
@@ -682,7 +682,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
       {/* Modal de Novo Ajuste / Entrada Manual de Vasilhames e Gás */}
       {modalAjusteAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2 text-emerald-800 font-black text-sm">
                 <Warehouse className="w-4 h-4 text-emerald-600" />

@@ -153,3 +153,29 @@ export function isCpf(doc: string = ''): boolean {
 export function isCepValido(cep: string = ''): boolean {
   return apenasDigitos(cep).length === 8;
 }
+
+export interface ViaCepEndereco {
+  cep: string;
+  logradouro: string;
+  complemento: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+}
+
+export async function buscarEnderecosPorRua(uf: string, cidade: string, rua: string): Promise<ViaCepEndereco[]> {
+  if (!uf || uf.length !== 2 || !cidade || rua.length < 3) return [];
+  
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${uf}/${encodeURIComponent(cidade)}/${encodeURIComponent(rua)}/json/`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return [];
+  } catch (error) {
+    console.warn("Erro ao buscar endereços viaCEP:", error);
+    return [];
+  }
+}

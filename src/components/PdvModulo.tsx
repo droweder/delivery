@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { LocationPickerMap } from './LocationPickerMap';
 import {
   BairroTaxa,
@@ -51,7 +51,7 @@ import {
   formatarCep,
   formatarCpfCnpj,
   formatarTelefone,
-  isCepValido,
+  isCepValido, buscarEnderecosPorRua, ViaCepEndereco,
   isCnpj,
   isCpf,
   tipoDocumento,
@@ -105,6 +105,10 @@ export const PdvModulo: React.FC<Props> = ({
   const [novoCpfCnpj, setNovoCpfCnpj] = useState('');
   const [novoCep, setNovoCep] = useState('');
   const [novoEndereco, setNovoEndereco] = useState('');
+  const [sugestoesEndereco, setSugestoesEndereco] = useState<ViaCepEndereco[]>([]);
+  const [buscandoSugestoes, setBuscandoSugestoes] = useState(false);
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [novoNumero, setNovoNumero] = useState('');
   const [novoComplemento, setNovoComplemento] = useState('');
   const [novoBairroId, setNovoBairroId] = useState(bairros[0]?.id || 'b1');
@@ -347,6 +351,35 @@ export const PdvModulo: React.FC<Props> = ({
     }
   };
 
+  const handleRuaChange = (rua: string) => {
+    setNovoEndereco(rua.toUpperCase());
+    if (rua.length < 3) {
+      setSugestoesEndereco([]);
+      setMostrarSugestoes(false);
+      return;
+    }
+    
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    timeoutRef.current = setTimeout(async () => {
+      setBuscandoSugestoes(true);
+      const res = await buscarEnderecosPorRua(novoEstado, novoCidade, rua);
+      setSugestoesEndereco(res);
+      setMostrarSugestoes(res.length > 0);
+      setBuscandoSugestoes(false);
+    }, 500);
+  };
+
+  const selecionarSugestaoEndereco = (end: ViaCepEndereco) => {
+    setNovoEndereco(end.logradouro.toUpperCase());
+    setNovoCep(formatarCep(end.cep));
+    
+    // Tenta encontrar o bairro pelo nome para selecionar no dropdown
+    const bairroMatch = bairros.find(b => end.bairro && (b.nome.toLowerCase().includes(end.bairro.toLowerCase()) || end.bairro.toLowerCase().includes(b.nome.toLowerCase())));
+    if (bairroMatch) setNovoBairroId(bairroMatch.id);
+    
+    setMostrarSugestoes(false);
+  };
   const handleCadastrarNovoCliente = (e: React.FormEvent) => {
     e.preventDefault();
     if (!novoNome || !novoTelefone || !novoEndereco || !novoNumero) {
@@ -365,8 +398,8 @@ export const PdvModulo: React.FC<Props> = ({
       endereco: novoEndereco,
       numero: novoNumero,
       complemento: novoComplemento,
-      bairroId: bairro.id,
-      bairroNome: bairro.nome,
+      bairroId: bairro?.id || 'bairro_padrao',
+      bairroNome: bairro?.nome || 'Bairro Genérico',
       referencia: novaReferencia,
       lat: novoLat,
       lng: novoLng,
@@ -474,7 +507,7 @@ export const PdvModulo: React.FC<Props> = ({
         {/* Left Column: Client Identification & Catalog (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
           {/* 1. SEÇÃO DO CLIENTE */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <div className="p-1 rounded bg-amber-100 text-amber-800">
@@ -518,7 +551,7 @@ export const PdvModulo: React.FC<Props> = ({
 
             {/* Quick autocomplete dropdown results */}
             {buscaCliente && !clienteSelecionado && clientesFiltrados.length > 0 && (
-              <div className="border border-slate-200 rounded-lg overflow-hidden shadow-md divide-y divide-slate-100 bg-white max-h-48 overflow-y-auto">
+              <div className="border border-slate-200 rounded-lg overflow-hidden shadow-md divide-y divide-slate-100 bg-[#eaecf0] max-h-48 overflow-y-auto">
                 {clientesFiltrados.map((c) => (
                   <div
                     key={c.id}
@@ -610,7 +643,7 @@ export const PdvModulo: React.FC<Props> = ({
           </div>
 
           {/* 2. CATÁLOGO DE PRODUTOS */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
             {/* Catalog Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -630,7 +663,7 @@ export const PdvModulo: React.FC<Props> = ({
                 value={buscaProduto}
                 onChange={(e) => setBuscaProduto(e.target.value)}
                 placeholder="Pesquisar produto por nome, marca, código, medida ou categoria..."
-                className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 transition-all font-medium"
+                className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 transition-all font-medium"
               />
               {buscaProduto && (
                 <button
@@ -667,11 +700,11 @@ export const PdvModulo: React.FC<Props> = ({
                       key={prod.id}
                       type="button"
                       onClick={() => adicionarAoCarrinho(prod, 'RECARGA')}
-                      className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md bg-white hover:bg-amber-100/60 border border-amber-200 text-slate-800 hover:text-amber-950 font-semibold text-[11px] shadow-2xs transition-all"
+                      className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#eaecf0] hover:bg-amber-100/60 border border-amber-200 text-slate-800 hover:text-amber-950 font-semibold text-[11px] shadow-2xs transition-all"
                       title={`Adicionar 1x ${prod.nome} (${formatarMoeda(prod.precoRecarga)})`}
                     >
                       <span className="text-amber-500 text-xs">⭐</span>
-                      <span className="truncate max-w-[130px] font-bold">{prod.nome.split('(')[0].trim()}</span>
+                      <span className="truncate max-w-[130px] font-bold">{prod.nome?.split('(')[0].trim()}</span>
                       <span className="text-emerald-700 font-bold">{formatarMoeda(prod.precoRecarga)}</span>
                     </button>
                   ))}
@@ -685,7 +718,7 @@ export const PdvModulo: React.FC<Props> = ({
                 type="button"
                 onClick={() => setCategoriaAtiva('TODOS')}
                 className={`px-2.5 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'TODOS' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  categoriaAtiva === 'TODOS' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Todos ({produtos.length})
@@ -708,7 +741,7 @@ export const PdvModulo: React.FC<Props> = ({
                 type="button"
                 onClick={() => setCategoriaAtiva('GAS')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'GAS' ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  categoriaAtiva === 'GAS' ? 'bg-[#eaecf0] text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Flame className="w-3 h-3 text-amber-600" /> Gás
@@ -718,7 +751,7 @@ export const PdvModulo: React.FC<Props> = ({
                 type="button"
                 onClick={() => setCategoriaAtiva('AGUA')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'AGUA' ? 'bg-white text-blue-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  categoriaAtiva === 'AGUA' ? 'bg-[#eaecf0] text-blue-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Droplet className="w-3 h-3 text-blue-600" /> Água
@@ -728,7 +761,7 @@ export const PdvModulo: React.FC<Props> = ({
                 type="button"
                 onClick={() => setCategoriaAtiva('BEBIDAS')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'BEBIDAS' ? 'bg-white text-indigo-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  categoriaAtiva === 'BEBIDAS' ? 'bg-[#eaecf0] text-indigo-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Beer className="w-3 h-3 text-indigo-600" /> Bebidas
@@ -738,7 +771,7 @@ export const PdvModulo: React.FC<Props> = ({
                 type="button"
                 onClick={() => setCategoriaAtiva('CONVENIENCIA')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'CONVENIENCIA' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  categoriaAtiva === 'CONVENIENCIA' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Package className="w-3 h-3 text-slate-600" /> Conveniência
@@ -887,7 +920,7 @@ export const PdvModulo: React.FC<Props> = ({
 
         {/* Right Column: Order Summary / Cart / Payment (5 cols) */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-4 sticky top-16">
+          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-4 sticky top-16">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-xs sm:text-sm">3. Resumo do Pedido</h3>
               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
@@ -931,7 +964,7 @@ export const PdvModulo: React.FC<Props> = ({
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="flex items-center border border-slate-300 rounded bg-white overflow-hidden">
+                        <div className="flex items-center border border-slate-300 rounded bg-[#eaecf0] overflow-hidden">
                           <button
                             onClick={() => alterarQuantidade(idx, -1)}
                             className="px-1 py-0.5 text-slate-600 hover:bg-slate-100"
@@ -1003,7 +1036,7 @@ export const PdvModulo: React.FC<Props> = ({
                       value={trocoPara}
                       onChange={(e) => setTrocoPara(e.target.value)}
                       placeholder={total > 0 ? String(Math.ceil(total / 10) * 10) : '0'}
-                      className="w-20 px-2 py-0.5 rounded border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+                      className="w-20 px-2 py-0.5 rounded border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-[#eaecf0]"
                     />
                   </div>
                 </div>
@@ -1032,7 +1065,7 @@ export const PdvModulo: React.FC<Props> = ({
                         value={taxaEntrega}
                         onChange={(e) => setTaxaEntrega(e.target.value)}
                         placeholder="0,00"
-                        className="w-full pl-8 pr-2 py-1 rounded-lg border border-slate-300 text-xs font-mono font-bold bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full pl-8 pr-2 py-1 rounded-lg border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                     <div className="flex items-center gap-1">
@@ -1077,7 +1110,7 @@ export const PdvModulo: React.FC<Props> = ({
                         value={desconto}
                         onChange={(e) => setDesconto(e.target.value)}
                         placeholder="0,00"
-                        className="w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-[#eaecf0] focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -1089,7 +1122,7 @@ export const PdvModulo: React.FC<Props> = ({
                       value={observacoes}
                       onChange={(e) => setObservacoes(e.target.value.toUpperCase())}
                       placeholder="Ex: interfone 204..."
-                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus:bg-[#eaecf0] focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -1153,7 +1186,7 @@ export const PdvModulo: React.FC<Props> = ({
           onClick={() => setModalNovoCliente(false)}
         >
           <div
-            className="w-full max-w-4xl rounded-xl bg-white shadow-xl border border-slate-200 overflow-hidden flex flex-col"
+            className="w-full max-w-4xl rounded-xl bg-[#eaecf0] shadow-xl border border-slate-200 overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
@@ -1198,10 +1231,10 @@ export const PdvModulo: React.FC<Props> = ({
                             }
                           }}
                           placeholder="CPF ou CNPJ"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {consultandoCnpj && (
-                          <div className="absolute right-2 top-6 flex items-center gap-1 text-blue-700 font-bold bg-white px-1 py-0.5 rounded">
+                          <div className="absolute right-2 top-6 flex items-center gap-1 text-blue-700 font-bold bg-[#eaecf0] px-1 py-0.5 rounded">
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           </div>
                         )}
@@ -1214,7 +1247,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoTelefone}
                           onChange={(e) => setNovoTelefone(formatarTelefone(e.target.value))}
                           placeholder="(11) 99999-9999"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -1225,7 +1258,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoNome}
                           onChange={(e) => setNovoNome(e.target.value.toUpperCase())}
                           placeholder="Nome do cliente ou empresa"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-white text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
@@ -1258,7 +1291,7 @@ export const PdvModulo: React.FC<Props> = ({
                               if (novoCep && isCepValido(novoCep)) handleConsultarCepClientePdv();
                             }}
                             placeholder="01001-000"
-                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-slate-950 font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-950 font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                           />
                           <button
                             type="button"
@@ -1270,15 +1303,36 @@ export const PdvModulo: React.FC<Props> = ({
                           </button>
                         </div>
                       </div>
-                      <div className="col-span-12 sm:col-span-8">
+                      <div className="col-span-12 sm:col-span-8 relative">
                         <label className="block font-bold text-slate-900 mb-1">Rua / Avenida *</label>
                         <input
                           type="text"
                           required
                           value={novoEndereco}
-                          onChange={(e) => setNovoEndereco(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          onChange={(e) => handleRuaChange(e.target.value)}
+                          onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
+                          onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
+                        {buscandoSugestoes && (
+                          <div className="absolute right-3 top-9">
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                          </div>
+                        )}
+                        {mostrarSugestoes && (
+                          <ul className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs">
+                            {sugestoesEndereco.map((sug, i) => (
+                              <li 
+                                key={i}
+                                onClick={() => selecionarSugestaoEndereco(sug)}
+                                className="px-3 py-2 hover:bg-slate-50 cursor-pointer flex flex-col"
+                              >
+                                <span className="font-bold text-slate-800">{sug.logradouro}</span>
+                                <span className="text-slate-500">{sug.bairro} - {sug.cep}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     </div>
 
@@ -1290,7 +1344,7 @@ export const PdvModulo: React.FC<Props> = ({
                           required
                           value={novoNumero}
                           onChange={(e) => setNovoNumero(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-8 sm:col-span-5">
@@ -1298,7 +1352,7 @@ export const PdvModulo: React.FC<Props> = ({
                         <select
                           value={novoBairroId}
                           onChange={(e) => setNovoBairroId(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         >
                           {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                         </select>
@@ -1310,14 +1364,14 @@ export const PdvModulo: React.FC<Props> = ({
                             type="text"
                             value={novoCidade}
                             onChange={(e) => setNovoCidade(e.target.value.toUpperCase())}
-                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs min-w-0"
+                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs min-w-0"
                           />
                           <input
                             type="text"
                             maxLength={2}
                             value={novoEstado}
                             onChange={(e) => setNovoEstado(e.target.value.toUpperCase())}
-                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-white font-bold shadow-xs shrink-0"
+                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs shrink-0"
                           />
                         </div>
                       </div>
@@ -1331,7 +1385,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoComplemento}
                           onChange={(e) => setNovoComplemento(e.target.value.toUpperCase())}
                           placeholder="Apto, Bloco..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-12 sm:col-span-7">
@@ -1340,7 +1394,7 @@ export const PdvModulo: React.FC<Props> = ({
                           type="text"
                           value={novaReferencia}
                           onChange={(e) => setNovaReferencia(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>

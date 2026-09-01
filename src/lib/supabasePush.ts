@@ -10,11 +10,12 @@ import { NotificacaoPush, PrioridadeNotificacao, TipoNotificacaoPush } from '../
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://xyzcompany.supabase.co';
 const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key';
 
-let supabaseClientInstance: SupabaseClient | null = null;
+let supabaseClientInstance: any = null;
 
-export function getSupabaseClient(): SupabaseClient {
+export function getSupabaseClient(): any {
   if (!supabaseClientInstance) {
     supabaseClientInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      db: { schema: 'delivery' },
       realtime: {
         params: {
           eventsPerSecond: 10,

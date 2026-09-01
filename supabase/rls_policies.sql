@@ -1,9 +1,12 @@
 -- ============================================================================
--- SUPABASE POSTGRESQL ROW LEVEL SECURITY (RLS) RULES
+-- SUPABASE POSTGRESQL ROW LEVEL SECURITY (RLS) POLICIES
 -- Schema: delivery
+-- Isolamento Estrito Multi-Tenant por Empresa
 -- ============================================================================
 
--- Ativar RLS em todas as tabelas
+SET search_path TO delivery, public;
+
+-- 1. HABILITAR RLS EM TODAS AS TABELAS
 ALTER TABLE delivery.empresas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery.usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery.bairros_taxas ENABLE ROW LEVEL SECURITY;
@@ -13,76 +16,122 @@ ALTER TABLE delivery.entregadores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery.pedidos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery.itens_pedido ENABLE ROW LEVEL SECURITY;
 ALTER TABLE delivery.movimentacoes_estoque ENABLE ROW LEVEL SECURITY;
+ALTER TABLE delivery.fechamentos_caixa ENABLE ROW LEVEL SECURITY;
 
--- Nota: Como o sistema utiliza a Service Role Key no Backend (Express),
--- o backend já possui acesso irrestrito. Estas regras protegem o acesso
--- caso chaves Anon sejam usadas no Frontend (ex: para Realtime ou Auth direto).
+-- 2. FUNÇÃO AUXILIAR PARA RECUPERAR O EMPRESA_ID E PERFIL DO USUÁRIO CONECTADO
+CREATE OR REPLACE FUNCTION delivery.get_current_user_empresa_id()
+RETURNS VARCHAR(36) AS $$
+  SELECT empresa_id FROM delivery.usuarios WHERE id = auth.uid()::text LIMIT 1;
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
--- ============================================================================
--- 1. POLÍTICAS DE ACESSO - EMPRESAS E USUÁRIOS
--- ============================================================================
+CREATE OR REPLACE FUNCTION delivery.is_current_user_super_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM delivery.usuarios WHERE id = auth.uid()::text AND perfil = 'SUPER_ADMIN'
+  );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
--- Usuários podem ler dados de empresas
-CREATE POLICY "Permitir leitura de empresas para autenticados" 
-ON delivery.empresas FOR SELECT 
-TO authenticated 
-USING (true);
+-- 3. REMOVER POLÍTICAS ANTIGAS SE EXISTIREM
+DROP POLICY IF EXISTS "Permitir leitura de empresas para autenticados" ON delivery.empresas;
+DROP POLICY IF EXISTS "Permitir leitura de usuários da mesma empresa" ON delivery.usuarios;
+DROP POLICY IF EXISTS "Permitir leitura de produtos" ON delivery.produtos;
+DROP POLICY IF EXISTS "Permitir leitura de bairros" ON delivery.bairros_taxas;
+DROP POLICY IF EXISTS "Permitir leitura de clientes" ON delivery.clientes;
+DROP POLICY IF EXISTS "Permitir leitura de entregadores" ON delivery.entregadores;
+DROP POLICY IF EXISTS "Impedir modificacao de cadastros por não-admins" ON delivery.produtos;
+DROP POLICY IF EXISTS "Permitir leitura de pedidos" ON delivery.pedidos;
+DROP POLICY IF EXISTS "Permitir leitura de itens do pedido" ON delivery.itens_pedido;
+DROP POLICY IF EXISTS "Entregador atualiza apenas seus próprios pedidos" ON delivery.pedidos;
 
--- Usuários podem ler apenas usuários da sua própria empresa
-CREATE POLICY "Permitir leitura de usuários da mesma empresa" 
-ON delivery.usuarios FOR SELECT 
-TO authenticated 
-USING (
-    empresa_id = (SELECT empresa_id FROM delivery.usuarios WHERE id = auth.uid()::text) 
-    OR auth.uid()::text IN (SELECT id FROM delivery.usuarios WHERE perfil = 'SUPER_ADMIN')
-);
+-- 4. POLÍTICAS DE ACESSO POR TABELA (ISOLAMENTO MULTI-TENANT 100%)
 
--- ============================================================================
--- 2. POLÍTICAS DE ACESSO - DADOS OPERACIONAIS (Produtos, Bairros, Clientes)
--- ============================================================================
-
--- Todos autenticados podem ler
-CREATE POLICY "Permitir leitura de produtos" ON delivery.produtos FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura de bairros" ON delivery.bairros_taxas FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura de clientes" ON delivery.clientes FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Permitir leitura de entregadores" ON delivery.entregadores FOR SELECT TO authenticated USING (true);
-
--- Apenas admins/gerentes podem modificar produtos, bairros e entregadores
--- (Isso normalmente será feito via backend, mas caso venha do frontend, a política impede)
-CREATE POLICY "Impedir modificacao de cadastros por não-admins" 
-ON delivery.produtos FOR ALL 
-TO authenticated 
-USING (
-    EXISTS (SELECT 1 FROM delivery.usuarios WHERE id = auth.uid()::text AND perfil IN ('SUPER_ADMIN', 'ADMIN', 'GERENTE'))
-);
-
--- ============================================================================
--- 3. POLÍTICAS DE ACESSO - PEDIDOS E ITENS
--- ============================================================================
-
--- Usuários e entregadores podem ler pedidos
-CREATE POLICY "Permitir leitura de pedidos" 
-ON delivery.pedidos FOR SELECT 
-TO authenticated 
-USING (true);
-
-CREATE POLICY "Permitir leitura de itens do pedido" 
-ON delivery.itens_pedido FOR SELECT 
-TO authenticated 
-USING (true);
-
--- Entregadores podem atualizar o status dos próprios pedidos atribuídos
-CREATE POLICY "Entregador atualiza apenas seus próprios pedidos"
-ON delivery.pedidos FOR UPDATE
+-- 4.1 EMPRESAS
+CREATE POLICY "Empresas: visualizacao restrita a sua empresa ou Super Admin"
+ON delivery.empresas FOR SELECT
 TO authenticated
 USING (
-    EXISTS (
-        SELECT 1 FROM delivery.usuarios 
-        WHERE id = auth.uid()::text 
-        AND (
-            perfil IN ('SUPER_ADMIN', 'ADMIN', 'GERENTE', 'ATENDENTE_PDV') OR 
-            (perfil = 'ENTREGADOR' AND entregador_id_vinculado = delivery.pedidos.entregador_id)
-        )
-    )
+  delivery.is_current_user_super_admin() OR id = delivery.get_current_user_empresa_id()
 );
 
+CREATE POLICY "Empresas: modificacao apenas por Super Admin ou Admin da empresa"
+ON delivery.empresas FOR UPDATE
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.2 USUÁRIOS
+CREATE POLICY "Usuarios: isolamento por empresa"
+ON delivery.usuarios FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id() OR id = auth.uid()::text
+);
+
+-- 4.3 BAIRROS E TAXAS
+CREATE POLICY "Bairros: isolamento por empresa"
+ON delivery.bairros_taxas FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.4 PRODUTOS
+CREATE POLICY "Produtos: isolamento por empresa"
+ON delivery.produtos FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.5 CLIENTES
+CREATE POLICY "Clientes: isolamento por empresa"
+ON delivery.clientes FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.6 ENTREGADORES
+CREATE POLICY "Entregadores: isolamento por empresa"
+ON delivery.entregadores FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.7 PEDIDOS
+CREATE POLICY "Pedidos: isolamento por empresa"
+ON delivery.pedidos FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.8 ITENS DO PEDIDO
+CREATE POLICY "ItensPedido: isolamento por empresa via pedido"
+ON delivery.itens_pedido FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR EXISTS (
+    SELECT 1 FROM delivery.pedidos p 
+    WHERE p.id = delivery.itens_pedido.pedido_id 
+    AND p.empresa_id = delivery.get_current_user_empresa_id()
+  )
+);
+
+-- 4.9 MOVIMENTAÇÕES DE ESTOQUE
+CREATE POLICY "MovimentacoesEstoque: isolamento por empresa"
+ON delivery.movimentacoes_estoque FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);
+
+-- 4.10 FECHAMENTOS DE CAIXA
+CREATE POLICY "FechamentosCaixa: isolamento por empresa"
+ON delivery.fechamentos_caixa FOR ALL
+TO authenticated
+USING (
+  delivery.is_current_user_super_admin() OR empresa_id = delivery.get_current_user_empresa_id()
+);

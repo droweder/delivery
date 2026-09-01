@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { LocationPickerMap } from './LocationPickerMap';
 import { BairroTaxa, Cliente, Entregador, Produto, TipoVasilhame, Usuario } from '../types';
 import { formatarMoeda } from '../lib/thermalPrinter';
@@ -43,7 +43,7 @@ import {
   formatarCep,
   formatarCpfCnpj,
   formatarTelefone,
-  isCepValido,
+  isCepValido, buscarEnderecosPorRua, ViaCepEndereco,
   isCnpj,
   isCpf,
   tipoDocumento,
@@ -113,6 +113,45 @@ export const CadastrosHub: React.FC<Props> = ({
   const [cepBairroBusca, setCepBairroBusca] = useState('');
   const [statusCnpjInfo, setStatusCnpjInfo] = useState<string | null>(null);
   const [erroCnpjInfo, setErroCnpjInfo] = useState<string | null>(null);
+  const [sugestoesEndereco, setSugestoesEndereco] = useState<ViaCepEndereco[]>([]);
+  const [buscandoSugestoes, setBuscandoSugestoes] = useState(false);
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleRuaChange = (rua: string) => {
+    setClienteModal({ ...clienteModal, endereco: rua.toUpperCase() });
+    if (rua.length < 3) {
+      setSugestoesEndereco([]);
+      setMostrarSugestoes(false);
+      return;
+    }
+    
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    timeoutRef.current = setTimeout(async () => {
+      setBuscandoSugestoes(true);
+      const estadoStr = clienteModal?.estado || 'SP';
+      const cidadeStr = clienteModal?.cidade || 'São Paulo';
+      const res = await buscarEnderecosPorRua(estadoStr, cidadeStr, rua);
+      setSugestoesEndereco(res);
+      setMostrarSugestoes(res.length > 0);
+      setBuscandoSugestoes(false);
+    }, 500);
+  };
+
+  const selecionarSugestaoEndereco = (end: ViaCepEndereco) => {
+    const cepFormatado = formatarCep(end.cep);
+    const bairroMatch = bairros.find(b => end.bairro && (b.nome.toLowerCase().includes(end.bairro.toLowerCase()) || end.bairro.toLowerCase().includes(b.nome.toLowerCase())));
+    
+    setClienteModal({
+      ...clienteModal,
+      endereco: end.logradouro.toUpperCase(),
+      cep: cepFormatado,
+      bairroId: bairroMatch ? bairroMatch.id : clienteModal?.bairroId,
+      bairroNome: bairroMatch ? bairroMatch.nome : (clienteModal?.bairroNome || end.bairro)
+    });
+    setMostrarSugestoes(false);
+  };
   const [notificacao, setNotificacao] = useState<{ tipo: 'sucesso' | 'erro' | 'aviso'; texto: string } | null>(null);
 
   const exibirNotificacao = (tipo: 'sucesso' | 'erro' | 'aviso', texto: string) => {
@@ -1235,16 +1274,37 @@ export const CadastrosHub: React.FC<Props> = ({
                           </button>
                         </div>
                       </div>
-                      <div className="col-span-12 sm:col-span-8">
+                      <div className="col-span-12 sm:col-span-8 relative">
                         <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Endereço (Rua / Av) *</label>
                         <input
                           type="text"
                           required
-                          value={clienteModal.endereco || ''}
-                          onChange={(e) => setClienteModal({ ...clienteModal, endereco: e.target.value.toUpperCase() })}
+                          value={clienteModal?.endereco || ""}
+                          onChange={(e) => handleRuaChange(e.target.value)}
+                          onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
+                          onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
                           placeholder="Rua das Palmeiras"
                           className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         />
+                        {buscandoSugestoes && (
+                          <div className="absolute right-3 top-10">
+                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                          </div>
+                        )}
+                        {mostrarSugestoes && (
+                          <ul className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 text-xs">
+                            {sugestoesEndereco.map((sug, i) => (
+                              <li 
+                                key={i}
+                                onClick={() => selecionarSugestaoEndereco(sug)}
+                                className="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer flex flex-col"
+                              >
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{sug.logradouro}</span>
+                                <span className="text-slate-500 dark:text-slate-400">{sug.bairro} - {sug.cep}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     </div>
 

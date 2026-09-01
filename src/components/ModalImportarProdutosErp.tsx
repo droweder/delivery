@@ -308,7 +308,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-fade-in">
+      <div className="bg-[#eaecf0] rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-fade-in">
         {/* Top Header */}
         <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -344,7 +344,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
             <button
               onClick={() => setModoAba('colar')}
               className={`px-3 py-1 rounded-md transition-all ${
-                modoAba === 'colar' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                modoAba === 'colar' ? 'bg-[#eaecf0] text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Colar Dados / Texto
@@ -352,7 +352,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
             <button
               onClick={() => setModoAba('arquivo')}
               className={`px-3 py-1 rounded-md transition-all ${
-                modoAba === 'arquivo' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                modoAba === 'arquivo' ? 'bg-[#eaecf0] text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Upload Arquivo CSV/Excel
@@ -390,7 +390,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                 value={textoColado}
                 onChange={(e) => processarTextoParaItens(e.target.value)}
                 placeholder="Cole aqui o conteúdo preenchido com base no modelo baixado...&#10;Exemplo:&#10;GAS-P13;Gás de Cozinha 13kg;Ultragaz;110.00;UN;GAS;P13;50;SIM&#10;BEB-HEIN-6;Cerveja Heineken Pack 6 un;Heineken;45.00;Pack c/ 6;BEBIDAS;NENHUM;40;SIM"
-                className="w-full font-mono text-[11px] p-3 rounded-lg border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800"
+                className="w-full font-mono text-[11px] p-3 rounded-lg border border-slate-300 bg-slate-50 focus:bg-[#eaecf0] focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-slate-800"
               />
             </div>
           )}
@@ -466,7 +466,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                       <th className="p-2.5 text-center">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200 bg-white">
+                  <tbody className="divide-y divide-slate-200 bg-[#eaecf0]">
                     {itensPrevia.map((item, idx) => (
                       <tr
                         key={idx}
@@ -561,7 +561,7 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
             <button
               type="button"
               onClick={fechar}
-              className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+              className="px-4 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
             >
               Cancelar
             </button>

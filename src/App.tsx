@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { CheckCircle2, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import {
   BairroTaxa,
   Cliente,
@@ -118,19 +119,68 @@ export default function App() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoComandaModal, setPedidoComandaModal] = useState<Pedido | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [syncFeedback, setSyncFeedback] = useState<{ tipo: 'sucesso' | 'erro' | 'info'; mensagem: string } | null>(null);
+  const [sincronizandoAgora, setSincronizandoAgora] = useState(false);
+
+  // Helper para requisições autenticadas com contexto de Tenant
+  const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const headers: Record<string, string> = {
+      ...(init.headers as Record<string, string> || {}),
+    };
+    if (empresaAtual?.id) {
+      headers['x-empresa-id'] = empresaAtual.id;
+    }
+    if (usuarioLogado?.id) {
+      headers['x-user-id'] = usuarioLogado.id;
+    }
+    return fetch(input, { ...init, headers });
+  };
 
   // Carrega todos os dados do backend
-  const carregarDadosServidor = async () => {
+  const carregarDadosServidor = async (forceSupabaseSync = false) => {
     try {
+      if (forceSupabaseSync) {
+        setSincronizandoAgora(true);
+        try {
+          const syncRes = await authFetch('/api/supabase/sync', { method: 'POST' });
+          if (syncRes.ok) {
+            const syncData = await syncRes.json();
+            if (syncData.success) {
+              setSyncFeedback({
+                tipo: 'sucesso',
+                mensagem: syncData.mensagem || 'Sincronizado com sucesso com o Supabase (Schema: delivery)!',
+              });
+            } else if (syncData.error) {
+              setSyncFeedback({
+                tipo: 'erro',
+                mensagem: `Erro no Supabase: ${syncData.error}`,
+              });
+            }
+          }
+        } catch (e: any) {
+          console.warn('Erro ao chamar sync do Supabase:', e);
+        } finally {
+          setSincronizandoAgora(false);
+        }
+      }
+
+      const headers: Record<string, string> = {};
+      if (empresaAtual?.id) {
+        headers['x-empresa-id'] = empresaAtual.id;
+      }
+      if (usuarioLogado?.id) {
+        headers['x-user-id'] = usuarioLogado.id;
+      }
+
       const [resBairros, resProdutos, resClientes, resEntregadores, resPedidos, resUsuarios, resEmpresas] =
         await Promise.all([
-          fetch('/api/bairros'),
-          fetch('/api/produtos'),
-          fetch('/api/clientes'),
-          fetch('/api/entregadores'),
-          fetch('/api/pedidos'),
-          fetch('/api/usuarios'),
-          fetch('/api/empresas'),
+          fetch('/api/bairros', { headers }),
+          fetch('/api/produtos', { headers }),
+          fetch('/api/clientes', { headers }),
+          fetch('/api/entregadores', { headers }),
+          fetch('/api/pedidos', { headers }),
+          fetch('/api/usuarios', { headers }),
+          fetch('/api/empresas', { headers }),
         ]);
 
       if (resBairros.ok) setBairros(await resBairros.json());
@@ -162,7 +212,7 @@ export default function App() {
     };
     window.addEventListener('sync-completed', handleSyncComplete);
     return () => window.removeEventListener('sync-completed', handleSyncComplete);
-  }, []);
+  }, [empresaAtual?.id]);
 
   // Handler de Login Sucesso
   const handleLoginSucesso = (usuario: Usuario, empresa?: Empresa | null) => {
@@ -232,7 +282,7 @@ export default function App() {
   };
 
   // Super Admin CRUD Empresa
-  const handleSalvarEmpresa = async (dadosEmpresa: Partial<Empresa> & { id?: string }) => {
+  const handleSalvarEmpresa = async (dadosEmpresa: any) => {
     const isEdicao = Boolean(dadosEmpresa.id);
     const url = isEdicao ? `/api/empresas/${dadosEmpresa.id}` : '/api/empresas';
     const method = isEdicao ? 'PUT' : 'POST';
@@ -249,11 +299,14 @@ export default function App() {
     }
 
     const saved = await res.json();
-    if (empresaAtual && empresaAtual.id === saved.id) {
-      setEmpresaAtual(saved);
-      setEmpresaNome(saved.nomeFantasia);
+    const empId = saved.empresa?.id || saved.id;
+    if (empresaAtual && empresaAtual.id === empId) {
+      const empresaSalva = saved.empresa || saved;
+      setEmpresaAtual(empresaSalva);
+      setEmpresaNome(empresaSalva.nomeFantasia);
     }
     await carregarDadosServidor();
+    return saved;
   };
 
   const handleExcluirEmpresa = async (id: string) => {
@@ -284,7 +337,7 @@ export default function App() {
     entregadorId: string,
     imprimir = false
   ) => {
-    const res = await fetch('/api/despacho/atribuir', {
+    const res = await authFetch('/api/despacho/atribuir', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pedidosIds, entregadorId }),
@@ -313,10 +366,10 @@ export default function App() {
     const url = isEdicao ? `/api/produtos/${prod.id}` : '/api/produtos';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(prod),
+      body: JSON.stringify({ ...prod, empresaId: prod.empresaId || empresaAtual?.id || 'emp1' }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -326,7 +379,7 @@ export default function App() {
   };
 
   const handleExcluirProduto = async (id: string) => {
-    const res = await fetch(`/api/produtos/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/produtos/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir produto');
@@ -339,10 +392,10 @@ export default function App() {
     const url = isEdicao ? `/api/clientes/${cliente.id}` : '/api/clientes';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cliente),
+      body: JSON.stringify({ ...cliente, empresaId: cliente.empresaId || empresaAtual?.id || 'emp1' }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -352,7 +405,7 @@ export default function App() {
   };
 
   const handleExcluirCliente = async (id: string) => {
-    const res = await fetch(`/api/clientes/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/clientes/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir cliente');
@@ -365,10 +418,10 @@ export default function App() {
     const url = isEdicao ? `/api/entregadores/${entregador.id}` : '/api/entregadores';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entregador),
+      body: JSON.stringify({ ...entregador, empresaId: entregador.empresaId || empresaAtual?.id || 'emp1' }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -378,7 +431,7 @@ export default function App() {
   };
 
   const handleExcluirEntregador = async (id: string) => {
-    const res = await fetch(`/api/entregadores/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/entregadores/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir entregador');
@@ -391,10 +444,10 @@ export default function App() {
     const url = isEdicao ? `/api/bairros/${bairro.id}` : '/api/bairros';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bairro),
+      body: JSON.stringify({ ...bairro, empresaId: bairro.empresaId || empresaAtual?.id || 'emp1' }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -404,7 +457,7 @@ export default function App() {
   };
 
   const handleExcluirBairro = async (id: string) => {
-    const res = await fetch(`/api/bairros/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/bairros/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir bairro');
@@ -417,10 +470,10 @@ export default function App() {
     const url = isEdicao ? `/api/usuarios/${usuario.id}` : '/api/usuarios';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(usuario),
+      body: JSON.stringify({ ...usuario, empresaId: usuario.empresaId || empresaAtual?.id || 'emp1' }),
     });
     if (!res.ok) {
       const err = await res.json();
@@ -430,7 +483,7 @@ export default function App() {
   };
 
   const handleExcluirUsuario = async (id: string) => {
-    const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/usuarios/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao desativar usuário');
@@ -439,7 +492,7 @@ export default function App() {
   };
 
   const handleImportarProdutosErp = async (produtosImportados: any[]) => {
-    const res = await fetch('/api/produtos/importar-erp', {
+    const res = await authFetch('/api/produtos/importar-erp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ produtos: produtosImportados }),
@@ -494,8 +547,36 @@ export default function App() {
         isSuperAdmin={isSuperAdminAtivo}
         onVoltarSuperAdmin={isSuperAdminAtivo ? handleVoltarSuperAdmin : undefined}
         onLogout={handleLogout}
-        onRefreshAll={carregarDadosServidor}
+        onRefreshAll={() => carregarDadosServidor(true)}
       />
+
+      {/* Sync Feedback Toast / Banner */}
+      {syncFeedback && (
+        <div className="max-w-[1440px] w-full mx-auto px-3 sm:px-4 lg:px-5 pt-3">
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-medium shadow-sm transition-all ${
+              syncFeedback.tipo === 'sucesso'
+                ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-200'
+                : 'bg-amber-950/80 border-amber-600/60 text-amber-200'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {syncFeedback.tipo === 'sucesso' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              )}
+              <span>{syncFeedback.mensagem}</span>
+            </div>
+            <button
+              onClick={() => setSyncFeedback(null)}
+              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-4 lg:p-5">

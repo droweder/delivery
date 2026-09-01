@@ -3,30 +3,42 @@ import {
   AlertTriangle,
   ArrowRight,
   Building2,
+  Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
   Crown,
   DollarSign,
   Edit,
   ExternalLink,
+  Eye,
+  EyeOff,
   Flame,
   Globe,
+  KeyRound,
   Loader2,
   Lock,
   LogOut,
   Mail,
   MapPin,
+  MessageSquare,
   Package,
   Phone,
   Plus,
   Power,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
+  Shuffle,
   Sparkles,
   Trash2,
   TrendingUp,
   Unlock,
+  UserCheck,
   Users,
+  X,
 } from 'lucide-react';
 import { Empresa, PlanoEmpresa, StatusEmpresa, Usuario } from '../types';
 import {
@@ -43,7 +55,7 @@ interface SuperAdminHubProps {
   usuarioSuperAdmin: Usuario;
   empresas: Empresa[];
   onSelecionarEmpresa: (empresa: Empresa) => void;
-  onSalvarEmpresa: (empresa: Partial<Empresa> & { id?: string }) => Promise<void>;
+  onSalvarEmpresa: (empresa: any) => Promise<any>;
   onExcluirEmpresa: (id: string) => Promise<void>;
   onLogout: () => void;
   onRecarregar: () => void;
@@ -68,7 +80,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   const [salvando, setSalvando] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
 
-  // Form State
+  // Form State da Empresa
   const [formRazaoSocial, setFormRazaoSocial] = useState('');
   const [formNomeFantasia, setFormNomeFantasia] = useState('');
   const [formCnpj, setFormCnpj] = useState('');
@@ -88,11 +100,61 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   const [formValorMensalidade, setFormValorMensalidade] = useState(199);
   const [formObservacoes, setFormObservacoes] = useState('');
 
+  // Form State do Administrador (Acesso da Empresa)
+  const [formAdminNome, setFormAdminNome] = useState('');
+  const [formAdminLogin, setFormAdminLogin] = useState('');
+  const [formAdminEmail, setFormAdminEmail] = useState('');
+  const [formAdminSenha, setFormAdminSenha] = useState('Admin@123');
+  const [formAdminPin, setFormAdminPin] = useState('1234');
+  const [formAdminTelefone, setFormAdminTelefone] = useState('');
+  const [mostrarSenhaAdmin, setMostrarSenhaAdmin] = useState(false);
+  const [carregandoAdminEdicao, setCarregandoAdminEdicao] = useState(false);
+
+  // Guia / Aba Ativa no Modal de Empresa
+  type AbaModalEmpresa = 'empresa' | 'endereco' | 'plano' | 'admin';
+  const [abaAtivaModal, setAbaAtivaModal] = useState<AbaModalEmpresa>('empresa');
+
+  // Modal de Credenciais de Acesso da Empresa Criada / Atualizada
+  const [credenciaisModal, setCredenciaisModal] = useState<{
+    empresa: Empresa;
+    usuarioAdmin?: any;
+    credenciais: {
+      nome: string;
+      login: string;
+      email: string;
+      senha: string;
+      pinAcesso: string;
+      perfil: string;
+      cargo: string;
+      empresaNome: string;
+      empresaCnpj: string;
+      empresaId: string;
+    };
+  } | null>(null);
+
+  const [copiadoFeedback, setCopiadoFeedback] = useState(false);
+
   // Status de Consulta Externa
   const [consultandoCnpj, setConsultandoCnpj] = useState(false);
   const [consultandoCep, setConsultandoCep] = useState(false);
   const [cnpjInfo, setCnpjInfo] = useState<{ situacao?: string; cnae?: string; abertura?: string } | null>(null);
   const [erroCnpj, setErroCnpj] = useState<string | null>(null);
+
+  const gerarSenhaForte = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    let pass = '';
+    for (let i = 0; i < 10; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pass;
+  };
+
+  const gerarSenhaAleatoria = () => {
+    const pass = gerarSenhaForte();
+    setFormAdminSenha(pass);
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    setFormAdminPin(pin);
+  };
 
   const abrirModalNovo = () => {
     setEmpresaEditando(null);
@@ -114,13 +176,25 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
     setFormLimitePedidosMes(5000);
     setFormValorMensalidade(199);
     setFormObservacoes('');
+    
+    // Reset Admin Inicial
+    setFormAdminNome('');
+    setFormAdminLogin('');
+    setFormAdminEmail('');
+    setFormAdminSenha('Admin@123');
+    setFormAdminPin('1234');
+    setFormAdminTelefone('');
+    setMostrarSenhaAdmin(false);
+
     setCnpjInfo(null);
     setErroCnpj(null);
+    setAbaAtivaModal('empresa');
     setModalAberto(true);
   };
 
-  const abrirModalEdicao = (emp: Empresa) => {
+  const abrirModalEdicao = async (emp: Empresa) => {
     setEmpresaEditando(emp);
+    setAbaAtivaModal('empresa');
     setFormRazaoSocial(emp.razaoSocial);
     setFormNomeFantasia(emp.nomeFantasia);
     setFormCnpj(emp.cnpj);
@@ -141,7 +215,36 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
     setFormObservacoes(emp.observacoes || '');
     setCnpjInfo(null);
     setErroCnpj(null);
+
+    // Carrega dados atuais do Administrador Master desta empresa
+    setFormAdminNome(`Admin ${emp.nomeFantasia}`);
+    setFormAdminLogin(`admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`);
+    setFormAdminEmail(emp.email || '');
+    setFormAdminSenha(''); // Vazio por padrão na edição: indica manter a mesma se não preenchido
+    setFormAdminPin('1234');
+    setFormAdminTelefone(emp.telefone || '');
+    setMostrarSenhaAdmin(false);
+
     setModalAberto(true);
+
+    try {
+      setCarregandoAdminEdicao(true);
+      const res = await fetch(`/api/empresas/${emp.id}/admin`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.usuario) {
+          if (json.usuario.nome) setFormAdminNome(json.usuario.nome);
+          if (json.usuario.login) setFormAdminLogin(json.usuario.login);
+          if (json.usuario.email) setFormAdminEmail(json.usuario.email);
+          if (json.usuario.telefone) setFormAdminTelefone(json.usuario.telefone);
+          if (json.usuario.pinAcesso) setFormAdminPin(json.usuario.pinAcesso);
+        }
+      }
+    } catch (e) {
+      console.warn('Não foi possível carregar dados do admin:', e);
+    } finally {
+      setCarregandoAdminEdicao(false);
+    }
   };
 
   const handleConsultarCnpjEmpresa = async (cnpjParam?: string) => {
@@ -169,6 +272,21 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
       if (res.bairro) setFormBairro(res.bairro);
       if (res.cidade) setFormCidade(res.cidade);
       if (res.estado) setFormEstado(res.estado);
+
+      // Preenche sugestões para o Administrador Inicial caso ainda estejam vazios
+      if (!formAdminNome) {
+        setFormAdminNome(`Administrador - ${res.nomeFantasia || res.razaoSocial || 'Empresa'}`);
+      }
+      if (!formAdminEmail && res.email) {
+        setFormAdminEmail(res.email);
+      }
+      if (!formAdminTelefone && res.telefone) {
+        setFormAdminTelefone(formatarTelefone(res.telefone));
+      }
+      if (!formAdminLogin) {
+        const cleanNome = (res.nomeFantasia || res.razaoSocial || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        setFormAdminLogin(cleanNome ? `admin_${cleanNome}` : 'admin');
+      }
 
       setCnpjInfo({
         situacao: res.situacao,
@@ -221,7 +339,7 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
     setSalvando(true);
     try {
-      await onSalvarEmpresa({
+      const payload: any = {
         id: empresaEditando?.id,
         razaoSocial: formRazaoSocial.trim() || formNomeFantasia.trim(),
         nomeFantasia: formNomeFantasia.trim(),
@@ -241,13 +359,83 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         limitePedidosMes: Number(formLimitePedidosMes),
         valorMensalidade: Number(formValorMensalidade),
         observacoes: formObservacoes.trim(),
-      });
+      };
+
+      if (!empresaEditando) {
+        payload.adminInicial = {
+          nome: formAdminNome.trim() || `Admin ${formNomeFantasia.trim()}`,
+          login: formAdminLogin.trim() || formAdminEmail.trim() || formEmail.trim() || `admin_${formNomeFantasia.trim().toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          email: formAdminEmail.trim() || formEmail.trim(),
+          senha: formAdminSenha.trim() || 'Admin@123',
+          pinAcesso: formAdminPin.trim() || '1234',
+          telefone: formAdminTelefone.trim() || formTelefone.trim(),
+        };
+      } else {
+        // Na edição, envia dados do admin se houver alterações ou nova senha informada
+        payload.adminData = {
+          nome: formAdminNome.trim() || `Admin ${formNomeFantasia.trim()}`,
+          login: formAdminLogin.trim() || formAdminEmail.trim() || formEmail.trim(),
+          email: formAdminEmail.trim() || formEmail.trim(),
+          senha: formAdminSenha.trim() || undefined, // undefined se vazio para não sobrescrever
+          pinAcesso: formAdminPin.trim() || '1234',
+          telefone: formAdminTelefone.trim() || formTelefone.trim(),
+        };
+      }
+
+      const res = await onSalvarEmpresa(payload);
       setModalAberto(false);
+
+      if (res?.credenciais && (!empresaEditando || Boolean(formAdminSenha.trim()))) {
+        setCredenciaisModal({
+          empresa: res.empresa || res,
+          usuarioAdmin: res.usuarioAdmin,
+          credenciais: res.credenciais,
+        });
+      }
     } catch (err: any) {
       alert(err.message || 'Erro ao salvar dados da empresa');
     } finally {
       setSalvando(false);
     }
+  };
+
+  const gerarTextoCredenciais = (cred: any) => {
+    const urlSistema = window.location.origin;
+    return `🚀 *ACESSO AO SISTEMA DELIVERY & CONVENIÊNCIA*
+
+Olá *${cred.nome}*, seu acesso de Administrador Master para a empresa *${cred.empresaNome}* foi liberado com sucesso!
+
+📍 *Dados da Conta:*
+• *Empresa:* ${cred.empresaNome} (CNPJ: ${cred.empresaCnpj})
+• *Perfil:* Administrador Master
+• *Painel de Acesso:* ${urlSistema}
+
+🔑 *Credenciais de Acesso:*
+• *Login / E-mail:* ${cred.login || cred.email}
+• *Senha Inicial:* ${cred.senha}
+• *PIN Rápido (PDV/Balcão):* ${cred.pinAcesso}
+
+💡 *Primeiros Passos:*
+1. Acesse o endereço acima no navegador do seu computador ou celular.
+2. Faça login com seu e-mail/login e a senha fornecida.
+3. No painel, você já pode emitir pedidos, gerenciar seu estoque de gás/água, cadastrar entregadores e configurar taxas de entrega.
+
+Em caso de dúvidas, estamos à disposição!`;
+  };
+
+  const handleCopiarCredenciais = (cred: any) => {
+    const texto = gerarTextoCredenciais(cred);
+    navigator.clipboard.writeText(texto);
+    setCopiadoFeedback(true);
+    setTimeout(() => setCopiadoFeedback(false), 3000);
+  };
+
+  const handleEnviarWhatsApp = (cred: any) => {
+    const tel = formAdminTelefone || formTelefone || cred.telefone || '';
+    const numLimpo = apenasDigitos(tel);
+    const texto = encodeURIComponent(gerarTextoCredenciais(cred));
+    const url = numLimpo ? `https://wa.me/55${numLimpo}?text=${texto}` : `https://wa.me/?text=${texto}`;
+    window.open(url, '_blank');
   };
 
   const handleToggleStatus = async (emp: Empresa) => {
@@ -630,362 +818,713 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
         </div>
       </main>
 
-      {/* Modal de Cadastro e Edição de Empresa */}
+      {/* Modal de Cadastro e Edição de Empresa com Abas (Sem rolagem) */}
       {modalAberto && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col">
             {/* Header Modal */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 shrink-0">
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-800 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
                   <Building2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-white">
-                    {empresaEditando ? 'Editar Empresa / Cliente' : 'Cadastrar Nova Empresa'}
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <span>{empresaEditando ? 'Editar Empresa / Cliente' : 'Cadastrar Nova Empresa'}</span>
+                    {empresaEditando && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-mono">
+                        {empresaEditando.cnpj}
+                      </span>
+                    )}
                   </h3>
                   <p className="text-xs text-slate-400">
                     Configuração multi-tenant para cliente da plataforma Delivery
                   </p>
                 </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setModalAberto(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Form Body */}
-            <form onSubmit={handleSubmeterForm} className="space-y-4 py-4 overflow-y-auto pr-1 flex-1 text-xs">
-              {/* Bloco de Consulta Automática por CNPJ */}
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="font-bold text-amber-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>CNPJ da Empresa (Preenchimento Automático pela Receita)</span>
-                  </label>
-                  {cnpjInfo?.situacao && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {cnpjInfo.situacao} {cnpjInfo.abertura ? `• Desde ${cnpjInfo.abertura}` : ''}
-                    </span>
-                  )}
-                </div>
+            {/* TAB NAVIGATION BAR */}
+            <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-slate-950/80 border border-slate-800 rounded-2xl my-3 shrink-0 text-xs">
+              <button
+                type="button"
+                onClick={() => setAbaAtivaModal('empresa')}
+                className={`py-2 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  abaAtivaModal === 'empresa'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span className="truncate">1. Empresa</span>
+              </button>
 
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    value={formCnpj}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      const formatted = formatarCnpj(raw);
-                      setFormCnpj(formatted);
-                      const clean = apenasDigitos(raw);
-                      if (erroCnpj) setErroCnpj(null);
-                      if (clean.length === 14 && !consultandoCnpj) {
-                        handleConsultarCnpjEmpresa(clean);
-                      }
-                    }}
-                    placeholder="Digite CNPJ (14 dígitos) para preenchimento automático"
-                    className="w-full px-3 py-2 pr-12 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
-                  />
-                  {consultandoCnpj && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-amber-400">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span className="text-[10px] font-bold">Consultando Receita...</span>
+              <button
+                type="button"
+                onClick={() => setAbaAtivaModal('endereco')}
+                className={`py-2 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  abaAtivaModal === 'endereco'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span className="truncate">2. Endereço</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAbaAtivaModal('plano')}
+                className={`py-2 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  abaAtivaModal === 'plano'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span className="truncate">3. Plano SaaS</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAbaAtivaModal('admin')}
+                className={`py-2 px-2 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all ${
+                  abaAtivaModal === 'admin'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span className="truncate">4. Acesso Master</span>
+              </button>
+            </div>
+
+            {/* Form Body - Conteúdo das Abas */}
+            <form onSubmit={handleSubmeterForm} className="space-y-3 flex-1 text-xs">
+              {/* ABA 1: IDENTIFICAÇÃO E CNPJ */}
+              {abaAtivaModal === 'empresa' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  {/* Bloco de Consulta Automática por CNPJ */}
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-bold text-amber-300 flex items-center gap-1.5 text-xs">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>CNPJ da Empresa (Preenchimento Automático pela Receita)</span>
+                      </label>
+                      {cnpjInfo?.situacao && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          {cnpjInfo.situacao} {cnpjInfo.abertura ? `• Desde ${cnpjInfo.abertura}` : ''}
+                        </span>
+                      )}
                     </div>
-                  )}
-                </div>
 
-                {/* Alerta de CNPJ Não Localizado */}
-                {erroCnpj && (
-                  <div className="p-3 bg-amber-500/20 border border-amber-500/50 rounded-xl text-amber-200 flex items-start gap-2.5 animate-fade-in shadow-xs">
-                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-[11px] leading-tight space-y-0.5">
-                      <strong className="block font-bold text-amber-300">CNPJ não localizado na Receita Federal</strong>
-                      <span className="text-amber-200/90">
-                        {erroCnpj}. Verifique os números informados ou preencha os dados da empresa manualmente nos campos abaixo.
-                      </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={formCnpj}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const formatted = formatarCnpj(raw);
+                          setFormCnpj(formatted);
+                          const clean = apenasDigitos(raw);
+                          if (erroCnpj) setErroCnpj(null);
+                          if (clean.length === 14 && !consultandoCnpj) {
+                            handleConsultarCnpjEmpresa(clean);
+                          }
+                        }}
+                        placeholder="Digite CNPJ (14 dígitos) para preenchimento automático"
+                        className="w-full px-3 py-2 pr-12 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
+                      />
+                      {consultandoCnpj && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-amber-400">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span className="text-[10px] font-bold">Consultando Receita...</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {erroCnpj && (
+                      <div className="p-2 bg-amber-500/20 border border-amber-500/50 rounded-xl text-amber-200 flex items-center gap-2 text-[11px]">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>{erroCnpj}</span>
+                      </div>
+                    )}
+                    {cnpjInfo?.cnae && (
+                      <p className="text-[10px] text-slate-400 truncate">
+                        <span className="font-semibold text-slate-300">Atividade Principal:</span> {cnpjInfo.cnae}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        Nome Fantasia *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formNomeFantasia}
+                        onChange={(e) => setFormNomeFantasia(e.target.value.toUpperCase())}
+                        placeholder="ex: Disk Gás & Água Express"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        Razão Social
+                      </label>
+                      <input
+                        type="text"
+                        value={formRazaoSocial}
+                        onChange={(e) => setFormRazaoSocial(e.target.value.toUpperCase())}
+                        placeholder="ex: Disk Gás Comércio Ltda"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        Telefone / WhatsApp Principal
+                      </label>
+                      <input
+                        type="text"
+                        value={formTelefone}
+                        onChange={(e) => setFormTelefone(formatarTelefone(e.target.value))}
+                        placeholder="(11) 98888-0000"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        E-mail de Contato / Financeiro
+                      </label>
+                      <input
+                        type="email"
+                        value={formEmail}
+                        onChange={(e) => setFormEmail(e.target.value.toUpperCase())}
+                        placeholder="contato@empresa.com.br"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
                     </div>
                   </div>
-                )}
-                {cnpjInfo?.cnae && (
-                  <p className="text-[10px] text-slate-400">
-                    <span className="font-semibold text-slate-300">Atividade Principal:</span> {cnpjInfo.cnae}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Nome Fantasia */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Nome Fantasia *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formNomeFantasia}
-                    onChange={(e) => setFormNomeFantasia(e.target.value.toUpperCase())}
-                    placeholder="ex: Disk Gás & Água Express"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
                 </div>
+              )}
 
-                {/* Razão Social */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Razão Social
-                  </label>
-                  <input
-                    type="text"
-                    value={formRazaoSocial}
-                    onChange={(e) => setFormRazaoSocial(e.target.value.toUpperCase())}
-                    placeholder="ex: Disk Gás Comércio Ltda"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+              {/* ABA 2: ENDEREÇO */}
+              {abaAtivaModal === 'endereco' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1 flex items-center justify-between">
+                        <span>CEP</span>
+                        <span className="text-[9px] text-amber-400 font-normal">Automático</span>
+                      </label>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={formCep}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const formatted = formatarCep(raw);
+                            setFormCep(formatted);
+                            const clean = apenasDigitos(raw);
+                            if (clean.length === 8 && !consultandoCep) {
+                              handleConsultarCepEmpresa(clean);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (formCep && isCepValido(formCep)) {
+                              handleConsultarCepEmpresa();
+                            }
+                          }}
+                          placeholder="01001-000"
+                          className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleConsultarCepEmpresa()}
+                          disabled={consultandoCep}
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-xl transition-colors shrink-0"
+                          title="Buscar CEP"
+                        >
+                          {consultandoCep ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Search className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
 
-                {/* Telefone */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Telefone / WhatsApp
-                  </label>
-                  <input
-                    type="text"
-                    value={formTelefone}
-                    onChange={(e) => setFormTelefone(formatarTelefone(e.target.value))}
-                    placeholder="(11) 98888-0000"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Cidade</label>
+                      <input
+                        type="text"
+                        value={formCidade}
+                        onChange={(e) => setFormCidade(e.target.value.toUpperCase())}
+                        placeholder="São Paulo"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
 
-                {/* Email */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    E-mail de Contato / Financeiro
-                  </label>
-                  <input
-                    type="email"
-                    value={formEmail}
-                    onChange={(e) => setFormEmail(e.target.value.toUpperCase())}
-                    placeholder="contato@empresa.com.br"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">UF (Estado)</label>
+                      <input
+                        type="text"
+                        maxLength={2}
+                        value={formEstado}
+                        onChange={(e) => setFormEstado(e.target.value.toUpperCase())}
+                        placeholder="SP"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 text-center font-bold"
+                      />
+                    </div>
+                  </div>
 
-                {/* CEP com Busca */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1 flex items-center justify-between">
-                    <span className="truncate mr-1">CEP</span>
-                    <span className="text-[9px] text-amber-400 font-normal whitespace-nowrap">Automático</span>
-                  </label>
-                  <div className="flex gap-1.5">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      Logradouro / Rua / Avenida
+                    </label>
                     <input
                       type="text"
-                      value={formCep}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const formatted = formatarCep(raw);
-                        setFormCep(formatted);
-                        const clean = apenasDigitos(raw);
-                        if (clean.length === 8 && !consultandoCep) {
-                          handleConsultarCepEmpresa(clean);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (formCep && isCepValido(formCep)) {
-                          handleConsultarCepEmpresa();
-                        }
-                      }}
-                      placeholder="01001-000"
-                      className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                      value={formEndereco}
+                      onChange={(e) => setFormEndereco(e.target.value.toUpperCase())}
+                      placeholder="Av. Paulista"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Número</label>
+                      <input
+                        type="text"
+                        value={formNumero}
+                        onChange={(e) => setFormNumero(e.target.value.toUpperCase())}
+                        placeholder="1000"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Bairro</label>
+                      <input
+                        type="text"
+                        value={formBairro}
+                        onChange={(e) => setFormBairro(e.target.value.toUpperCase())}
+                        placeholder="Bela Vista"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Complemento</label>
+                      <input
+                        type="text"
+                        value={formComplemento}
+                        onChange={(e) => setFormComplemento(e.target.value.toUpperCase())}
+                        placeholder="Sala 102"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 3: PLANO SAAS E CONTRATO */}
+              {abaAtivaModal === 'plano' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Plano SaaS</label>
+                      <select
+                        value={formPlano}
+                        onChange={(e) => setFormPlano(e.target.value as PlanoEmpresa)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="BASICO">Básico (Até 5 usuários / R$ 99/mês)</option>
+                        <option value="PRO">Pro (Até 10 usuários / R$ 199/mês)</option>
+                        <option value="ENTERPRISE">Enterprise (Até 25 usuários / R$ 399/mês)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">Status da Conta</label>
+                      <select
+                        value={formStatus}
+                        onChange={(e) => setFormStatus(e.target.value as StatusEmpresa)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="ATIVO">Ativo (Acesso Liberado)</option>
+                        <option value="BLOQUEADO">Bloqueado (Inadimplente / Pausado)</option>
+                        <option value="PENDENTE">Pendente (Aguardando Aprovação)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        Valor Mensalidade (R$)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={formValorMensalidade}
+                        onChange={(e) => setFormValorMensalidade(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-300 mb-1">
+                        Limite de Usuários
+                      </label>
+                      <input
+                        type="number"
+                        value={formLimiteUsuarios}
+                        onChange={(e) => setFormLimiteUsuarios(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">
+                      Observações Internas (Super Admin)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formObservacoes}
+                      onChange={(e) => setFormObservacoes(e.target.value.toUpperCase())}
+                      placeholder="Notas sobre faturamento, contatos de emergência, particularidades..."
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ABA 4: ACESSO & ADMINISTRADOR MASTER */}
+              {abaAtivaModal === 'admin' && (
+                <div className="p-3.5 bg-gradient-to-br from-slate-950 to-amber-950/20 border border-amber-500/40 rounded-2xl space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg border border-amber-500/30">
+                        <KeyRound className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                          <span>{empresaEditando ? 'Administrador Master & Credenciais' : 'Administrador Inicial & Primeiro Acesso'}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            ADMIN Master
+                          </span>
+                        </h4>
+                        <p className="text-[10px] text-slate-400">
+                          {empresaEditando
+                            ? 'Edite os dados de login ou gere uma nova senha caso o cliente tenha esquecido.'
+                            : 'Usuário inicial com acesso irrestrito para gerenciar produtos, entregadores e PDV.'}
+                        </p>
+                      </div>
+                    </div>
+
                     <button
                       type="button"
-                      onClick={() => handleConsultarCepEmpresa()}
-                      disabled={consultandoCep}
-                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-xl transition-colors"
-                      title="Buscar dados do CEP"
+                      onClick={gerarSenhaAleatoria}
+                      className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shrink-0"
+                      title="Gerar nova senha e PIN aleatórios"
                     >
-                      {consultandoCep ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                      ) : (
-                        <Search className="w-3.5 h-3.5" />
-                      )}
+                      <Shuffle className="w-3 h-3" />
+                      <span>{empresaEditando ? 'Gerar Nova Senha/PIN' : 'Gerar Senha/PIN'}</span>
                     </button>
                   </div>
-                </div>
 
-                {/* Cidade / Estado */}
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-2">
-                    <label className="block font-bold text-slate-300 mb-1">Cidade</label>
-                    <input
-                      type="text"
-                      value={formCidade}
-                      onChange={(e) => setFormCidade(e.target.value.toUpperCase())}
-                      placeholder="São Paulo"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">UF</label>
-                    <input
-                      type="text"
-                      maxLength={2}
-                      value={formEstado}
-                      onChange={(e) => setFormEstado(e.target.value.toUpperCase())}
-                      placeholder="SP"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 text-center font-bold"
-                    />
-                  </div>
-                </div>
+                  {carregandoAdminEdicao ? (
+                    <div className="py-4 text-center text-slate-400 flex items-center justify-center gap-2 text-xs">
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Carregando dados de acesso do administrador...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-300 mb-1">
+                          Nome do Administrador / Responsável
+                        </label>
+                        <input
+                          type="text"
+                          value={formAdminNome}
+                          onChange={(e) => setFormAdminNome(e.target.value)}
+                          placeholder="ex: João Silva (Diretor)"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
 
-                {/* Endereço (Logradouro) */}
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Logradouro / Rua / Avenida
-                  </label>
-                  <input
-                    type="text"
-                    value={formEndereco}
-                    onChange={(e) => setFormEndereco(e.target.value.toUpperCase())}
-                    placeholder="Av. Paulista"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+                      <div>
+                        <label className="block font-bold text-slate-300 mb-1">
+                          Login ou E-mail de Acesso *
+                        </label>
+                        <input
+                          type="text"
+                          value={formAdminLogin}
+                          onChange={(e) => setFormAdminLogin(e.target.value.toLowerCase())}
+                          placeholder="ex: admin_empresa ou email"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                        />
+                      </div>
 
-                {/* Número / Bairro / Complemento */}
-                <div className="sm:col-span-2 grid grid-cols-3 gap-2">
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">Número</label>
-                    <input
-                      type="text"
-                      value={formNumero}
-                      onChange={(e) => setFormNumero(e.target.value.toUpperCase())}
-                      placeholder="1000"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">Bairro</label>
-                    <input
-                      type="text"
-                      value={formBairro}
-                      onChange={(e) => setFormBairro(e.target.value.toUpperCase())}
-                      placeholder="Bela Vista"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-300 mb-1">Complemento</label>
-                    <input
-                      type="text"
-                      value={formComplemento}
-                      onChange={(e) => setFormComplemento(e.target.value.toUpperCase())}
-                      placeholder="Sala 102"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                </div>
+                      <div>
+                        <label className="block font-bold text-slate-300 mb-1 flex items-center justify-between">
+                          <span>{empresaEditando ? 'Nova Senha (deixe em branco p/ manter)' : 'Senha de Acesso'}</span>
+                          <button
+                            type="button"
+                            onClick={() => setMostrarSenhaAdmin(!mostrarSenhaAdmin)}
+                            className="text-[10px] text-amber-400 font-normal hover:underline flex items-center gap-0.5"
+                          >
+                            {mostrarSenhaAdmin ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            <span>{mostrarSenhaAdmin ? 'Ocultar' : 'Mostrar'}</span>
+                          </button>
+                        </label>
+                        <input
+                          type={mostrarSenhaAdmin ? 'text' : 'password'}
+                          value={formAdminSenha}
+                          onChange={(e) => setFormAdminSenha(e.target.value)}
+                          placeholder={empresaEditando ? 'Deixe em branco para manter a senha atual' : 'Senha de acesso'}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
+                        />
+                      </div>
 
-                {/* Plano */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">Plano SaaS</label>
-                  <select
-                    value={formPlano}
-                    onChange={(e) => setFormPlano(e.target.value as PlanoEmpresa)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="BASICO">Básico (Até 5 usuários / R$ 99/mês)</option>
-                    <option value="PRO">Pro (Até 10 usuários / R$ 199/mês)</option>
-                    <option value="ENTERPRISE">Enterprise (Até 25 usuários / R$ 399/mês)</option>
-                  </select>
-                </div>
+                      <div>
+                        <label className="block font-bold text-slate-300 mb-1">
+                          PIN Numérico Rápido (4 dígitos)
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={6}
+                          value={formAdminPin}
+                          onChange={(e) => setFormAdminPin(e.target.value.replace(/\D/g, ''))}
+                          placeholder="1234"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-center tracking-widest"
+                        />
+                      </div>
 
-                {/* Status */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">Status da Conta</label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as StatusEmpresa)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="ATIVO">Ativo (Acesso Liberado)</option>
-                    <option value="BLOQUEADO">Bloqueado (Inadimplente / Pausado)</option>
-                    <option value="PENDENTE">Pendente (Aguardando Aprovação)</option>
-                  </select>
+                      <div className="sm:col-span-2">
+                        <label className="block font-bold text-slate-300 mb-1">
+                          WhatsApp do Responsável (Para envio automático das credenciais)
+                        </label>
+                        <input
+                          type="text"
+                          value={formAdminTelefone}
+                          onChange={(e) => setFormAdminTelefone(formatarTelefone(e.target.value))}
+                          placeholder="(11) 99999-9999"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                {/* Valor Mensalidade */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Valor Mensalidade (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formValorMensalidade}
-                    onChange={(e) => setFormValorMensalidade(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
-                  />
-                </div>
-
-                {/* Limite de Usuários */}
-                <div>
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Limite de Usuários
-                  </label>
-                  <input
-                    type="number"
-                    value={formLimiteUsuarios}
-                    onChange={(e) => setFormLimiteUsuarios(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                {/* Observações */}
-                <div className="sm:col-span-2">
-                  <label className="block font-bold text-slate-300 mb-1">
-                    Observações Internas (Super Admin)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={formObservacoes}
-                    onChange={(e) => setFormObservacoes(e.target.value.toUpperCase())}
-                    placeholder="Notas sobre o cliente, particularidades de faturamento ou contatos..."
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-800 shrink-0">
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800 shrink-0">
                 <button
                   type="button"
                   onClick={() => setModalAberto(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all"
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all"
                 >
                   Cancelar
                 </button>
 
+                <div className="flex items-center gap-2">
+                  {/* Botão Anterior se não for a primeira aba */}
+                  {abaAtivaModal !== 'empresa' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (abaAtivaModal === 'endereco') setAbaAtivaModal('empresa');
+                        else if (abaAtivaModal === 'plano') setAbaAtivaModal('endereco');
+                        else if (abaAtivaModal === 'admin') setAbaAtivaModal('plano');
+                      }}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center gap-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Voltar</span>
+                    </button>
+                  )}
+
+                  {/* Botão Próximo se não for a última aba */}
+                  {abaAtivaModal !== 'admin' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (abaAtivaModal === 'empresa') setAbaAtivaModal('endereco');
+                        else if (abaAtivaModal === 'endereco') setAbaAtivaModal('plano');
+                        else if (abaAtivaModal === 'plano') setAbaAtivaModal('admin');
+                      }}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 border border-slate-700 rounded-xl font-bold text-xs transition-all flex items-center gap-1"
+                    >
+                      <span>Avançar</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {/* Botão Salvar Primário */}
+                  <button
+                    type="submit"
+                    disabled={salvando}
+                    className="px-4 sm:px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  >
+                    {salvando ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Salvando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{empresaEditando ? 'Salvar Alterações' : 'Cadastrar Empresa'}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SUCESSO: ENTREGA DE CREDENCIAIS & BOAS-VINDAS */}
+      {credenciaisModal && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-xs">
+            {/* Header com Sucesso */}
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl text-slate-950 font-black shadow-lg shadow-amber-500/20">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-1.5">
+                  <span>Credenciais de Acesso Liberadas!</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </h3>
+                <p className="text-xs text-slate-400">
+                  O acesso do Administrador Master foi configurado. Você pode copiar ou enviar diretamente pelo WhatsApp.
+                </p>
+              </div>
+            </div>
+
+            {/* Cartão de Credenciais */}
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-500">Empresa Vinculada</div>
+                  <div className="text-sm font-black text-white flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{credenciaisModal.credenciais.empresaNome}</span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  ADMIN MASTER
+                </span>
+              </div>
+
+              <div className="space-y-2 font-mono">
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <span className="text-slate-400 text-[11px]">Responsável:</span>
+                  <span className="text-white font-bold text-[11px] font-sans">
+                    {credenciaisModal.credenciais.nome}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <span className="text-slate-400 text-[11px]">Login / E-mail:</span>
+                  <span className="text-amber-300 font-bold text-[11px]">
+                    {credenciaisModal.credenciais.login || credenciaisModal.credenciais.email}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <span className="text-slate-400 text-[11px]">Senha Inicial:</span>
+                  <span className="text-emerald-400 font-bold text-[11px]">
+                    {credenciaisModal.credenciais.senha}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <span className="text-slate-400 text-[11px]">PIN Rápido (PDV):</span>
+                  <span className="text-purple-300 font-bold text-[11px] tracking-wider">
+                    {credenciaisModal.credenciais.pinAcesso}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                  <span className="text-slate-400 text-[11px]">Link do Sistema:</span>
+                  <span className="text-slate-300 text-[10px] truncate max-w-[200px]">
+                    {window.location.origin}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Ações de Envio e Compartilhamento */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {/* Copiar Texto Formatado */}
                 <button
-                  type="submit"
-                  disabled={salvando}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  type="button"
+                  onClick={() => handleCopiarCredenciais(credenciaisModal.credenciais)}
+                  className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-1.5 shadow-sm"
                 >
-                  {salvando ? (
+                  {copiadoFeedback ? (
                     <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Salvando Empresa...</span>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Copiado com Sucesso!</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>{empresaEditando ? 'Salvar Alterações' : 'Cadastrar Empresa'}</span>
+                      <Copy className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Copiar Dados de Acesso</span>
                     </>
                   )}
                 </button>
+
+                {/* Enviar pelo WhatsApp */}
+                <button
+                  type="button"
+                  onClick={() => handleEnviarWhatsApp(credenciaisModal.credenciais)}
+                  className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Enviar por WhatsApp</span>
+                </button>
               </div>
-            </form>
+
+              {/* Botão Primário: Entrar no Sistema desta Empresa */}
+              <button
+                type="button"
+                onClick={() => {
+                  const emp = credenciaisModal.empresa;
+                  setCredenciaisModal(null);
+                  onSelecionarEmpresa(emp);
+                }}
+                className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Crown className="w-4 h-4" />
+                <span>Acessar Painel desta Empresa Agora</span>
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCredenciaisModal(null)}
+                className="w-full py-2 text-slate-400 hover:text-slate-200 font-semibold text-center transition-colors"
+              >
+                Fechar e voltar ao Painel Super Admin
+              </button>
+            </div>
           </div>
         </div>
       )}

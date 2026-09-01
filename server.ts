@@ -150,10 +150,268 @@ function registrarMovimentacaoEstoque(dados: {
 
 
 // Supabase Lazy Client
-
 let supabaseClient: any = null;
 
+function getTargetEmpresaId(req: any): string | null {
+  const header = req.headers ? (req.headers['x-empresa-id'] as string) : null;
+  const query = req.query ? (req.query.empresaId as string) : null;
+  const body = req.body ? (req.body.empresaId || req.body.empresa_id) : null;
+  const val = header || query || body;
+  return val ? String(val).trim() : null;
+}
 
+function mapEmpresaFromDb(r: any): Empresa {
+  return {
+    id: r.id,
+    razaoSocial: r.razao_social || r.razaoSocial || r.nome_fantasia || '',
+    nomeFantasia: r.nome_fantasia || r.nomeFantasia || '',
+    cnpj: r.cnpj || '',
+    telefone: r.telefone || '',
+    email: r.email || '',
+    cep: r.cep || '',
+    cidade: r.cidade || 'São Paulo',
+    estado: r.estado || 'SP',
+    endereco: r.endereco || '',
+    numero: r.numero || '',
+    bairro: r.bairro || '',
+    complemento: r.complemento || '',
+    plano: r.plano || 'PRO',
+    status: r.status || 'ATIVO',
+    limiteUsuarios: Number(r.limite_usuarios ?? r.limiteUsuarios ?? 10),
+    limitePedidosMes: Number(r.limite_pedidos_mes ?? r.limitePedidosMes ?? 5000),
+    valorMensalidade: Number(r.valor_mensalidade ?? r.valorMensalidade ?? 199),
+    totalPedidosRealizados: Number(r.total_pedidos_realizados ?? r.totalPedidosRealizados ?? 0),
+    totalUsuariosAtivos: Number(r.total_usuarios_ativos ?? r.totalUsuariosAtivos ?? 1),
+    observacoes: r.observacoes || '',
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+    ultimoAcesso: r.ultimo_acesso || r.ultimoAcesso || new Date().toISOString(),
+    configuracoes: r.configuracoes || {},
+  };
+}
+
+function mapBairroFromDb(r: any): BairroTaxa {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    nome: r.nome || 'Bairro',
+    taxaEntrega: Number(r.taxa_entrega ?? r.taxaEntrega ?? r.taxa ?? 0),
+    tempoMedioMin: Number(r.tempo_medio_min ?? r.tempoMedioMin ?? r.prazo_estimado ?? 25),
+    ativo: r.ativo !== undefined ? Boolean(r.ativo) : (r.status !== 'INATIVO'),
+  };
+}
+
+function mapProdutoFromDb(r: any): Produto {
+  const precoRecarga = Number(r.preco_recarga ?? r.precoRecarga ?? r.preco ?? 0);
+  const precoCompleto = Number(r.preco_completo ?? r.precoCompleto ?? (r.tipo_vasilhame && r.tipo_vasilhame !== 'NENHUM' ? precoRecarga * 2.5 : precoRecarga));
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    codigo: r.codigo || `PROD-${r.id}`,
+    nome: r.nome || 'Produto',
+    marca: r.marca || 'Conveniência',
+    unidadeMedida: r.unidade_medida || r.unidadeMedida || 'UN',
+    categoria: r.categoria || 'GAS',
+    tipoVasilhame: r.tipo_vasilhame || r.tipoVasilhame || 'NENHUM',
+    precoRecarga,
+    precoCompleto,
+    estoqueCheio: Number(r.estoque_cheio ?? r.estoqueCheio ?? r.estoque_atual ?? 0),
+    estoqueVazio: Number(r.estoque_vazio ?? r.estoqueVazio ?? 0),
+    estoqueMinimo: Number(r.estoque_minimo ?? r.estoqueMinimo ?? 5),
+    imagemUrl: r.imagem_url || r.imagemUrl,
+    permiteVendaCasco: r.permite_venda_casco ?? r.permiteVendaCasco ?? (r.tipo_vasilhame && r.tipo_vasilhame !== 'NENHUM'),
+    maisUtilizado: Boolean(r.mais_utilizado ?? r.maisUtilizado ?? false),
+    vendasCount: Number(r.vendas_count ?? r.vendasCount ?? 0),
+  };
+}
+
+function mapClienteFromDb(r: any): Cliente {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    nome: r.nome || 'Cliente',
+    telefone: r.telefone || '',
+    cpfCnpj: r.cpf_cnpj || r.cpfCnpj || '',
+    email: r.email || '',
+    cep: r.cep || '',
+    endereco: r.endereco || '',
+    numero: r.numero || '',
+    complemento: r.complemento || '',
+    bairroId: r.bairro_id || r.bairroId || 'b1',
+    bairroNome: r.bairro_nome || r.bairroNome || 'Centro',
+    cidade: r.cidade || 'São Paulo',
+    estado: r.estado || 'SP',
+    referencia: r.referencia || '',
+    lat: Number(r.lat ?? -23.55052),
+    lng: Number(r.lng ?? -46.633308),
+    saldoDevedor: Number(r.saldo_devedor ?? r.saldoDevedor ?? 0),
+    totalPedidos: Number(r.total_pedidos ?? r.totalPedidos ?? 0),
+    vasilhamesPendentes: r.vasilhames_com_cliente || r.vasilhamesPendentes || { P13: 0, P20L: 0 },
+  };
+}
+
+function mapEntregadorFromDb(r: any): Entregador {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    nome: r.nome || 'Entregador',
+    telefone: r.telefone || '',
+    veiculo: r.veiculo || 'Moto',
+    placa: r.placa || 'ABC-1234',
+    status: r.status || 'DISPONIVEL',
+    pedidosAtivosCount: Number(r.pedidos_ativos_count ?? r.pedidosAtivosCount ?? 0),
+    bateriaNivel: Number(r.bateria ?? r.bateriaNivel ?? 100),
+    ultimaSincronizacao: r.ultima_localizacao || r.ultimaSincronizacao || new Date().toISOString(),
+    totalEntregasHoje: Number(r.total_entregas_hoje ?? r.totalEntregasHoje ?? 0),
+  };
+}
+
+function mapPedidoFromDb(r: any): Pedido {
+  let clienteObj: Cliente = r.cliente;
+  if (!clienteObj || !clienteObj.nome) {
+    const cliFound = clientes.find((c) => c.id === (r.cliente_id || r.clienteId));
+    clienteObj = cliFound || {
+      id: r.cliente_id || r.clienteId || 'c1',
+      empresaId: r.empresa_id || r.empresaId || 'emp1',
+      nome: 'Cliente ' + (r.cliente_id || ''),
+      telefone: '',
+      endereco: 'Endereço',
+      numero: 'S/N',
+      bairroId: 'b1',
+      bairroNome: 'Centro',
+      lat: -23.55052,
+      lng: -46.633308,
+      saldoDevedor: 0,
+      totalPedidos: 1,
+      vasilhamesPendentes: { P13: 0, P20L: 0 },
+    };
+  }
+
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    codigo: r.codigo || r.numero_pedido || `#${r.id}`,
+    clienteId: r.cliente_id || r.clienteId || clienteObj.id,
+    cliente: clienteObj,
+    entregadorId: r.entregador_id || r.entregadorId,
+    entregadorNome: r.entregador_nome || r.entregadorNome,
+    status: r.status || 'PENDENTE',
+    itens: Array.isArray(r.itens) ? r.itens : [],
+    subtotal: Number(r.subtotal || 0),
+    taxaEntrega: Number(r.taxa_entrega ?? r.taxaEntrega ?? 0),
+    desconto: Number(r.desconto || 0),
+    total: Number(r.total || 0),
+    formaPagamentoPrevista: r.forma_pagamento_prevista || r.formaPagamentoPrevista || 'PIX',
+    trocoPara: r.troco_para ?? r.trocoPara,
+    formaPagamentoRealizada: r.forma_pagamento_realizada || r.formaPagamentoRealizada,
+    valorRecebido: r.valor_recebido ?? r.valorRecebido,
+    observacoes: r.observacoes || '',
+    emitidoPorId: r.emitido_por_id || r.emitidoPorId,
+    emitidoPorNome: r.emitido_por_nome || r.emitidoPorNome,
+    emitidoPorPerfil: r.emitido_por_perfil || r.emitidoPorPerfil,
+    despachadoPor: r.despachado_por || r.despachadoPor,
+    entreguePor: r.entregue_por || r.entreguePor,
+    devolvidoParaCorrecao: Boolean(r.devolvido_para_correcao ?? r.devolvidoParaCorrecao),
+    motivoDevolucao: r.motivo_devolucao || r.motivoDevolucao,
+    devolvidoEm: r.devolvido_em || r.devolvidoEm,
+    devolvidoPorId: r.devolvido_por_id || r.devolvidoPorId,
+    devolvidoPorNome: r.devolvido_por_nome || r.devolvidoPorNome,
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+    despachadoEm: r.despachado_em || r.despachadoEm,
+    entregueEm: r.entregue_em || r.entregueEm,
+    concluidoEm: r.concluido_em || r.concluidoEm,
+    sincronizado: r.sincronizado !== undefined ? Boolean(r.sincronizado) : true,
+    versao: Number(r.versao || 1),
+  };
+}
+
+function mapUsuarioFromDb(r: any): Usuario {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id !== undefined ? r.empresa_id : r.empresaId,
+    nome: r.nome || 'Usuário',
+    login: r.login || '',
+    email: r.email || '',
+    senha: r.senha || '',
+    telefone: r.telefone || '',
+    perfil: r.perfil || 'ATENDENTE_PDV',
+    cargo: r.cargo || 'Atendente',
+    ativo: r.ativo !== undefined ? Boolean(r.ativo) : true,
+    pinAcesso: r.pin_acesso || r.pinAcesso || '',
+    entregadorIdVinculado: r.entregador_id_vinculado || r.entregadorIdVinculado,
+    permissoes: r.permissoes || {
+      emitirPedidos: true,
+      despacharPedidos: false,
+      cancelarPedidos: false,
+      editarPedidos: true,
+      devolverPedidos: false,
+      realizarAcertoCaixa: false,
+      ajustarEstoque: false,
+      verDashboardGerencial: false,
+      acessarCadastros: false,
+      gerenciarUsuarios: false,
+      importarErp: false,
+    },
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+    ultimoAcesso: r.ultimo_acesso || r.ultimoAcesso,
+  };
+}
+
+async function syncFromSupabase() {
+  const supabase = getSupabase();
+  if (!supabase) return { success: false, error: 'Supabase não configurado ou chaves ausentes' };
+  try {
+    console.log('[Supabase] Sincronizando dados do schema delivery com isolamento multi-tenant...');
+    const tables = [
+      { name: 'empresas', ref: empresas, mapper: mapEmpresaFromDb },
+      { name: 'bairros_taxas', ref: bairros, mapper: mapBairroFromDb },
+      { name: 'produtos', ref: produtos, mapper: mapProdutoFromDb },
+      { name: 'clientes', ref: clientes, mapper: mapClienteFromDb },
+      { name: 'entregadores', ref: entregadores, mapper: mapEntregadorFromDb },
+      { name: 'pedidos', ref: pedidos, mapper: mapPedidoFromDb },
+      { name: 'usuarios', ref: usuarios, mapper: mapUsuarioFromDb },
+      { name: 'fechamentos_caixa', ref: fechamentos, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) },
+      { name: 'movimentacoes_estoque', ref: movimentacoesEstoque, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) }
+    ];
+    const details: Record<string, any> = {};
+    let hasError = false;
+    let errorMessage = '';
+
+    const summary: string[] = [];
+    for (const t of tables) {
+      try {
+        const { data, error } = await supabase.from(t.name).select('*');
+        if (error) {
+          details[t.name] = { status: 'erro', message: error.message, code: error.code };
+          // Don't break entire sync if optional auxiliary tables fail
+          if (['bairros_taxas', 'produtos', 'clientes', 'pedidos'].includes(t.name)) {
+            hasError = true;
+            errorMessage = error.message;
+          }
+        } else if (data) {
+          details[t.name] = { status: 'ok', count: data.length };
+          if (data.length > 0) {
+            const mapped = t.mapper ? data.map(t.mapper) : data;
+            t.ref.splice(0, t.ref.length, ...mapped);
+            summary.push(`${data.length} ${t.name}`);
+          }
+        }
+      } catch (errInner: any) {
+        details[t.name] = { status: 'erro', message: errInner.message };
+      }
+    }
+    return {
+      success: !hasError,
+      schema: 'delivery',
+      mensagem: summary.length > 0 ? `Sincronizados com sucesso: ${summary.join(', ')}.` : 'Dados sincronizados do Supabase.',
+      error: hasError ? errorMessage : undefined,
+      details,
+      timestamp: new Date().toISOString()
+    };
+  } catch (err: any) {
+    console.error('[Supabase] Erro na sincronizacao:', err);
+    return { success: false, error: err.message };
+  }
+}
 
 function getSupabase() {
   if (!supabaseClient) {
@@ -365,14 +623,15 @@ app.use(express.json());
     res.json(emp);
   });
 
-  app.post('/api/empresas', (req, res) => {
+  app.post('/api/empresas', async (req, res) => {
     const dados = req.body;
     if (!dados.nomeFantasia || !dados.cnpj) {
       return res.status(400).json({ error: 'Nome fantasia e CNPJ são obrigatórios' });
     }
 
+    const empresaId = dados.id || `emp_${Date.now()}`;
     const novaEmpresa: Empresa = {
-      id: dados.id || `emp_${Date.now()}`,
+      id: empresaId,
       razaoSocial: dados.razaoSocial || dados.nomeFantasia,
       nomeFantasia: dados.nomeFantasia,
       cnpj: dados.cnpj,
@@ -399,7 +658,227 @@ app.use(express.json());
     };
 
     empresas.push(novaEmpresa);
-    res.status(201).json(novaEmpresa);
+
+    // 1. Criação Automática do Usuário Administrador (Master) da Empresa
+    const adminData = dados.adminInicial || {};
+    const adminNome = adminData.nome?.trim() || `Admin ${novaEmpresa.nomeFantasia}`;
+    const adminEmail = adminData.email?.trim().toLowerCase() || dados.email?.trim().toLowerCase() || '';
+    const cleanFantasia = novaEmpresa.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const adminLogin = adminData.login?.trim().toLowerCase() || adminEmail || (cleanFantasia ? `admin_${cleanFantasia}` : `admin_${empresaId}`);
+    const adminSenha = adminData.senha?.trim() || 'Admin@123';
+    const adminPin = adminData.pinAcesso?.trim() || Math.floor(1000 + Math.random() * 9000).toString();
+    const adminTelefone = adminData.telefone?.trim() || dados.telefone?.trim() || '';
+
+    const novoUsuarioAdmin: Usuario = {
+      id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      empresaId: novaEmpresa.id,
+      nome: adminNome,
+      login: adminLogin,
+      email: adminEmail,
+      senha: adminSenha,
+      pinAcesso: adminPin,
+      telefone: adminTelefone,
+      perfil: 'ADMIN',
+      cargo: 'Diretor / Administrador',
+      ativo: true,
+      permissoes: {
+        emitirPedidos: true,
+        despacharPedidos: true,
+        cancelarPedidos: true,
+        editarPedidos: true,
+        devolverPedidos: true,
+        realizarAcertoCaixa: true,
+        ajustarEstoque: true,
+        verDashboardGerencial: true,
+        acessarCadastros: true,
+        gerenciarUsuarios: true,
+        importarErp: true,
+      },
+      criadoEm: new Date().toISOString(),
+    };
+
+    usuarios.push(novoUsuarioAdmin);
+
+    // 2. Seeding básico para a nova empresa (Produtos e Bairros iniciais)
+    const bairroCentro: BairroTaxa = {
+      id: `b_${Date.now()}_1`,
+      empresaId: novaEmpresa.id,
+      nome: 'Centro',
+      taxaEntrega: 5.0,
+      tempoMedioMin: 25,
+      ativo: true,
+    };
+    bairros.push(bairroCentro);
+
+    const prodGas: Produto = {
+      id: `p_${Date.now()}_gas`,
+      empresaId: novaEmpresa.id,
+      codigo: 'GAS-P13',
+      nome: 'Gás de Cozinha P13 (GLP 13kg)',
+      marca: 'Ultragaz / Nacional',
+      unidadeMedida: 'UN',
+      categoria: 'GAS',
+      tipoVasilhame: 'P13',
+      precoRecarga: 115.0,
+      precoCompleto: 280.0,
+      estoqueCheio: 50,
+      estoqueVazio: 30,
+      estoqueMinimo: 10,
+      permiteVendaCasco: true,
+      maisUtilizado: true,
+      vendasCount: 0,
+    };
+    const prodAgua: Produto = {
+      id: `p_${Date.now()}_agua`,
+      empresaId: novaEmpresa.id,
+      codigo: 'AGUA-20L',
+      nome: 'Água Mineral Galão 20L',
+      marca: 'Fonte Natural',
+      unidadeMedida: 'UN',
+      categoria: 'AGUA',
+      tipoVasilhame: 'P20L',
+      precoRecarga: 15.0,
+      precoCompleto: 45.0,
+      estoqueCheio: 40,
+      estoqueVazio: 20,
+      estoqueMinimo: 8,
+      permiteVendaCasco: true,
+      maisUtilizado: true,
+      vendasCount: 0,
+    };
+    produtos.push(prodGas, prodAgua);
+
+    // 3. Sincronização assíncrona com Supabase se configurado
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase
+          .from('empresas')
+          .insert([
+            {
+              id: novaEmpresa.id,
+              razao_social: novaEmpresa.razaoSocial,
+              nome_fantasia: novaEmpresa.nomeFantasia,
+              cnpj: novaEmpresa.cnpj,
+              telefone: novaEmpresa.telefone,
+              email: novaEmpresa.email,
+              cep: novaEmpresa.cep,
+              cidade: novaEmpresa.cidade,
+              estado: novaEmpresa.estado,
+              endereco: novaEmpresa.endereco,
+              numero: novaEmpresa.numero,
+              bairro: novaEmpresa.bairro,
+              complemento: novaEmpresa.complemento,
+              plano: novaEmpresa.plano,
+              status: novaEmpresa.status,
+              limite_usuarios: novaEmpresa.limiteUsuarios,
+              limite_pedidos_mes: novaEmpresa.limitePedidosMes,
+              valor_mensalidade: novaEmpresa.valorMensalidade,
+              observacoes: novaEmpresa.observacoes,
+              configuracoes: novaEmpresa.configuracoes,
+            },
+          ])
+          .then(() => {})
+          .catch((e: any) => console.warn('[Supabase] Erro ao salvar empresa:', e.message));
+
+        supabase
+          .from('usuarios')
+          .insert([
+            {
+              id: novoUsuarioAdmin.id,
+              empresa_id: novaEmpresa.id,
+              nome: novoUsuarioAdmin.nome,
+              login: novoUsuarioAdmin.login,
+              email: novoUsuarioAdmin.email,
+              senha: novoUsuarioAdmin.senha,
+              pin_acesso: novoUsuarioAdmin.pinAcesso,
+              telefone: novoUsuarioAdmin.telefone,
+              perfil: novoUsuarioAdmin.perfil,
+              cargo: novoUsuarioAdmin.cargo,
+              ativo: true,
+              permissoes: novoUsuarioAdmin.permissoes,
+            },
+          ])
+          .then(() => {})
+          .catch((e: any) => console.warn('[Supabase] Erro ao salvar usuário admin:', e.message));
+
+        supabase
+          .from('bairros_taxas')
+          .insert([
+            {
+              id: bairroCentro.id,
+              empresa_id: novaEmpresa.id,
+              nome: bairroCentro.nome,
+              taxa_entrega: bairroCentro.taxaEntrega,
+              tempo_medio_min: bairroCentro.tempoMedioMin,
+              ativo: true,
+            },
+          ])
+          .then(() => {})
+          .catch(() => {});
+
+        supabase
+          .from('produtos')
+          .insert([
+            {
+              id: prodGas.id,
+              empresa_id: novaEmpresa.id,
+              codigo: prodGas.codigo,
+              nome: prodGas.nome,
+              marca: prodGas.marca,
+              unidade_medida: prodGas.unidadeMedida,
+              categoria: prodGas.categoria,
+              tipo_vasilhame: prodGas.tipoVasilhame,
+              preco_recarga: prodGas.precoRecarga,
+              preco_completo: prodGas.precoCompleto,
+              estoque_cheio: prodGas.estoqueCheio,
+              estoque_vazio: prodGas.estoqueVazio,
+              estoque_minimo: prodGas.estoqueMinimo,
+              permite_venda_casco: prodGas.permiteVendaCasco,
+              mais_utilizado: true,
+            },
+            {
+              id: prodAgua.id,
+              empresa_id: novaEmpresa.id,
+              codigo: prodAgua.codigo,
+              nome: prodAgua.nome,
+              marca: prodAgua.marca,
+              unidade_medida: prodAgua.unidadeMedida,
+              categoria: prodAgua.categoria,
+              tipo_vasilhame: prodAgua.tipoVasilhame,
+              preco_recarga: prodAgua.precoRecarga,
+              preco_completo: prodAgua.precoCompleto,
+              estoque_cheio: prodAgua.estoqueCheio,
+              estoque_vazio: prodAgua.estoqueVazio,
+              estoque_minimo: prodAgua.estoqueMinimo,
+              permite_venda_casco: prodAgua.permiteVendaCasco,
+              mais_utilizado: true,
+            },
+          ])
+          .then(() => {})
+          .catch(() => {});
+      }
+    } catch (err: any) {
+      console.error('[Supabase Sync Error]:', err.message);
+    }
+
+    res.status(201).json({
+      sucesso: true,
+      ...novaEmpresa,
+      usuarioAdmin: novoUsuarioAdmin,
+      credenciais: {
+        nome: novoUsuarioAdmin.nome,
+        login: novoUsuarioAdmin.login,
+        email: novoUsuarioAdmin.email,
+        senha: novoUsuarioAdmin.senha,
+        pinAcesso: novoUsuarioAdmin.pinAcesso,
+        perfil: 'ADMIN',
+        cargo: novoUsuarioAdmin.cargo,
+        empresaNome: novaEmpresa.nomeFantasia,
+        empresaCnpj: novaEmpresa.cnpj,
+        empresaId: novaEmpresa.id,
+      },
+    });
   });
 
   app.put('/api/empresas/:id', (req, res) => {
@@ -428,7 +907,303 @@ app.use(express.json());
     if (dados.observacoes !== undefined) emp.observacoes = dados.observacoes;
     if (dados.configuracoes !== undefined) emp.configuracoes = { ...emp.configuracoes, ...dados.configuracoes };
 
-    res.json(emp);
+    // Atualização opcional do Administrador Master da Empresa existente
+    let usuarioAdminAtualizado: Usuario | null = null;
+    let credenciaisGeradas: any = null;
+    const adminData = dados.adminData || dados.adminInicial || dados.adminAtual;
+
+    if (adminData) {
+      let adminUsr = usuarios.find((u) => u.empresaId === emp.id && (u.perfil === 'ADMIN' || u.perfil === 'GERENTE'));
+      const adminNome = adminData.nome?.trim();
+      const adminEmail = adminData.email?.trim().toLowerCase();
+      const adminLogin = adminData.login?.trim().toLowerCase();
+      const adminSenha = adminData.senha?.trim();
+      const adminPin = adminData.pinAcesso?.trim();
+      const adminTelefone = adminData.telefone?.trim();
+
+      if (!adminUsr) {
+        // Se a empresa ainda não tinha um admin cadastrado, cria um agora
+        adminUsr = {
+          id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          empresaId: emp.id,
+          nome: adminNome || `Admin ${emp.nomeFantasia}`,
+          login: adminLogin || adminEmail || `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          email: adminEmail || emp.email || '',
+          senha: adminSenha || 'Admin@123',
+          pinAcesso: adminPin || '1234',
+          telefone: adminTelefone || emp.telefone || '',
+          perfil: 'ADMIN',
+          cargo: 'Diretor / Administrador',
+          ativo: true,
+          permissoes: {
+            emitirPedidos: true,
+            despacharPedidos: true,
+            cancelarPedidos: true,
+            editarPedidos: true,
+            devolverPedidos: true,
+            realizarAcertoCaixa: true,
+            ajustarEstoque: true,
+            verDashboardGerencial: true,
+            acessarCadastros: true,
+            gerenciarUsuarios: true,
+            importarErp: true,
+          },
+          criadoEm: new Date().toISOString(),
+        };
+        usuarios.push(adminUsr);
+      } else {
+        if (adminNome) adminUsr.nome = adminNome;
+        if (adminLogin) adminUsr.login = adminLogin;
+        if (adminEmail) adminUsr.email = adminEmail;
+        if (adminTelefone !== undefined) adminUsr.telefone = adminTelefone;
+        if (adminPin) adminUsr.pinAcesso = adminPin;
+        if (adminSenha) adminUsr.senha = adminSenha;
+        adminUsr.ativo = true;
+      }
+
+      usuarioAdminAtualizado = adminUsr;
+
+      // Se foi fornecida senha ou solicitação explícita, inclui credenciais no retorno
+      credenciaisGeradas = {
+        nome: adminUsr.nome,
+        login: adminUsr.login,
+        email: adminUsr.email,
+        senha: adminSenha || adminUsr.senha || '(Mantida anterior)',
+        pinAcesso: adminUsr.pinAcesso || '1234',
+        telefone: adminUsr.telefone || emp.telefone || '',
+        perfil: 'ADMIN',
+        cargo: adminUsr.cargo || 'Diretor / Administrador',
+        empresaNome: emp.nomeFantasia,
+        empresaCnpj: emp.cnpj,
+        empresaId: emp.id,
+      };
+
+      // Sincroniza atualização do usuário no Supabase
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          supabase
+            .from('usuarios')
+            .upsert([
+              {
+                id: adminUsr.id,
+                empresa_id: emp.id,
+                nome: adminUsr.nome,
+                login: adminUsr.login,
+                email: adminUsr.email,
+                senha: adminUsr.senha,
+                pin_acesso: adminUsr.pinAcesso,
+                telefone: adminUsr.telefone,
+                perfil: adminUsr.perfil,
+                cargo: adminUsr.cargo,
+                ativo: adminUsr.ativo,
+                permissoes: adminUsr.permissoes,
+              },
+            ])
+            .then(() => {})
+            .catch((e: any) => console.warn('[Supabase] Erro ao atualizar admin da empresa:', e.message));
+        }
+      } catch (e) {}
+    }
+
+    // Sincroniza empresa no Supabase
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase
+          .from('empresas')
+          .update({
+            razao_social: emp.razaoSocial,
+            nome_fantasia: emp.nomeFantasia,
+            cnpj: emp.cnpj,
+            telefone: emp.telefone,
+            email: emp.email,
+            cep: emp.cep,
+            cidade: emp.cidade,
+            estado: emp.estado,
+            endereco: emp.endereco,
+            numero: emp.numero,
+            bairro: emp.bairro,
+            complemento: emp.complemento,
+            plano: emp.plano,
+            status: emp.status,
+            limite_usuarios: emp.limiteUsuarios,
+            limite_pedidos_mes: emp.limitePedidosMes,
+            valor_mensalidade: emp.valorMensalidade,
+            observacoes: emp.observacoes,
+            configuracoes: emp.configuracoes,
+          })
+          .eq('id', emp.id)
+          .then(() => {})
+          .catch((e: any) => console.warn('[Supabase] Erro ao atualizar empresa:', e.message));
+      }
+    } catch (e) {}
+
+    res.json({
+      sucesso: true,
+      ...emp,
+      empresa: emp,
+      usuarioAdmin: usuarioAdminAtualizado,
+      credenciais: credenciaisGeradas,
+    });
+  });
+
+  // 1.2.3 Obter Administrador Master de uma Empresa Específica
+  app.get('/api/empresas/:id/admin', (req, res) => {
+    const { id } = req.params;
+    const emp = empresas.find((e) => e.id === id);
+    if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
+
+    let admin = usuarios.find((u) => u.empresaId === id && (u.perfil === 'ADMIN' || u.perfil === 'GERENTE'));
+    if (!admin) {
+      // Fallback: se ainda não existir, cria representação inicial
+      admin = {
+        id: `usr_${Date.now()}`,
+        empresaId: emp.id,
+        nome: `Administrador - ${emp.nomeFantasia}`,
+        login: `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '') || emp.id}`,
+        email: emp.email || '',
+        senha: 'Admin@123',
+        pinAcesso: '1234',
+        telefone: emp.telefone || '',
+        perfil: 'ADMIN',
+        cargo: 'Diretor / Administrador',
+        ativo: true,
+        permissoes: {
+          emitirPedidos: true,
+          despacharPedidos: true,
+          cancelarPedidos: true,
+          editarPedidos: true,
+          devolverPedidos: true,
+          realizarAcertoCaixa: true,
+          ajustarEstoque: true,
+          verDashboardGerencial: true,
+          acessarCadastros: true,
+          gerenciarUsuarios: true,
+          importarErp: true,
+        },
+        criadoEm: new Date().toISOString(),
+      };
+      usuarios.push(admin);
+    }
+
+    res.json({
+      sucesso: true,
+      empresaId: emp.id,
+      empresaNome: emp.nomeFantasia,
+      empresaCnpj: emp.cnpj,
+      usuario: {
+        id: admin.id,
+        nome: admin.nome,
+        login: admin.login,
+        email: admin.email,
+        telefone: admin.telefone || emp.telefone || '',
+        pinAcesso: admin.pinAcesso || '1234',
+        perfil: admin.perfil,
+        cargo: admin.cargo,
+        ativo: admin.ativo,
+        temSenhaDefinida: Boolean(admin.senha),
+      },
+    });
+  });
+
+  // 1.2.4 Redefinir Acesso / Senha do Administrador de uma Empresa
+  app.post('/api/empresas/:id/redefinir-acesso', async (req, res) => {
+    const { id } = req.params;
+    const emp = empresas.find((e) => e.id === id);
+    if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
+
+    const { nome, login, email, senha, pinAcesso, telefone } = req.body;
+    let admin = usuarios.find((u) => u.empresaId === id && (u.perfil === 'ADMIN' || u.perfil === 'GERENTE'));
+
+    const novaSenha = senha?.trim() || Math.random().toString(36).slice(-8) + '!';
+    const novoPin = pinAcesso?.trim() || Math.floor(1000 + Math.random() * 9000).toString();
+
+    if (!admin) {
+      admin = {
+        id: `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        empresaId: emp.id,
+        nome: nome?.trim() || `Admin ${emp.nomeFantasia}`,
+        login: login?.trim().toLowerCase() || email?.trim().toLowerCase() || `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+        email: email?.trim().toLowerCase() || emp.email || '',
+        senha: novaSenha,
+        pinAcesso: novoPin,
+        telefone: telefone?.trim() || emp.telefone || '',
+        perfil: 'ADMIN',
+        cargo: 'Diretor / Administrador',
+        ativo: true,
+        permissoes: {
+          emitirPedidos: true,
+          despacharPedidos: true,
+          cancelarPedidos: true,
+          editarPedidos: true,
+          devolverPedidos: true,
+          realizarAcertoCaixa: true,
+          ajustarEstoque: true,
+          verDashboardGerencial: true,
+          acessarCadastros: true,
+          gerenciarUsuarios: true,
+          importarErp: true,
+        },
+        criadoEm: new Date().toISOString(),
+      };
+      usuarios.push(admin);
+    } else {
+      if (nome) admin.nome = nome.trim();
+      if (login) admin.login = login.trim().toLowerCase();
+      if (email) admin.email = email.trim().toLowerCase();
+      if (telefone !== undefined) admin.telefone = telefone.trim();
+      admin.senha = novaSenha;
+      admin.pinAcesso = novoPin;
+      admin.ativo = true;
+    }
+
+    // Sincroniza com Supabase se ativo
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase
+          .from('usuarios')
+          .upsert([
+            {
+              id: admin.id,
+              empresa_id: emp.id,
+              nome: admin.nome,
+              login: admin.login,
+              email: admin.email,
+              senha: admin.senha,
+              pin_acesso: admin.pinAcesso,
+              telefone: admin.telefone,
+              perfil: admin.perfil,
+              cargo: admin.cargo,
+              ativo: true,
+              permissoes: admin.permissoes,
+            },
+          ])
+          .then(() => {})
+          .catch((e: any) => console.warn('[Supabase] Erro ao redefinir acesso:', e.message));
+      }
+    } catch (e) {}
+
+    res.json({
+      sucesso: true,
+      mensagem: 'Credenciais de acesso redefinidas com sucesso!',
+      empresa: emp,
+      usuarioAdmin: admin,
+      credenciais: {
+        nome: admin.nome,
+        login: admin.login,
+        email: admin.email,
+        senha: novaSenha,
+        pinAcesso: novoPin,
+        telefone: admin.telefone || emp.telefone || '',
+        perfil: 'ADMIN',
+        cargo: admin.cargo || 'Diretor / Administrador',
+        empresaNome: emp.nomeFantasia,
+        empresaCnpj: emp.cnpj,
+        empresaId: emp.id,
+      },
+    });
   });
 
   app.delete('/api/empresas/:id', (req, res) => {
@@ -755,11 +1530,30 @@ app.use(express.json());
   });
 
   // 1.2 Status de Integração Supabase & Servidor
-  app.get('/api/status/supabase', (req, res) => {
+  app.get('/api/status/supabase', async (req, res) => {
     const supabase = getSupabase();
     const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    let schemaStatus = 'unknown';
+    let schemaError = null;
+    if (supabase) {
+      try {
+        const { error } = await supabase.from('produtos').select('id', { count: 'exact', head: true });
+        if (error) {
+          schemaStatus = 'erro';
+          schemaError = error.message;
+        } else {
+          schemaStatus = 'ok';
+        }
+      } catch (e: any) {
+        schemaStatus = 'erro';
+        schemaError = e.message;
+      }
+    }
     res.json({
       conectado: Boolean(supabase),
+      schema: 'delivery',
+      schemaStatus,
+      schemaError,
       url: url ? `${url.substring(0, 25)}...` : 'Não configurado (Usando modo Local/Demo)',
       pushVapidAtivo: Boolean(vapidKeys.publicKey),
       tabelasDisponiveis: [
@@ -781,6 +1575,17 @@ app.use(express.json());
       totalPedidos: pedidos.length,
       totalMovimentacoesEstoque: movimentacoesEstoque.length,
     });
+  });
+
+  // 1.2.1 Sincronização Manual / Re-sincronização do Supabase
+  app.get('/api/supabase/sync', async (req, res) => {
+    const result = await syncFromSupabase();
+    res.json(result);
+  });
+
+  app.post('/api/supabase/sync', async (req, res) => {
+    const result = await syncFromSupabase();
+    res.json(result);
   });
 
   // 1.3 Autenticação Unificada (Supabase Ready + Local Fallback)
@@ -805,7 +1610,7 @@ app.use(express.json());
               nome: data.user.user_metadata?.nome || data.user.email?.split('@')[0] || 'Usuário Supabase',
               login: loginFormatado,
               email: data.user.email,
-              perfil: (data.user.user_metadata?.perfil as any) || 'ADMIN',
+              perfil: loginFormatado === 'admin@droweder.com.br' ? 'SUPER_ADMIN' : ((data.user.user_metadata?.perfil as any) || 'ADMIN'),
               cargo: data.user.user_metadata?.cargo || 'Administrador',
               ativo: true,
               permissoes: {
@@ -889,28 +1694,52 @@ app.use(express.json());
 
   // 2. Bairros e Taxas de Entrega
   app.get('/api/bairros', (req, res) => {
-    res.json(bairros);
+    const empId = getTargetEmpresaId(req);
+    const resultado = empId ? bairros.filter((b) => (b.empresaId || 'emp1') === empId) : bairros;
+    res.json(resultado);
   });
 
   app.post('/api/bairros', (req, res) => {
+    const empId = getTargetEmpresaId(req) || 'emp1';
     const { nome, taxaEntrega, tempoMedioMin, ativo = true } = req.body;
     if (!nome) return res.status(400).json({ error: 'Nome do bairro é obrigatório' });
 
     const novoBairro: BairroTaxa = {
       id: `b_${Date.now()}`,
+      empresaId: empId,
       nome: String(nome).trim(),
       taxaEntrega: Number(taxaEntrega) || 0,
       tempoMedioMin: Number(tempoMedioMin) || 20,
       ativo: Boolean(ativo),
     };
     bairros.push(novoBairro);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('bairros_taxas').upsert([{
+        id: novoBairro.id,
+        empresa_id: novoBairro.empresaId,
+        nome: novoBairro.nome,
+        taxa_entrega: novoBairro.taxaEntrega,
+        taxa: novoBairro.taxaEntrega,
+        tempo_medio_min: novoBairro.tempoMedioMin,
+        prazo_estimado: novoBairro.tempoMedioMin,
+        ativo: novoBairro.ativo,
+        status: novoBairro.ativo ? 'ATIVO' : 'INATIVO'
+      }]).catch((err: any) => console.warn('[Supabase Sync] Erro bairro:', err.message));
+    }
+
     res.status(201).json(novoBairro);
   });
 
   app.put('/api/bairros/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const bairro = bairros.find((b) => b.id === id);
     if (!bairro) return res.status(404).json({ error: 'Bairro não encontrado' });
+    if (empId && bairro.empresaId && bairro.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este bairro pertence a outra empresa.' });
+    }
 
     const { nome, taxaEntrega, tempoMedioMin, ativo } = req.body;
     if (nome !== undefined) bairro.nome = String(nome).trim();
@@ -918,21 +1747,44 @@ app.use(express.json());
     if (tempoMedioMin !== undefined) bairro.tempoMedioMin = Number(tempoMedioMin);
     if (ativo !== undefined) bairro.ativo = Boolean(ativo);
 
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('bairros_taxas').update({
+        nome: bairro.nome,
+        taxa_entrega: bairro.taxaEntrega,
+        taxa: bairro.taxaEntrega,
+        tempo_medio_min: bairro.tempoMedioMin,
+        prazo_estimado: bairro.tempoMedioMin,
+        ativo: bairro.ativo,
+        status: bairro.ativo ? 'ATIVO' : 'INATIVO'
+      }).eq('id', id).catch(() => {});
+    }
+
     res.json(bairro);
   });
 
   app.delete('/api/bairros/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = bairros.findIndex((b) => b.id === id);
     if (index === -1) return res.status(404).json({ error: 'Bairro não encontrado' });
+    if (empId && bairros[index].empresaId && bairros[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este bairro pertence a outra empresa.' });
+    }
 
     const [removido] = bairros.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('bairros_taxas').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true, bairro: removido });
   });
 
   // 3. Produtos e Estoque de Vasilhames
   app.get('/api/produtos', (req, res) => {
-    res.json(produtos);
+    const empId = getTargetEmpresaId(req);
+    const resultado = empId ? produtos.filter((p) => (p.empresaId || 'emp1') === empId) : produtos;
+    res.json(resultado);
   });
 
   app.post('/api/produtos', (req, res) => {
@@ -940,9 +1792,11 @@ app.use(express.json());
     if (!dados.nome) {
       return res.status(400).json({ error: 'Nome do produto é obrigatório' });
     }
+    const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
 
     const novoProduto: Produto = {
       id: dados.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      empresaId: empId,
       codigo: dados.codigo || `PROD-${Math.floor(1000 + Math.random() * 9000)}`,
       nome: dados.nome,
       marca: dados.marca || 'Genérica',
@@ -965,14 +1819,40 @@ app.use(express.json());
     };
 
     produtos.push(novoProduto);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('produtos').upsert([{
+        id: novoProduto.id,
+        empresa_id: novoProduto.empresaId,
+        codigo: novoProduto.codigo,
+        nome: novoProduto.nome,
+        marca: novoProduto.marca,
+        unidade_medida: novoProduto.unidadeMedida,
+        categoria: novoProduto.categoria,
+        tipo_vasilhame: novoProduto.tipoVasilhame,
+        preco_recarga: novoProduto.precoRecarga,
+        preco_completo: novoProduto.precoCompleto,
+        estoque_cheio: novoProduto.estoqueCheio,
+        estoque_atual: novoProduto.estoqueCheio,
+        estoque_vazio: novoProduto.estoqueVazio,
+        estoque_minimo: novoProduto.estoqueMinimo,
+        ativo: true
+      }]).catch((err: any) => console.warn('[Supabase Sync] Erro produto:', err.message));
+    }
+
     res.status(201).json(novoProduto);
   });
 
   app.put('/api/produtos/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const dados = req.body;
     const prod = produtos.find((p) => p.id === id);
     if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (empId && prod.empresaId && prod.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este produto pertence a outra empresa.' });
+    }
 
     if (dados.nome !== undefined) prod.nome = dados.nome;
     if (dados.codigo !== undefined) prod.codigo = dados.codigo;
@@ -988,13 +1868,35 @@ app.use(express.json());
     if (dados.permiteVendaCasco !== undefined) prod.permiteVendaCasco = Boolean(dados.permiteVendaCasco);
     if (dados.maisUtilizado !== undefined) prod.maisUtilizado = Boolean(dados.maisUtilizado);
 
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('produtos').update({
+        nome: prod.nome,
+        codigo: prod.codigo,
+        marca: prod.marca,
+        unidade_medida: prod.unidadeMedida,
+        categoria: prod.categoria,
+        tipo_vasilhame: prod.tipoVasilhame,
+        preco_recarga: prod.precoRecarga,
+        preco_completo: prod.precoCompleto,
+        estoque_cheio: prod.estoqueCheio,
+        estoque_atual: prod.estoqueCheio,
+        estoque_vazio: prod.estoqueVazio,
+        estoque_minimo: prod.estoqueMinimo,
+      }).eq('id', id).catch(() => {});
+    }
+
     res.json(prod);
   });
 
   app.put('/api/produtos/:id/toggle-favorito', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const prod = produtos.find((p) => p.id === id);
     if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (empId && prod.empresaId && prod.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este produto pertence a outra empresa.' });
+    }
 
     prod.maisUtilizado = !prod.maisUtilizado;
     res.json(prod);
@@ -1004,14 +1906,19 @@ app.use(express.json());
   const handleImportacaoProdutos = (req: any, res: any) => {
     const itens = req.body.itens || req.body.produtos;
     const modoSubstituir = req.body.modoSubstituir;
+    const empId = getTargetEmpresaId(req) || 'emp1';
 
     if (!Array.isArray(itens) || itens.length === 0) {
       return res.status(400).json({ error: 'Lista de produtos para importação está vazia ou inválida.' });
     }
 
     if (modoSubstituir) {
-      // Manter apenas produtos estruturais essenciais se solicitado, ou substituir
-      produtos = [];
+      // Se solicitado modo substituir, remove apenas produtos da empresa ativa
+      for (let i = produtos.length - 1; i >= 0; i--) {
+        if ((produtos[i].empresaId || 'emp1') === empId) {
+          produtos.splice(i, 1);
+        }
+      }
     }
 
     let adicionados = 0;
@@ -1023,9 +1930,9 @@ app.use(express.json());
       const nomeLimpo = String(item.nome).trim();
       const codigoLimpo = item.codigo ? String(item.codigo).trim().toUpperCase() : '';
 
-      // Tenta achar por código ou nome aproximado
+      // Tenta achar por código ou nome aproximado dentro da mesma empresa
       const prodExistente = produtos.find(
-        (p) => (codigoLimpo && p.codigo.toUpperCase() === codigoLimpo) || p.nome.toLowerCase() === nomeLimpo.toLowerCase()
+        (p) => (p.empresaId || 'emp1') === empId && ((codigoLimpo && p.codigo.toUpperCase() === codigoLimpo) || p.nome.toLowerCase() === nomeLimpo.toLowerCase())
       );
 
       const precoRecarga =
@@ -1048,7 +1955,6 @@ app.use(express.json());
       const marca = item.marca || 'Conveniência';
 
       if (prodExistente) {
-        // Atualiza campos
         prodExistente.nome = nomeLimpo;
         if (item.marca) prodExistente.marca = marca;
         if (item.unidadeMedida) prodExistente.unidadeMedida = unidadeMedida;
@@ -1064,6 +1970,7 @@ app.use(express.json());
       } else {
         const novoProduto: Produto = {
           id: `prod_erp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          empresaId: empId,
           codigo: codigoLimpo || `ERP-${Math.floor(10000 + Math.random() * 90000)}`,
           nome: nomeLimpo,
           marca,
@@ -1084,15 +1991,14 @@ app.use(express.json());
       }
     });
 
-    console.log(`[ERP Import] ${adicionados} produtos inseridos, ${atualizados} atualizados. Total catálogo: ${produtos.length}`);
-
+    const prodsTenant = produtos.filter((p) => (p.empresaId || 'emp1') === empId);
     res.json({
       sucesso: true,
       mensagem: `Importação concluída: ${adicionados} adicionados, ${atualizados} atualizados.`,
       adicionados,
       atualizados,
-      totalCatalogo: produtos.length,
-      produtos,
+      totalCatalogo: prodsTenant.length,
+      produtos: prodsTenant,
     });
   };
 
@@ -1101,18 +2007,30 @@ app.use(express.json());
 
   app.delete('/api/produtos/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = produtos.findIndex((p) => p.id === id);
     if (index === -1) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (empId && produtos[index].empresaId && produtos[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este produto pertence a outra empresa.' });
+    }
 
     produtos.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('produtos').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true });
   });
 
   app.put('/api/produtos/:id/estoque', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const { estoqueCheio, estoqueVazio, motivo, usuarioResponsavel } = req.body;
     const prod = produtos.find((p) => p.id === id);
     if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (empId && prod.empresaId && prod.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este produto pertence a outra empresa.' });
+    }
 
     const deltaCheio = typeof estoqueCheio === 'number' ? estoqueCheio - prod.estoqueCheio : 0;
     const deltaVazio = typeof estoqueVazio === 'number' ? estoqueVazio - prod.estoqueVazio : 0;
@@ -1131,13 +2049,14 @@ app.use(express.json());
 
   // 3.1 Histórico & Ledger de Movimentações de Estoque e Vasilhames
   app.get('/api/estoque/movimentacoes', (req, res) => {
+    const empId = getTargetEmpresaId(req);
     const { produtoId, tipoVasilhame, tipoMovimentacao } = req.query as {
       produtoId?: string;
       tipoVasilhame?: string;
       tipoMovimentacao?: string;
     };
 
-    let lista = [...movimentacoesEstoque];
+    let lista = empId ? movimentacoesEstoque.filter((m) => (m.empresaId || 'emp1') === empId) : [...movimentacoesEstoque];
     if (produtoId) lista = lista.filter((m) => m.produtoId === produtoId);
     if (tipoVasilhame) lista = lista.filter((m) => m.tipoVasilhame === tipoVasilhame);
     if (tipoMovimentacao) lista = lista.filter((m) => m.tipoMovimentacao === tipoMovimentacao);
@@ -1148,8 +2067,12 @@ app.use(express.json());
   // 3.2 Ajuste Manual / Entrada de Carga de Vasilhames & Gás
   app.post('/api/estoque/ajustar', (req, res) => {
     const { produtoId, tipoMovimentacao, quantidadeCheio, quantidadeVazio, motivo, usuarioResponsavel } = req.body;
+    const empId = getTargetEmpresaId(req);
     const prod = produtos.find((p) => p.id === produtoId);
     if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (empId && prod.empresaId && prod.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este produto pertence a outra empresa.' });
+    }
 
     const qtdCheio = Number(quantidadeCheio) || 0;
     const qtdVazio = Number(quantidadeVazio) || 0;
@@ -1171,14 +2094,18 @@ app.use(express.json());
 
   // 4. Clientes (Busca rápida por telefone/nome no PDV)
   app.get('/api/clientes', (req, res) => {
-    res.json(clientes);
+    const empId = getTargetEmpresaId(req);
+    const resultado = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+    res.json(resultado);
   });
 
   app.get('/api/clientes/buscar', (req, res) => {
+    const empId = getTargetEmpresaId(req);
     const q = ((req.query.q as string) || '').trim().toLowerCase();
-    if (!q) return res.json(clientes);
+    let base = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+    if (!q) return res.json(base);
 
-    const filtrados = clientes.filter(
+    const filtrados = base.filter(
       (c) =>
         c.telefone.replace(/\D/g, '').includes(q.replace(/\D/g, '')) ||
         c.nome.toLowerCase().includes(q) ||
@@ -1189,9 +2116,11 @@ app.use(express.json());
 
   app.post('/api/clientes', (req, res) => {
     const dados = req.body;
+    const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
     const bairro = bairros.find((b) => b.id === dados.bairroId) || bairros[0];
     const novoCliente: Cliente = {
       id: dados.id || `c_${Date.now()}`,
+      empresaId: empId,
       nome: dados.nome,
       telefone: dados.telefone,
       cpfCnpj: dados.cpfCnpj || '',
@@ -1200,8 +2129,8 @@ app.use(express.json());
       endereco: dados.endereco,
       numero: dados.numero,
       complemento: dados.complemento || '',
-      bairroId: bairro.id,
-      bairroNome: bairro.nome,
+      bairroId: bairro ? bairro.id : 'b1',
+      bairroNome: bairro ? bairro.nome : 'Centro',
       cidade: dados.cidade || 'São Paulo',
       estado: dados.estado || 'SP',
       referencia: dados.referencia || '',
@@ -1212,13 +2141,41 @@ app.use(express.json());
       vasilhamesPendentes: { P13: 0, P20L: 0 },
     };
     clientes.push(novoCliente);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('clientes').upsert([{
+        id: novoCliente.id,
+        empresa_id: novoCliente.empresaId,
+        nome: novoCliente.nome,
+        telefone: novoCliente.telefone,
+        cpf_cnpj: novoCliente.cpfCnpj,
+        email: novoCliente.email,
+        cep: novoCliente.cep,
+        endereco: novoCliente.endereco,
+        numero: novoCliente.numero,
+        complemento: novoCliente.complemento,
+        bairro_id: novoCliente.bairroId,
+        bairro_nome: novoCliente.bairroNome,
+        cidade: novoCliente.cidade,
+        estado: novoCliente.estado,
+        referencia: novoCliente.referencia,
+        lat: novoCliente.lat,
+        lng: novoCliente.lng,
+      }]).catch((err: any) => console.warn('[Supabase Sync] Erro cliente:', err.message));
+    }
+
     res.status(201).json(novoCliente);
   });
 
   app.put('/api/clientes/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const cliente = clientes.find((c) => c.id === id);
     if (!cliente) return res.status(404).json({ error: 'Cliente não encontrado' });
+    if (empId && cliente.empresaId && cliente.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este cliente pertence a outra empresa.' });
+    }
 
     const dados = req.body;
     if (dados.nome !== undefined) cliente.nome = dados.nome;
@@ -1249,35 +2206,68 @@ app.use(express.json());
       };
     }
 
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('clientes').update({
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        cpf_cnpj: cliente.cpfCnpj,
+        email: cliente.email,
+        cep: cliente.cep,
+        endereco: cliente.endereco,
+        numero: cliente.numero,
+        complemento: cliente.complemento,
+        bairro_id: cliente.bairroId,
+        bairro_nome: cliente.bairroNome,
+        cidade: cliente.cidade,
+        estado: cliente.estado,
+        referencia: cliente.referencia,
+        lat: cliente.lat,
+        lng: cliente.lng,
+      }).eq('id', id).catch(() => {});
+    }
+
     res.json(cliente);
   });
 
   app.delete('/api/clientes/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = clientes.findIndex((c) => c.id === id);
     if (index === -1) return res.status(404).json({ error: 'Cliente não encontrado' });
+    if (empId && clientes[index].empresaId && clientes[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este cliente pertence a outra empresa.' });
+    }
 
     const [removido] = clientes.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('clientes').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true, cliente: removido });
   });
 
   // 5. Entregadores / Colaboradores
   app.get('/api/entregadores', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? entregadores.filter((e) => (e.empresaId || 'emp1') === empId) : entregadores;
     // Recalcular contador de pedidos ativos
-    entregadores.forEach((ent) => {
+    lista.forEach((ent) => {
       ent.pedidosAtivosCount = pedidos.filter(
-        (p) => p.entregadorId === ent.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
+        (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === ent.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
       ).length;
     });
-    res.json(entregadores);
+    res.json(lista);
   });
 
   app.post('/api/entregadores', (req, res) => {
     const dados = req.body;
     if (!dados.nome) return res.status(400).json({ error: 'Nome do entregador é obrigatório' });
+    const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
 
     const novoEntregador: Entregador = {
       id: dados.id || `e_${Date.now()}`,
+      empresaId: empId,
       nome: dados.nome,
       telefone: dados.telefone || '(11) 90000-0000',
       veiculo: dados.veiculo || 'Moto (Padrão)',
@@ -1290,13 +2280,31 @@ app.use(express.json());
     };
 
     entregadores.push(novoEntregador);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('entregadores').upsert([{
+        id: novoEntregador.id,
+        empresa_id: novoEntregador.empresaId,
+        nome: novoEntregador.nome,
+        telefone: novoEntregador.telefone,
+        veiculo: novoEntregador.veiculo,
+        placa: novoEntregador.placa,
+        ativo: true
+      }]).catch((err: any) => console.warn('[Supabase Sync] Erro entregador:', err.message));
+    }
+
     res.status(201).json(novoEntregador);
   });
 
   app.put('/api/entregadores/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const ent = entregadores.find((e) => e.id === id);
     if (!ent) return res.status(404).json({ error: 'Entregador não encontrado' });
+    if (empId && ent.empresaId && ent.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este entregador pertence a outra empresa.' });
+    }
 
     const dados = req.body;
     if (dados.nome !== undefined) ent.nome = dados.nome;
@@ -1311,16 +2319,29 @@ app.use(express.json());
 
   app.delete('/api/entregadores/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = entregadores.findIndex((e) => e.id === id);
     if (index === -1) return res.status(404).json({ error: 'Entregador não encontrado' });
+    if (empId && entregadores[index].empresaId && entregadores[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este entregador pertence a outra empresa.' });
+    }
 
     const [removido] = entregadores.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('entregadores').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true, entregador: removido });
   });
 
   // 5.1 Usuários e Gestão de Permissões
   app.get('/api/usuarios', (req, res) => {
-    res.json(usuarios);
+    const empId = getTargetEmpresaId(req);
+    if (empId) {
+      res.json(usuarios.filter((u) => u.perfil === 'SUPER_ADMIN' || (u.empresaId || 'emp1') === empId));
+    } else {
+      res.json(usuarios);
+    }
   });
 
   app.post('/api/usuarios', (req, res) => {
@@ -1328,6 +2349,7 @@ app.use(express.json());
     if (!dados.nome || !dados.login) {
       return res.status(400).json({ error: 'Nome e login são obrigatórios' });
     }
+    const empId = getTargetEmpresaId(req);
 
     const defaultPermissoes = {
       ADMIN: {
@@ -1389,6 +2411,7 @@ app.use(express.json());
 
     const novoUsuario: Usuario = {
       id: dados.id || `u_${Date.now()}`,
+      empresaId: perfil === 'SUPER_ADMIN' ? undefined : (empId || dados.empresaId || 'emp1'),
       nome: dados.nome,
       login: dados.login.toLowerCase().trim(),
       email: dados.email || '',
@@ -1404,13 +2427,33 @@ app.use(express.json());
     };
 
     usuarios.push(novoUsuario);
+
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('usuarios').upsert([{
+        id: novoUsuario.id,
+        empresa_id: novoUsuario.empresaId,
+        nome: novoUsuario.nome,
+        login: novoUsuario.login,
+        email: novoUsuario.email,
+        perfil: novoUsuario.perfil,
+        cargo: novoUsuario.cargo,
+        ativo: novoUsuario.ativo,
+        pin_acesso: novoUsuario.pinAcesso,
+      }]).catch((err: any) => console.warn('[Supabase Sync] Erro usuario:', err.message));
+    }
+
     res.status(201).json(novoUsuario);
   });
 
   app.put('/api/usuarios/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const user = usuarios.find((u) => u.id === id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (empId && user.empresaId && user.empresaId !== empId && user.perfil !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Acesso negado: este usuário pertence a outra empresa.' });
+    }
 
     const dados = req.body;
     if (dados.nome !== undefined) user.nome = dados.nome;
@@ -1431,8 +2474,12 @@ app.use(express.json());
 
   app.put('/api/usuarios/:id/toggle-ativo', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const user = usuarios.find((u) => u.id === id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (empId && user.empresaId && user.empresaId !== empId && user.perfil !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Acesso negado: este usuário pertence a outra empresa.' });
+    }
 
     user.ativo = !user.ativo;
     res.json(user);
@@ -1440,10 +2487,18 @@ app.use(express.json());
 
   app.delete('/api/usuarios/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = usuarios.findIndex((u) => u.id === id);
     if (index === -1) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (empId && usuarios[index].empresaId && usuarios[index].empresaId !== empId && usuarios[index].perfil !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Acesso negado: este usuário pertence a outra empresa.' });
+    }
 
     const [removido] = usuarios.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('usuarios').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true, usuario: removido });
   });
 
@@ -1462,10 +2517,11 @@ app.use(express.json());
 
   // 6. Pedidos
   app.get('/api/pedidos', (req, res) => {
+    const empId = getTargetEmpresaId(req);
     const status = req.query.status as string;
     const entregadorId = req.query.entregadorId as string;
 
-    let resultado = [...pedidos];
+    let resultado = empId ? pedidos.filter((p) => (p.empresaId || 'emp1') === empId) : [...pedidos];
     if (status) {
       resultado = resultado.filter((p) => p.status === status);
     }
@@ -1479,16 +2535,24 @@ app.use(express.json());
   // 6.1 Obter Detalhes de um Pedido Específico
   app.get('/api/pedidos/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
     res.json(pedido);
   });
 
   // 6.2 Gerência: Atualizar e Corrigir Pedido (Edição pelo Gerente)
   app.put('/api/pedidos/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     const {
       cliente,
@@ -1510,7 +2574,6 @@ app.use(express.json());
     if (cliente) {
       pedido.cliente = { ...pedido.cliente, ...cliente };
       pedido.clienteId = cliente.id || pedido.clienteId;
-      // Atualiza na base de clientes também
       const cliIndex = clientes.findIndex((c) => c.id === pedido.clienteId);
       if (cliIndex !== -1) {
         clientes[cliIndex] = { ...clientes[cliIndex], ...cliente };
@@ -1576,7 +2639,6 @@ app.use(express.json());
       } else if (status === 'CONCLUIDO' && !pedido.concluidoEm) {
         pedido.concluidoEm = new Date().toISOString();
       } else if (status === 'CANCELADO') {
-        // Se foi cancelado e estava em rota, devolve ao estoque cheio
         if (statusAnterior === 'EM_ROTA') {
           pedido.itens.forEach((it) => {
             const prod = produtos.find((pr) => pr.id === it.produtoId);
@@ -1601,7 +2663,6 @@ app.use(express.json());
 
     pedido.versao += 1;
 
-    // Adiciona anotação de auditoria nas observações se houver motivo
     if (motivoAjuste) {
       const dataHoraStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const registroAudit = `\n[Ajuste Gerencial ${dataHoraStr}]: ${motivoAjuste}`;
@@ -1615,15 +2676,18 @@ app.use(express.json());
   // 6.3 Cancelar Pedido (com estorno de estoque)
   app.post('/api/pedidos/:id/cancelar', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const { motivo } = req.body;
     const pedido = pedidos.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     const statusAnterior = pedido.status;
     pedido.status = 'CANCELADO';
     pedido.versao += 1;
 
-    // Se estava em rota ou pendente despachado, devolve o estoque cheio
     if (statusAnterior === 'EM_ROTA') {
       pedido.itens.forEach((it) => {
         const prod = produtos.find((pr) => pr.id === it.produtoId);
@@ -1634,7 +2698,6 @@ app.use(express.json());
     const registroCancel = `\n[CANCELADO GERENTE ${new Date().toLocaleTimeString()}]: ${motivo || 'Cancelado pelo gerente'}`;
     pedido.observacoes = (pedido.observacoes || '') + registroCancel;
 
-    // Notifica entregador caso estivesse despachado
     if (pedido.entregadorId) {
       dispararNotificacaoPush({
         entregadorId: pedido.entregadorId,
@@ -1653,8 +2716,12 @@ app.use(express.json());
   // 6.4 Reabrir Pedido Cancelado
   app.post('/api/pedidos/:id/reabrir', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     pedido.status = 'PENDENTE';
     pedido.entregadorId = undefined;
@@ -1668,16 +2735,25 @@ app.use(express.json());
   // 6.5 Excluir Pedido
   app.delete('/api/pedidos/:id', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const index = pedidos.findIndex((p) => p.id === id);
     if (index === -1) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedidos[index].empresaId && pedidos[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     const [removido] = pedidos.splice(index, 1);
+    const supabase = getSupabase();
+    if (supabase) {
+      supabase.from('pedidos').delete().eq('id', id).catch(() => {});
+    }
     res.json({ sucesso: true, pedido: removido });
   });
 
   // 7. PDV: Criar Novo Pedido
   app.post('/api/pdv/pedidos', (req, res) => {
     try {
+      const empId = getTargetEmpresaId(req) || req.body.empresaId || 'emp1';
       const {
         clienteId,
         clienteNovo,
@@ -1692,18 +2768,19 @@ app.use(express.json());
         emitidoPorPerfil,
       } = req.body;
 
-      let cliente = clientes.find((c) => c.id === clienteId);
+      let cliente = clientes.find((c) => c.id === clienteId && (c.empresaId || 'emp1') === empId);
       if (!cliente && clienteNovo) {
-        const bairro = bairros.find((b) => b.id === clienteNovo.bairroId) || bairros[0];
+        const bairro = bairros.find((b) => b.id === clienteNovo.bairroId && (b.empresaId || 'emp1') === empId) || bairros.find((b) => (b.empresaId || 'emp1') === empId) || bairros[0];
         cliente = {
           id: `c_${Date.now()}`,
+          empresaId: empId,
           nome: clienteNovo.nome,
           telefone: clienteNovo.telefone,
           endereco: clienteNovo.endereco,
           numero: clienteNovo.numero,
           complemento: clienteNovo.complemento || '',
-          bairroId: bairro.id,
-          bairroNome: bairro.nome,
+          bairroId: bairro ? bairro.id : 'b1',
+          bairroNome: bairro ? bairro.nome : 'Centro',
           referencia: clienteNovo.referencia || '',
           lat: clienteNovo.lat || -23.55052 + (Math.random() - 0.5) * 0.02,
           lng: clienteNovo.lng || -46.633308 + (Math.random() - 0.5) * 0.02,
@@ -1728,7 +2805,7 @@ app.use(express.json());
             : 0);
 
       let subtotal = 0;
-      const itensProcessados: ItemPedido[] = itens.map((item: any, idx: number) => {
+      const itensProcessados: ItemPedido[] = (itens || []).map((item: any, idx: number) => {
         const prod = produtos.find((p) => p.id === item.produtoId);
         const precoUnit =
           item.tipoVenda === 'COMPLETO' && prod?.permiteVendaCasco
@@ -1737,7 +2814,6 @@ app.use(express.json());
         const itemSubtotal = precoUnit * item.quantidade;
         subtotal += itemSubtotal;
 
-        // Se for recarga de gás ou água, espera recolher o casco do cliente
         const precisaCasco = item.tipoVenda === 'RECARGA' && prod && prod.tipoVasilhame !== 'NENHUM';
 
         return {
@@ -1759,6 +2835,7 @@ app.use(express.json());
 
       const novoPedido: Pedido = {
         id: `ped_${Date.now()}`,
+        empresaId: empId,
         codigo: `#${orderCounter++}`,
         clienteId: cliente.id,
         cliente,
@@ -1772,7 +2849,7 @@ app.use(express.json());
         trocoPara: trocoPara ? Number(trocoPara) : undefined,
         observacoes,
         emitidoPorId: emitidoPorId || 'u3',
-        emitidoPorNome: emitidoPorNome || 'Ana Paula Martins (PDV)',
+        emitidoPorNome: emitidoPorNome || 'Atendente PDV',
         emitidoPorPerfil: emitidoPorPerfil || 'ATENDENTE_PDV',
         criadoEm: new Date().toISOString(),
         sincronizado: true,
@@ -1780,6 +2857,32 @@ app.use(express.json());
       };
 
       pedidos.unshift(novoPedido);
+
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('pedidos').upsert([{
+          id: novoPedido.id,
+          empresa_id: novoPedido.empresaId,
+          codigo: novoPedido.codigo,
+          numero_pedido: novoPedido.codigo,
+          cliente_id: novoPedido.clienteId,
+          status: novoPedido.status,
+          subtotal: novoPedido.subtotal,
+          taxa_entrega: novoPedido.taxaEntrega,
+          desconto: novoPedido.desconto,
+          total: novoPedido.total,
+          forma_pagamento_prevista: novoPedido.formaPagamentoPrevista,
+          troco_para: novoPedido.trocoPara,
+          observacoes: novoPedido.observacoes,
+          emitido_por_id: novoPedido.emitidoPorId,
+          emitido_por_nome: novoPedido.emitidoPorNome,
+          emitido_por_perfil: novoPedido.emitidoPorPerfil,
+          criado_em: novoPedido.criadoEm,
+          sincronizado: true,
+          versao: novoPedido.versao
+        }]).catch((err: any) => console.warn('[Supabase Sync] Erro pedido:', err.message));
+      }
+
       res.status(201).json(novoPedido);
     } catch (error: any) {
       console.error('Erro ao criar pedido:', error);
@@ -1790,8 +2893,12 @@ app.use(express.json());
   // 7.1 Devolução do Pedido pelo Entregador para Correção pelo Emitente
   app.post('/api/entregador/devolver-pedido', (req, res) => {
     const { pedidoId, entregadorId, motivoDevolucao, observacao } = req.body;
+    const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === pedidoId);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     const entregador = entregadores.find((e) => e.id === entregadorId) || {
       id: entregadorId || 'e1',
@@ -1841,8 +2948,12 @@ app.use(express.json());
   // 7.2 Correção e Reenvio do Pedido pelo Emitente / PDV / Gerente
   app.post('/api/pedidos/:id/corrigir-reenviar', (req, res) => {
     const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
 
     const {
       cliente,
@@ -1936,7 +3047,8 @@ app.use(express.json());
   // 8. Despacho: Atribuir Pedidos ao Entregador e Mudar para "EM_ROTA"
   app.post('/api/despacho/atribuir', async (req, res) => {
     const { pedidosIds, entregadorId, despachadoPor } = req.body;
-    const entregador = entregadores.find((e) => e.id === entregadorId);
+    const empId = getTargetEmpresaId(req);
+    const entregador = entregadores.find((e) => e.id === entregadorId && (!empId || (e.empresaId || 'emp1') === empId));
 
     if (!entregador) {
       return res.status(404).json({ error: 'Entregador não encontrado' });
@@ -1945,7 +3057,7 @@ app.use(express.json());
     const pedidosAtualizados: Pedido[] = [];
 
     pedidos.forEach((p) => {
-      if (pedidosIds.includes(p.id)) {
+      if (pedidosIds.includes(p.id) && (!empId || (p.empresaId || 'emp1') === empId)) {
         p.entregadorId = entregador.id;
         p.entregadorNome = `${entregador.nome} (${entregador.veiculo})`;
         p.status = 'EM_ROTA';
@@ -1968,7 +3080,7 @@ app.use(express.json());
 
     entregador.status = 'EM_ROTA';
     entregador.pedidosAtivosCount = pedidos.filter(
-      (p) => p.entregadorId === entregador.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
+      (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === entregador.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
     ).length;
 
     // Dispara Notificação Push para o Celular do Entregador (Supabase Realtime / Web Push)
@@ -2299,11 +3411,12 @@ app.use(express.json());
       cascosP13Recolhidos,
       cascosP20LRecolhidos,
     } = req.body;
+    const empId = getTargetEmpresaId(req);
 
-    const entregador = entregadores.find((e) => e.id === entregadorId);
+    const entregador = entregadores.find((e) => e.id === entregadorId && (!empId || (e.empresaId || 'emp1') === empId));
     if (!entregador) return res.status(404).json({ error: 'Entregador não encontrado' });
 
-    const pedidosFechamento = pedidos.filter((p) => pedidosIds.includes(p.id));
+    const pedidosFechamento = pedidos.filter((p) => pedidosIds.includes(p.id) && (!empId || (p.empresaId || 'emp1') === empId));
 
     let totalDinheiroEsperado = 0;
     let totalPix = 0;
@@ -2336,11 +3449,11 @@ app.use(express.json());
     });
 
     // Atualiza o estoque físico de cascos vazios na base
-    const p13Prod = produtos.find((pr) => pr.tipoVasilhame === 'P13');
+    const p13Prod = produtos.find((pr) => pr.tipoVasilhame === 'P13' && (!empId || (pr.empresaId || 'emp1') === empId));
     if (p13Prod) {
       p13Prod.estoqueVazio += cascosP13Recolhidos ?? cascosP13Calculados;
     }
-    const p20Prod = produtos.find((pr) => pr.tipoVasilhame === 'P20L');
+    const p20Prod = produtos.find((pr) => pr.tipoVasilhame === 'P20L' && (!empId || (pr.empresaId || 'emp1') === empId));
     if (p20Prod) {
       p20Prod.estoqueVazio += cascosP20LRecolhidos ?? cascosP20LCalculados;
     }
@@ -2349,6 +3462,7 @@ app.use(express.json());
 
     const fechamento: FechamentoCaixaEntregador = {
       id: `fech_${Date.now()}`,
+      empresaId: empId || entregador.empresaId || 'emp1',
       entregadorId: entregador.id,
       entregadorNome: entregador.nome,
       data: new Date().toISOString(),
@@ -2390,8 +3504,9 @@ app.use(express.json());
 
   // Histórico de Fechamentos de Caixa Realizados
   app.get('/api/acerto/fechamentos', (req, res) => {
+    const empId = getTargetEmpresaId(req);
     const { entregadorId } = req.query as { entregadorId?: string };
-    let lista = [...fechamentos];
+    let lista = empId ? fechamentos.filter((f) => (f.empresaId || 'emp1') === empId) : [...fechamentos];
     if (entregadorId) {
       lista = lista.filter((f) => f.entregadorId === entregadorId);
     }
@@ -2399,12 +3514,15 @@ app.use(express.json());
   });
 
   app.get('/api/acerto/historico', (req, res) => {
-    res.json(fechamentos);
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? fechamentos.filter((f) => (f.empresaId || 'emp1') === empId) : fechamentos;
+    res.json(lista);
   });
 
   // 12. Balanço Geral de Vasilhames (Cheios, Vazios, Em Trânsito, Pendentes c/ Clientes)
   app.get('/api/vasilhames/balanco', (req, res) => {
-    const pedidosEmRota = pedidos.filter((p) => p.status === 'EM_ROTA');
+    const empId = getTargetEmpresaId(req);
+    const pedidosEmRota = pedidos.filter((p) => (!empId || (p.empresaId || 'emp1') === empId) && p.status === 'EM_ROTA');
 
     let transitoP13 = 0;
     let transitoP20L = 0;
@@ -2417,13 +3535,14 @@ app.use(express.json());
 
     let pendentesP13Clientes = 0;
     let pendentesP20LClientes = 0;
-    clientes.forEach((c) => {
+    const clientesEmpresa = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+    clientesEmpresa.forEach((c) => {
       pendentesP13Clientes += c.vasilhamesPendentes?.P13 || 0;
       pendentesP20LClientes += c.vasilhamesPendentes?.P20L || 0;
     });
 
-    const p13Prod = produtos.find((p) => p.tipoVasilhame === 'P13');
-    const p20Prod = produtos.find((p) => p.tipoVasilhame === 'P20L');
+    const p13Prod = produtos.find((p) => (!empId || (p.empresaId || 'emp1') === empId) && p.tipoVasilhame === 'P13');
+    const p20Prod = produtos.find((p) => (!empId || (p.empresaId || 'emp1') === empId) && p.tipoVasilhame === 'P20L');
 
     res.json({
       p13: {
@@ -2483,7 +3602,8 @@ app.use(express.json());
           res.sendFile(path.join(distPath, 'index.html'));
         });
       }
-      app.listen(PORT, '0.0.0.0', () => {
+      app.listen(PORT, '0.0.0.0', async () => {
+  await syncFromSupabase();
         console.log(`🚀 Disk Entrega Server rodando em http://localhost:${PORT}`);
       });
     })();

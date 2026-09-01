@@ -143,7 +143,7 @@ export const DespachoKanban: React.FC<Props> = ({
               <option value="TODOS">Todos os Entregadores</option>
               {entregadores.map((ent) => (
                 <option key={ent.id} value={ent.id}>
-                  {ent.nome} ({ent.veiculo.split(' ')[0]})
+                  {ent.nome} ({ent.veiculo?.split(' ')[0]})
                 </option>
               ))}
             </select>
@@ -188,7 +188,7 @@ export const DespachoKanban: React.FC<Props> = ({
                 id="select-entregador-destino"
                 value={entregadorDestino}
                 onChange={(e) => setEntregadorDestino(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-white text-xs shadow-xs"
+                className="px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-[#eaecf0] text-xs shadow-xs"
               >
                 {entregadores.map((ent) => (
                   <option key={ent.id} value={ent.id}>
@@ -247,7 +247,7 @@ export const DespachoKanban: React.FC<Props> = ({
                 return (
                   <div
                     key={pedido.id}
-                    className={`p-3 rounded-lg bg-white border transition-all shadow-xs space-y-2 text-xs ${
+                    className={`p-3 rounded-lg bg-[#eaecf0] border transition-all shadow-xs space-y-2 text-xs ${
                       isSelected
                         ? 'border-blue-500 ring-2 ring-blue-500/20'
                         : 'border-slate-200 hover:border-slate-300'
@@ -341,7 +341,7 @@ export const DespachoKanban: React.FC<Props> = ({
               pedidosEmRota.map((pedido) => (
                 <div
                   key={pedido.id}
-                  className="p-3 rounded-lg bg-white border border-blue-200 shadow-xs space-y-2 text-xs"
+                  className="p-3 rounded-lg bg-[#eaecf0] border border-blue-200 shadow-xs space-y-2 text-xs"
                 >
                   <div className="flex items-start justify-between">
                     <div>
@@ -409,7 +409,7 @@ export const DespachoKanban: React.FC<Props> = ({
               pedidosEntregues.map((pedido) => (
                 <div
                   key={pedido.id}
-                  className="p-3 rounded-lg bg-white border border-emerald-200 shadow-xs space-y-1.5 text-xs"
+                  className="p-3 rounded-lg bg-[#eaecf0] border border-emerald-200 shadow-xs space-y-1.5 text-xs"
                 >
                   <div className="flex items-start justify-between">
                     <div>

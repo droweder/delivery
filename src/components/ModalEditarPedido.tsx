@@ -220,8 +220,8 @@ export const ModalEditarPedido: React.FC<Props> = ({
           endereco,
           numero,
           complemento,
-          bairroId: bairroSelecionado.id,
-          bairroNome: bairroSelecionado.nome,
+          bairroId: bairroSelecionado?.id || pedido.cliente?.bairroId || 'bairro_padrao',
+          bairroNome: bairroSelecionado?.nome || pedido.cliente?.bairroNome || 'Bairro Genérico',
           referencia,
         },
         itens,
@@ -277,7 +277,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#eaecf0] rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         {/* Modal Header */}
         <div className="px-4 sm:px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
@@ -346,7 +346,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
                 id="edit-pedido-status"
                 value={status}
                 onChange={(e) => setStatus(e.target.value as StatusPedido)}
-                className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                className="w-full bg-[#eaecf0] border border-slate-300 rounded-md px-2.5 py-1.5 font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
               >
                 <option value="PENDENTE">🟡 PENDENTE (Na Base / Aguardando)</option>
                 <option value="EM_ROTA">🔵 EM ROTA (Com Entregador)</option>
@@ -364,7 +364,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
                 id="edit-pedido-entregador"
                 value={entregadorId}
                 onChange={(e) => setEntregadorId(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                className="w-full bg-[#eaecf0] border border-slate-300 rounded-md px-2.5 py-1.5 font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
               >
                 <option value="">-- Nenhum Entregador (Desatribuído) --</option>
                 {entregadores.map((ent) => (
@@ -385,13 +385,13 @@ export const ModalEditarPedido: React.FC<Props> = ({
                 placeholder="Ex: Corrigido endereço, trocou para PIX..."
                 value={motivoAjuste}
                 onChange={(e) => setMotivoAjuste(e.target.value)}
-                className="w-full bg-white border border-amber-300 rounded-md px-2.5 py-1.5 text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-hidden placeholder:text-slate-400"
+                className="w-full bg-[#eaecf0] border border-amber-300 rounded-md px-2.5 py-1.5 text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-hidden placeholder:text-slate-400"
               />
             </div>
           </div>
 
           {/* Section: Dados do Cliente & Entrega */}
-          <div className="border border-slate-200 rounded-lg p-3.5 bg-white">
+          <div className="border border-slate-200 rounded-lg p-3.5 bg-[#eaecf0]">
             <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2.5 flex items-center gap-1.5 text-blue-700">
               <User className="w-4 h-4" /> 1. Dados do Cliente e Local de Entrega
             </h4>
@@ -472,7 +472,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
           </div>
 
           {/* Section: Itens do Pedido */}
-          <div className="border border-slate-200 rounded-lg p-3.5 bg-white space-y-3">
+          <div className="border border-slate-200 rounded-lg p-3.5 bg-[#eaecf0] space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-1.5 text-blue-700">
                 <Package className="w-4 h-4" /> 2. Produtos e Vasilhames ({itens.length} {itens.length === 1 ? 'item' : 'itens'})
@@ -623,7 +623,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
           </div>
 
           {/* Section: Pagamento, Taxa, Desconto e Total */}
-          <div className="border border-slate-200 rounded-lg p-3.5 bg-white">
+          <div className="border border-slate-200 rounded-lg p-3.5 bg-[#eaecf0]">
             <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2.5 flex items-center gap-1.5 text-blue-700">
               <DollarSign className="w-4 h-4" /> 3. Fechamento Financeiro e Meio de Pagamento
             </h4>
@@ -746,7 +746,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
                   placeholder="Ex: Cliente desistiu da compra, endereço inexistente, sem troco..."
                   value={motivoCancelamento}
                   onChange={(e) => setMotivoCancelamento(e.target.value)}
-                  className="w-full border border-rose-300 rounded px-2.5 py-1.5 text-xs text-rose-950 bg-white font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
+                  className="w-full border border-rose-300 rounded px-2.5 py-1.5 text-xs text-rose-950 bg-[#eaecf0] font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
                 />
               </div>
               <div className="flex items-center justify-end gap-2 pt-1">
@@ -799,7 +799,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
+              className="px-4 py-2 rounded-lg border border-slate-300 bg-[#eaecf0] text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
             >
               Fechar sem Salvar
             </button>

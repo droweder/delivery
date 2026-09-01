@@ -280,7 +280,7 @@ export const Navbar: React.FC<Props> = ({
                   {usuarioLogado.perfil === 'SUPER_ADMIN' ? '👑' : usuarioLogado.nome[0]}
                 </div>
                 <span className="font-bold text-[11px] max-w-[90px] lg:max-w-[130px] truncate">
-                  {usuarioLogado.nome.split(' ')[0]}
+                  {usuarioLogado?.nome?.split(' ')[0]}
                 </span>
                 <span className="text-[9px] px-1 py-0.2 rounded bg-slate-700 text-slate-300 font-semibold uppercase">
                   {usuarioLogado.perfil === 'SUPER_ADMIN'

@@ -418,7 +418,7 @@ export const AppEntregador: React.FC<Props> = ({
           >
             {entregadores.map((ent) => (
               <option key={ent.id} value={ent.id}>
-                🛵 {ent.nome} ({ent.veiculo.split(' ')[0]})
+                🛵 {ent.nome} ({ent.veiculo?.split(' ')[0]})
               </option>
             ))}
           </select>
@@ -542,7 +542,7 @@ export const AppEntregador: React.FC<Props> = ({
             <div className="mb-3 p-3 bg-gradient-to-r from-blue-700 to-indigo-800 text-white rounded-2xl shadow-xl border border-blue-400/50 animate-bounce-short">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-xl bg-white/20">
+                  <div className="p-1.5 rounded-xl bg-[#eaecf0]/20">
                     <BellRing className="w-4 h-4 text-amber-300 animate-pulse" />
                   </div>
                   <div>
@@ -566,7 +566,7 @@ export const AppEntregador: React.FC<Props> = ({
                     setPushPopUpAtivo(null);
                     baixarCargaDaBase(true);
                   }}
-                  className="px-2.5 py-1 bg-white text-blue-900 font-black rounded-lg hover:bg-blue-50"
+                  className="px-2.5 py-1 bg-[#eaecf0] text-blue-900 font-black rounded-lg hover:bg-blue-50"
                 >
                   Ver na Rota
                 </button>
@@ -577,9 +577,9 @@ export const AppEntregador: React.FC<Props> = ({
           {/* Mobile Status Bar */}
           <div className="flex items-center justify-between px-2 py-1 text-[11px] font-bold text-slate-300 border-b border-slate-800 pb-2">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs">🛵 {entregadorAtual.nome.split(' ')[0]}</span>
+              <span className="text-xs">🛵 {entregadorAtual?.nome?.split(' ')[0]}</span>
               <span className="px-1.5 py-0.2 rounded bg-slate-800 text-[10px] text-slate-400">
-                {entregadorAtual.veiculo.split(' ')[0]}
+                {entregadorAtual?.veiculo?.split(' ')[0]}
               </span>
             </div>
 
@@ -780,7 +780,7 @@ export const AppEntregador: React.FC<Props> = ({
       {/* ---------------------------------------------------------------------- */}
       {modalPushAberto && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-4 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+          <div className="bg-[#eaecf0] rounded-2xl max-w-lg w-full p-4 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-xl bg-blue-100 text-blue-700">
@@ -868,7 +868,7 @@ export const AppEntregador: React.FC<Props> = ({
       {/* ---------------------------------------------------------------------- */}
       {modalSimuladorPush && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-3.5">
+          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-3.5">
             <div className="flex items-center justify-between pb-2 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
@@ -966,7 +966,7 @@ export const AppEntregador: React.FC<Props> = ({
       {/* ---------------------------------------------------------------------- */}
       {pedidoParaBaixa && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
               <div>
@@ -1027,7 +1027,7 @@ export const AppEntregador: React.FC<Props> = ({
                     type="number"
                     value={valorRecebido}
                     onChange={(e) => setValorRecebido(Number(e.target.value))}
-                    className="w-24 px-2 py-1 rounded bg-white border border-amber-300 font-black text-right text-slate-900 text-xs"
+                    className="w-24 px-2 py-1 rounded bg-[#eaecf0] border border-amber-300 font-black text-right text-slate-900 text-xs"
                   />
                 </div>
                 <div className="flex items-center justify-between font-bold text-amber-900 pt-1 border-t border-amber-200">

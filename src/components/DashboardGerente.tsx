@@ -516,7 +516,7 @@ export const DashboardGerente: React.FC<Props> = ({
               type="button"
               onClick={() => setPeriodo('hoje')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'hoje' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
+                periodo === 'hoje' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Hoje
@@ -525,7 +525,7 @@ export const DashboardGerente: React.FC<Props> = ({
               type="button"
               onClick={() => setPeriodo('ontem')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'ontem' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
+                periodo === 'ontem' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Ontem
@@ -534,7 +534,7 @@ export const DashboardGerente: React.FC<Props> = ({
               type="button"
               onClick={() => setPeriodo('7dias')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === '7dias' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
+                periodo === '7dias' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               7 Dias
@@ -543,7 +543,7 @@ export const DashboardGerente: React.FC<Props> = ({
               type="button"
               onClick={() => setPeriodo('mes')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'mes' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
+                periodo === 'mes' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Mês
@@ -552,7 +552,7 @@ export const DashboardGerente: React.FC<Props> = ({
               type="button"
               onClick={() => setPeriodo('todos')}
               className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'todos' ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
+                periodo === 'todos' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               Todos
@@ -583,7 +583,7 @@ export const DashboardGerente: React.FC<Props> = ({
       </ModuloHeader>
 
       {/* Sub-Navegação Interna da Gerência */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl p-2 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-2 text-xs font-bold overflow-x-auto">
+      <div className="bg-[#eaecf0] dark:bg-slate-900 rounded-xl p-2 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-2 text-xs font-bold overflow-x-auto">
         <button
           type="button"
           onClick={() => setGerenteSubTab('dashboard')}
@@ -643,7 +643,7 @@ export const DashboardGerente: React.FC<Props> = ({
       {/* KPI CARDS (Executivo) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* KPI 1: Faturamento Total */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Faturamento Bruto</span>
             <div className="h-7 w-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
@@ -663,7 +663,7 @@ export const DashboardGerente: React.FC<Props> = ({
         </div>
 
         {/* KPI 2: Pedidos Concluídos e Taxa de Sucesso */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Entregas Realizadas</span>
             <div className="h-7 w-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
@@ -688,7 +688,7 @@ export const DashboardGerente: React.FC<Props> = ({
         </div>
 
         {/* KPI 3: Vasilhames Recolhidos no Período */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Cascos Recolhidos</span>
             <div className="h-7 w-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
@@ -711,7 +711,7 @@ export const DashboardGerente: React.FC<Props> = ({
         </div>
 
         {/* KPI 4: Arrecadação em Dinheiro na Mão */}
-        <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Dinheiro em Caixa</span>
             <div className="h-7 w-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
@@ -737,7 +737,7 @@ export const DashboardGerente: React.FC<Props> = ({
           {/* Linha 1 de Gráficos: Vendas por Hora e Mix de Pagamento */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Gráfico 1: Evolução de Vendas por Hora */}
-            <div className="lg:col-span-2 bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
+            <div className="lg:col-span-2 bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">Evolução do Faturamento por Horário</h3>
@@ -781,7 +781,7 @@ export const DashboardGerente: React.FC<Props> = ({
             </div>
 
             {/* Gráfico 2: Meios de Pagamento (Donut Pie) */}
-            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
+            <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs flex flex-col justify-between">
               <div>
                 <h3 className="font-bold text-sm text-slate-900">Distribuição por Forma de Pagamento</h3>
                 <p className="text-[11px] text-slate-500">Participação de cada meio no faturamento</p>
@@ -824,7 +824,7 @@ export const DashboardGerente: React.FC<Props> = ({
           {/* Linha 2 de Gráficos: Faturamento por Categoria e Vendas por Bairro */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Gráfico 3: Vendas por Categoria de Produto */}
-            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
+            <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">Faturamento por Categoria de Produto</h3>
@@ -852,7 +852,7 @@ export const DashboardGerente: React.FC<Props> = ({
             </div>
 
             {/* Gráfico 4: Faturamento por Bairro / Região */}
-            <div className="bg-white rounded-xl p-4 border border-slate-200 shadow-xs">
+            <div className="bg-[#eaecf0] rounded-xl p-4 border border-slate-200 shadow-xs">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h3 className="font-bold text-sm text-slate-900">Demanda por Bairro de Entrega</h3>
@@ -884,7 +884,7 @@ export const DashboardGerente: React.FC<Props> = ({
 
       {/* CONTEÚDO DA ABA 2: CENTRAL DE GESTÃO & CORREÇÃO DE PEDIDOS */}
       {gerenteSubTab === 'pedidos' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-4">
+        <div className="bg-[#eaecf0] rounded-xl shadow-xs border border-slate-200 p-4 space-y-4">
           
           {/* Barra de Filtros e Busca */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
@@ -898,7 +898,7 @@ export const DashboardGerente: React.FC<Props> = ({
                   placeholder="Código #1041, Cliente, Rua..."
                   value={buscaTexto}
                   onChange={(e) => setBuscaTexto(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-md pl-8 pr-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  className="w-full bg-[#eaecf0] border border-slate-300 rounded-md pl-8 pr-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
             </div>
@@ -909,7 +909,7 @@ export const DashboardGerente: React.FC<Props> = ({
               <select
                 value={filtroStatus}
                 onChange={(e) => setFiltroStatus(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[#eaecf0] border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
               >
                 <option value="TODOS">Todos os Status</option>
                 <option value="PENDENTE">🟡 PENDENTE</option>
@@ -926,7 +926,7 @@ export const DashboardGerente: React.FC<Props> = ({
               <select
                 value={filtroPagamento}
                 onChange={(e) => setFiltroPagamento(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[#eaecf0] border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
               >
                 <option value="TODOS">Todas as Formas</option>
                 <option value="PIX">⚡ PIX</option>
@@ -943,7 +943,7 @@ export const DashboardGerente: React.FC<Props> = ({
               <select
                 value={filtroEntregador}
                 onChange={(e) => setFiltroEntregador(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-[#eaecf0] border border-slate-300 rounded-md px-2.5 py-1.5 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
               >
                 <option value="TODOS">Todos os Entregadores</option>
                 <option value="SEM_ENTREGADOR">-- Sem Entregador (Base) --</option>
@@ -971,7 +971,7 @@ export const DashboardGerente: React.FC<Props> = ({
                   <th className="p-2.5 text-center w-32">Ações Gerente</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+              <tbody className="divide-y divide-slate-200 bg-[#eaecf0]">
                 {pedidosTabela.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="p-8 text-center text-slate-500 font-medium">
@@ -1120,7 +1120,7 @@ export const DashboardGerente: React.FC<Props> = ({
 
       {/* CONTEÚDO DA ABA 3: PRODUTIVIDADE DOS ENTREGADORES */}
       {gerenteSubTab === 'entregadores' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-4">
+        <div className="bg-[#eaecf0] rounded-xl shadow-xs border border-slate-200 p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-bold text-sm text-slate-900">Produtividade e Auditoria de Entregadores</h3>
@@ -1147,19 +1147,19 @@ export const DashboardGerente: React.FC<Props> = ({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 text-xs">
-                  <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="bg-[#eaecf0] p-2 rounded border border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block">Faturamento Gerado</span>
                     <strong className="text-slate-900 text-sm">R$ {ent.faturamentoTotal.toFixed(2)}</strong>
                   </div>
-                  <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="bg-[#eaecf0] p-2 rounded border border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block">Dinheiro Vivo na Mão</span>
                     <strong className="text-emerald-700 text-sm">R$ {ent.totalDinheiro.toFixed(2)}</strong>
                   </div>
-                  <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="bg-[#eaecf0] p-2 rounded border border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block">Cascos P13 Recolhidos</span>
                     <strong className="text-amber-800 text-sm">{ent.cascosP13} botijões</strong>
                   </div>
-                  <div className="bg-white p-2 rounded border border-slate-200">
+                  <div className="bg-[#eaecf0] p-2 rounded border border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block">Cascos 20L Recolhidos</span>
                     <strong className="text-sky-800 text-sm">{ent.cascosP20L} galões</strong>
                   </div>
@@ -1179,7 +1179,7 @@ export const DashboardGerente: React.FC<Props> = ({
 
       {/* CONTEÚDO DA ABA 4: DRE & FECHAMENTO DE CAIXA */}
       {gerenteSubTab === 'financeiro' && (
-        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 sm:p-6 space-y-6">
+        <div className="bg-[#eaecf0] rounded-xl shadow-xs border border-slate-200 p-4 sm:p-6 space-y-6">
           <div>
             <h3 className="font-bold text-base text-slate-900">Demonstrativo Financeiro & Fechamento de Caixa</h3>
             <p className="text-xs text-slate-500">Conciliação de recebimentos por modalidade e composição da receita da conveniência</p>

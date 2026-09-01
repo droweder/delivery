@@ -1,0 +1,39 @@
+  const [sugestoesEndereco, setSugestoesEndereco] = useState<ViaCepEndereco[]>([]);
+  const [buscandoSugestoes, setBuscandoSugestoes] = useState(false);
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleRuaChange = (rua: string) => {
+    setClienteModal({ ...clienteModal, endereco: rua.toUpperCase() });
+    if (rua.length < 3) {
+      setSugestoesEndereco([]);
+      setMostrarSugestoes(false);
+      return;
+    }
+    
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    timeoutRef.current = setTimeout(async () => {
+      setBuscandoSugestoes(true);
+      const estadoStr = clienteModal?.estado || 'SP';
+      const cidadeStr = clienteModal?.cidade || 'São Paulo';
+      const res = await buscarEnderecosPorRua(estadoStr, cidadeStr, rua);
+      setSugestoesEndereco(res);
+      setMostrarSugestoes(res.length > 0);
+      setBuscandoSugestoes(false);
+    }, 500);
+  };
+
+  const selecionarSugestaoEndereco = (end: ViaCepEndereco) => {
+    const cepFormatado = formatarCep(end.cep);
+    const bairroMatch = bairros.find(b => end.bairro && (b.nome.toLowerCase().includes(end.bairro.toLowerCase()) || end.bairro.toLowerCase().includes(b.nome.toLowerCase())));
+    
+    setClienteModal({
+      ...clienteModal,
+      endereco: end.logradouro.toUpperCase(),
+      cep: cepFormatado,
+      bairroId: bairroMatch ? bairroMatch.id : clienteModal?.bairroId,
+      bairroNome: bairroMatch ? bairroMatch.nome : (clienteModal?.bairroNome || end.bairro)
+    });
+    setMostrarSugestoes(false);
+  };

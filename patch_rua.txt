@@ -1,0 +1,29 @@
+  const handleRuaChange = (rua: string) => {
+    setNovoEndereco(rua.toUpperCase());
+    if (rua.length < 3) {
+      setSugestoesEndereco([]);
+      setMostrarSugestoes(false);
+      return;
+    }
+    
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    timeoutRef.current = setTimeout(async () => {
+      setBuscandoSugestoes(true);
+      const res = await buscarEnderecosPorRua(novoEstado, novoCidade, rua);
+      setSugestoesEndereco(res);
+      setMostrarSugestoes(res.length > 0);
+      setBuscandoSugestoes(false);
+    }, 500);
+  };
+
+  const selecionarSugestaoEndereco = (end: ViaCepEndereco) => {
+    setNovoEndereco(end.logradouro.toUpperCase());
+    setNovoCep(formatarCep(end.cep));
+    
+    // Tenta encontrar o bairro pelo nome para selecionar no dropdown
+    const bairroMatch = bairros.find(b => end.bairro && (b.nome.toLowerCase().includes(end.bairro.toLowerCase()) || end.bairro.toLowerCase().includes(b.nome.toLowerCase())));
+    if (bairroMatch) setNovoBairroId(bairroMatch.id);
+    
+    setMostrarSugestoes(false);
+  };
