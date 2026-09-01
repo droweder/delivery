@@ -1,8 +1,23 @@
 /// <reference types="vite/client" />
 import React, { useState, useEffect, useRef } from 'react';
-import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
+import { APIProvider, Map as GoogleMap, AdvancedMarker } from '@vis.gl/react-google-maps';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 import { geocodeAddress } from '../lib/geocode';
-import { AlertTriangle, MapPin, ExternalLink, RefreshCw } from 'lucide-react';
+import { AlertTriangle, MapPin, RefreshCw } from 'lucide-react';
+
+// Fix Leaflet marker icon issue
+import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png';
+import iconUrl from 'leaflet/dist/images/marker-icon.png';
+import shadowUrl from 'leaflet/dist/images/marker-shadow.png';
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl,
+  iconUrl,
+  shadowUrl,
+});
 
 interface LocationPickerMapProps {
   enderecoCompleto?: string;
@@ -11,75 +26,49 @@ interface LocationPickerMapProps {
   onChangeLocation: (lat: number, lng: number) => void;
 }
 
+function LeafletMapEvents({
+  markerPosition,
+  setMarkerPosition,
+  onChangeLocation,
+}: {
+  markerPosition: { lat: number; lng: number };
+  setMarkerPosition: (pos: { lat: number; lng: number }) => void;
+  onChangeLocation: (lat: number, lng: number) => void;
+}) {
+  const map = useMapEvents({
+    click(e) {
+      const { lat, lng } = e.latlng;
+      setMarkerPosition({ lat, lng });
+      onChangeLocation(lat, lng);
+    },
+  });
+
+  useEffect(() => {
+    map.setView(markerPosition, map.getZoom());
+  }, [markerPosition, map]);
+
+  return (
+    <Marker
+      position={markerPosition}
+      draggable={true}
+      eventHandlers={{
+        dragend: (e) => {
+          const marker = e.target;
+          const position = marker.getLatLng();
+          setMarkerPosition({ lat: position.lat, lng: position.lng });
+          onChangeLocation(position.lat, position.lng);
+        },
+      }}
+    />
+  );
+}
+
 export function LocationPickerMap({ enderecoCompleto, lat, lng, onChangeLocation }: LocationPickerMapProps) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const [markerPosition, setMarkerPosition] = useState({ lat: lat || -23.55052, lng: lng || -46.633308 });
   const [mapCenter, setMapCenter] = useState({ lat: lat || -23.55052, lng: lng || -46.633308 });
-  const [mapAuthError, setMapAuthError] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const lastGeocodedAddress = useRef('');
-
-  // Detect Google Maps Authentication / Referrer errors globally
-  useEffect(() => {
-    const handleGlobalError = (event: ErrorEvent) => {
-      const msg = event.message || '';
-      if (
-        msg.includes('Google Maps') ||
-        msg.includes('RefererNotAllowedMapError') ||
-        msg.includes('gm_authFailure') ||
-        msg.includes('Script error.') ||
-        (event.filename && event.filename.includes('maps.googleapis.com'))
-      ) {
-        event.preventDefault(); // Stop error from bubbling to window (prevents Vite overlay)
-        event.stopPropagation();
-        setMapAuthError(true);
-      }
-    };
-
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      const msg = event.reason?.message || event.reason?.toString() || '';
-      if (
-        msg.includes('Google Maps') ||
-        msg.includes('RefererNotAllowedMapError') ||
-        msg.includes('gm_authFailure')
-      ) {
-        event.preventDefault();
-        setMapAuthError(true);
-      }
-    };
-
-    const originalConsoleError = console.error;
-    console.error = (...args: any[]) => {
-      const msg = typeof args[0] === 'string' ? args[0] : (args[0]?.message || '');
-      if (
-        msg.includes('Google Maps') ||
-        msg.includes('RefererNotAllowedMapError') ||
-        msg.includes('gm_authFailure')
-      ) {
-        setMapAuthError(true);
-        return; // Don't log to console, preventing Vite overlay
-      }
-      originalConsoleError.apply(console, args);
-    };
-
-    const prevAuthFailure = (window as any).gm_authFailure;
-    (window as any).gm_authFailure = () => {
-      setMapAuthError(true);
-      if (typeof prevAuthFailure === 'function') {
-        prevAuthFailure();
-      }
-    };
-
-    window.addEventListener('error', handleGlobalError, true); // Use capture phase
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-
-    return () => {
-      window.removeEventListener('error', handleGlobalError, true);
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-      (window as any).gm_authFailure = prevAuthFailure;
-      console.error = originalConsoleError;
-    };
-  }, []);
 
   // Update center when props change
   useEffect(() => {
@@ -124,17 +113,14 @@ export function LocationPickerMap({ enderecoCompleto, lat, lng, onChangeLocation
   // Se estiver rodando no Cloud Run (preview do AI Studio) e a chave não foi autorizada pra isso, pular o Google Maps
   const isPreview = typeof window !== 'undefined' && window.location.hostname.includes('run.app');
 
-  if (!apiKey || mapAuthError || isPreview) {
-    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://delivery.droweder.com.br';
-    const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${markerPosition.lng - 0.005}%2C${markerPosition.lat - 0.005}%2C${markerPosition.lng + 0.005}%2C${markerPosition.lat + 0.005}&layer=mapnik&marker=${markerPosition.lat}%2C${markerPosition.lng}`;
-
+  if (!apiKey || isPreview) {
     return (
       <div className="w-full bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3 text-slate-700 dark:text-slate-300 text-xs">
         <div>
           <div className="flex items-center justify-between font-bold text-amber-700 dark:text-amber-400 mb-1">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>Restrição de Domínio no Google Maps</span>
+              <span>Google Maps Indisponível</span>
             </div>
             {isGeocoding && (
               <span className="text-[10px] flex items-center gap-1 text-blue-600 dark:text-blue-400 font-normal">
@@ -143,26 +129,27 @@ export function LocationPickerMap({ enderecoCompleto, lat, lng, onChangeLocation
             )}
           </div>
           <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-            Sua chave Google Maps está restrita ao domínio principal. Para liberar o preview, adicione{' '}
-            <code className="bg-amber-100 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 px-1 py-0.5 rounded font-mono text-[10px]">
-              {currentOrigin}/*
-            </code>{' '}
-            e{' '}
-            <code className="bg-amber-100 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 px-1 py-0.5 rounded font-mono text-[10px]">
-              https://delivery.droweder.com.br/*
-            </code>{' '}
-            nas restrições de HTTP do Google Cloud Console.
+            A conexão com a API do Google Maps está indisponível no momento. Use o mapa abaixo para tocar ou arrastar o pino e definir a localização exata do cliente.
           </p>
         </div>
 
-        {/* Mapa Interativo Fallback (OpenStreetMap) */}
-        <div className="w-full h-36 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 relative bg-slate-100 dark:bg-slate-800">
-          <iframe
-            title="Localização do Cliente"
-            className="w-full h-full border-0 pointer-events-auto"
-            src={osmUrl}
-            loading="lazy"
-          />
+        {/* Mapa Interativo Fallback (OpenStreetMap via Leaflet) */}
+        <div className="w-full h-48 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 relative bg-slate-100 dark:bg-slate-800 z-0">
+          <MapContainer
+            center={markerPosition}
+            zoom={16}
+            style={{ height: '100%', width: '100%' }}
+            attributionControl={false}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <LeafletMapEvents
+              markerPosition={markerPosition}
+              setMarkerPosition={setMarkerPosition}
+              onChangeLocation={onChangeLocation}
+            />
+          </MapContainer>
         </div>
 
         {/* Coordenadas Manuais Fallback */}
@@ -223,8 +210,8 @@ export function LocationPickerMap({ enderecoCompleto, lat, lng, onChangeLocation
 
   return (
     <div className="w-full h-full min-h-[150px] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700 relative shadow-inner">
-      <APIProvider apiKey={apiKey} onError={() => setMapAuthError(true)}>
-        <Map
+      <APIProvider apiKey={apiKey}>
+        <GoogleMap
           defaultZoom={16}
           center={mapCenter}
           onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
@@ -239,7 +226,7 @@ export function LocationPickerMap({ enderecoCompleto, lat, lng, onChangeLocation
             draggable={true}
             onDragEnd={handleMarkerDragEnd}
           />
-        </Map>
+        </GoogleMap>
       </APIProvider>
       <div className="absolute bottom-2 left-2 right-2 pointer-events-none">
         <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur text-[10px] font-bold text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg shadow-sm text-center border border-slate-200 dark:border-slate-700">

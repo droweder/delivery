@@ -781,7 +781,7 @@ export const PdvModulo: React.FC<Props> = ({
                   }
                 }}
                 placeholder="Digite telefone com DDD ou nome do cliente..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-slate-50/70"
+                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
             </div>
 
@@ -1886,7 +1886,7 @@ export const PdvModulo: React.FC<Props> = ({
                           onChange={(e) => handleRuaChange(e.target.value)}
                           onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
                           onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {buscandoSugestoes && (
                           <div className="absolute right-3 top-9">
@@ -1918,7 +1918,7 @@ export const PdvModulo: React.FC<Props> = ({
                           required
                           value={novoNumero}
                           onChange={(e) => setNovoNumero(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-8 sm:col-span-5">
@@ -1926,7 +1926,7 @@ export const PdvModulo: React.FC<Props> = ({
                         <select
                           value={novoBairroId}
                           onChange={(e) => setNovoBairroId(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         >
                           {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                         </select>
@@ -1938,14 +1938,14 @@ export const PdvModulo: React.FC<Props> = ({
                             type="text"
                             value={novoCidade}
                             onChange={(e) => setNovoCidade(e.target.value.toUpperCase())}
-                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs min-w-0"
+                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs min-w-0"
                           />
                           <input
                             type="text"
                             maxLength={2}
                             value={novoEstado}
                             onChange={(e) => setNovoEstado(e.target.value.toUpperCase())}
-                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs shrink-0"
+                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs shrink-0"
                           />
                         </div>
                       </div>
@@ -1959,7 +1959,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoComplemento}
                           onChange={(e) => setNovoComplemento(e.target.value.toUpperCase())}
                           placeholder="Apto, Bloco..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-12 sm:col-span-7">
@@ -1968,7 +1968,7 @@ export const PdvModulo: React.FC<Props> = ({
                           type="text"
                           value={novaReferencia}
                           onChange={(e) => setNovaReferencia(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
