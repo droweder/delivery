@@ -613,6 +613,7 @@ export default function App() {
                 pedidosEntreguesCount={entreguesCount}
                 onPedidoCriado={handlePedidoCriado}
                 onNovoCliente={handleNovoCliente}
+                onSalvarCliente={handleSalvarCliente}
                 onProdutosAtualizados={carregarDadosServidor}
               />
             )}

@@ -297,7 +297,23 @@ function mapPedidoFromDb(r: any): Pedido {
     entregadorId: r.entregador_id || r.entregadorId,
     entregadorNome: r.entregador_nome || r.entregadorNome,
     status: r.status || 'PENDENTE',
-    itens: Array.isArray(r.itens) ? r.itens : [],
+    itens: Array.isArray(r.itens) && r.itens.length > 0
+      ? r.itens
+      : Array.isArray(r.itens_pedido)
+      ? r.itens_pedido.map((it: any) => ({
+          id: it.id,
+          pedidoId: it.pedido_id || r.id,
+          produtoId: it.produto_id,
+          produtoNome: it.nome_produto || it.produto_nome || 'Produto',
+          quantidade: Number(it.quantidade || 1),
+          tipoVenda: it.tipo_venda || 'RECARGA',
+          precoUnitario: Number(it.preco_unitario || 0),
+          subtotal: Number(it.subtotal || 0),
+          vasilhamesRecolhidosEsperados: Number(it.vasilhames_recolhidos_esperados || 0),
+          vasilhamesRecolhidosReais: Number(it.vasilhames_recolhidos_reais || 0),
+          vasilhamesPendentes: Number(it.vasilhames_pendentes || 0),
+        }))
+      : [],
     subtotal: Number(r.subtotal || 0),
     taxaEntrega: Number(r.taxa_entrega ?? r.taxaEntrega ?? 0),
     desconto: Number(r.desconto || 0),
@@ -427,9 +443,106 @@ function getSupabase() {
     });
   }
   return supabaseClient;
-
-
 }
+
+async function getFreshEmpresas(): Promise<Empresa[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('empresas').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapEmpresaFromDb);
+        empresas.splice(0, empresas.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return empresas;
+}
+
+async function getFreshBairros(): Promise<BairroTaxa[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('bairros_taxas').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapBairroFromDb);
+        bairros.splice(0, bairros.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return bairros;
+}
+
+async function getFreshProdutos(): Promise<Produto[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('produtos').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapProdutoFromDb);
+        produtos.splice(0, produtos.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return produtos;
+}
+
+async function getFreshClientes(): Promise<Cliente[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('clientes').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapClienteFromDb);
+        clientes.splice(0, clientes.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return clientes;
+}
+
+async function getFreshEntregadores(): Promise<Entregador[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('entregadores').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapEntregadorFromDb);
+        entregadores.splice(0, entregadores.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return entregadores;
+}
+
+async function getFreshUsuarios(): Promise<Usuario[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('usuarios').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapUsuarioFromDb);
+        usuarios.splice(0, usuarios.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return usuarios;
+}
+
+async function getFreshPedidos(): Promise<Pedido[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('pedidos').select('*, itens_pedido(*)').order('criado_em', { ascending: false });
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapPedidoFromDb);
+        pedidos.splice(0, pedidos.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return pedidos;
+}
+
 // VAPID Web Push Keys Setup (Supabase / W3C Standard)
 let vapidKeys = {
   publicKey: process.env.VAPID_PUBLIC_KEY || '',
@@ -614,13 +727,15 @@ app.use(express.json());
   });
 
   // 1.1 Multi-Tenant Empresas (Super Admin)
-  app.get('/api/empresas', (req, res) => {
-    res.json(empresas);
+  app.get('/api/empresas', async (req, res) => {
+    const emps = await getFreshEmpresas();
+    res.json(emps);
   });
 
-  app.get('/api/empresas/:id', (req, res) => {
+  app.get('/api/empresas/:id', async (req, res) => {
     const { id } = req.params;
-    const emp = empresas.find((e) => e.id === id);
+    const emps = await getFreshEmpresas();
+    const emp = emps.find((e) => e.id === id);
     if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
     res.json(emp);
   });
@@ -1562,6 +1677,52 @@ app.use(express.json());
     }
   });
 
+  // Geocoding Proxy (Google Maps API + Fallbacks)
+  app.get('/api/geocode', async (req, res) => {
+    const address = ((req.query.address as string) || '').trim();
+    if (!address) {
+      return res.status(400).json({ sucesso: false, mensagem: 'Endereço é obrigatório.' });
+    }
+
+    const mapsKey = process.env.GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+    if (mapsKey) {
+      try {
+        const resp = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${mapsKey}`
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.status === 'OK' && data.results && data.results.length > 0) {
+            const loc = data.results[0].geometry.location;
+            return res.json({ sucesso: true, lat: loc.lat, lng: loc.lng, formatado: data.results[0].formatted_address });
+          }
+        }
+      } catch (e) {
+        // Continuar para fallback
+      }
+    }
+
+    // Fallback gratuito OpenStreetMap Nominatim
+    try {
+      const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`, {
+        headers: { 'User-Agent': 'DeliveryApp/1.0 (contact@droweder.com.br)' },
+      });
+      if (resp.ok) {
+        const list = await resp.json();
+        if (Array.isArray(list) && list.length > 0) {
+          return res.json({
+            sucesso: true,
+            lat: parseFloat(list[0].lat),
+            lng: parseFloat(list[0].lon),
+            formatado: list[0].display_name,
+          });
+        }
+      }
+    } catch (e) {}
+
+    return res.json({ sucesso: false, mensagem: 'Coordenadas não encontradas para o endereço.' });
+  });
+
   // 1.2 Status de Integração Supabase & Servidor
   app.get('/api/status/supabase', async (req, res) => {
     const supabase = getSupabase();
@@ -1726,9 +1887,10 @@ app.use(express.json());
   });
 
   // 2. Bairros e Taxas de Entrega
-  app.get('/api/bairros', (req, res) => {
+  app.get('/api/bairros', async (req, res) => {
+    const bList = await getFreshBairros();
     const empId = getTargetEmpresaId(req);
-    const resultado = empId ? bairros.filter((b) => (b.empresaId || 'emp1') === empId) : bairros;
+    const resultado = empId ? bList.filter((b) => (b.empresaId || 'emp1') === empId) : bList;
     res.json(resultado);
   });
 
@@ -1824,9 +1986,10 @@ app.use(express.json());
   });
 
   // 3. Produtos e Estoque de Vasilhames
-  app.get('/api/produtos', (req, res) => {
+  app.get('/api/produtos', async (req, res) => {
+    const pList = await getFreshProdutos();
     const empId = getTargetEmpresaId(req);
-    const resultado = empId ? produtos.filter((p) => (p.empresaId || 'emp1') === empId) : produtos;
+    const resultado = empId ? pList.filter((p) => (p.empresaId || 'emp1') === empId) : pList;
     res.json(resultado);
   });
 
@@ -2144,16 +2307,18 @@ app.use(express.json());
   });
 
   // 4. Clientes (Busca rápida por telefone/nome no PDV)
-  app.get('/api/clientes', (req, res) => {
+  app.get('/api/clientes', async (req, res) => {
+    const cList = await getFreshClientes();
     const empId = getTargetEmpresaId(req);
-    const resultado = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+    const resultado = empId ? cList.filter((c) => (c.empresaId || 'emp1') === empId) : cList;
     res.json(resultado);
   });
 
-  app.get('/api/clientes/buscar', (req, res) => {
+  app.get('/api/clientes/buscar', async (req, res) => {
+    const cList = await getFreshClientes();
     const empId = getTargetEmpresaId(req);
     const q = ((req.query.q as string) || '').trim().toLowerCase();
-    let base = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+    let base = empId ? cList.filter((c) => (c.empresaId || 'emp1') === empId) : cList;
     if (!q) return res.json(base);
 
     const filtrados = base.filter(
@@ -2307,12 +2472,13 @@ app.use(express.json());
   });
 
   // 5. Entregadores / Colaboradores
-  app.get('/api/entregadores', (req, res) => {
+  app.get('/api/entregadores', async (req, res) => {
+    const [eList, pList] = await Promise.all([getFreshEntregadores(), getFreshPedidos()]);
     const empId = getTargetEmpresaId(req);
-    const lista = empId ? entregadores.filter((e) => (e.empresaId || 'emp1') === empId) : entregadores;
+    const lista = empId ? eList.filter((e) => (e.empresaId || 'emp1') === empId) : eList;
     // Recalcular contador de pedidos ativos
     lista.forEach((ent) => {
-      ent.pedidosAtivosCount = pedidos.filter(
+      ent.pedidosAtivosCount = pList.filter(
         (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === ent.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
       ).length;
     });
@@ -2400,12 +2566,13 @@ app.use(express.json());
   });
 
   // 5.1 Usuários e Gestão de Permissões
-  app.get('/api/usuarios', (req, res) => {
+  app.get('/api/usuarios', async (req, res) => {
+    const uList = await getFreshUsuarios();
     const empId = getTargetEmpresaId(req);
     if (empId) {
-      res.json(usuarios.filter((u) => u.perfil === 'SUPER_ADMIN' || (u.empresaId || 'emp1') === empId));
+      res.json(uList.filter((u) => u.perfil === 'SUPER_ADMIN' || (u.empresaId || 'emp1') === empId));
     } else {
-      res.json(usuarios);
+      res.json(uList);
     }
   });
 
@@ -2587,12 +2754,13 @@ app.use(express.json());
   });
 
   // 6. Pedidos
-  app.get('/api/pedidos', (req, res) => {
+  app.get('/api/pedidos', async (req, res) => {
+    const pList = await getFreshPedidos();
     const empId = getTargetEmpresaId(req);
     const status = req.query.status as string;
     const entregadorId = req.query.entregadorId as string;
 
-    let resultado = empId ? pedidos.filter((p) => (p.empresaId || 'emp1') === empId) : [...pedidos];
+    let resultado = empId ? pList.filter((p) => (p.empresaId || 'emp1') === empId) : [...pList];
     if (status) {
       resultado = resultado.filter((p) => p.status === status);
     }
@@ -2604,10 +2772,11 @@ app.use(express.json());
   });
 
   // 6.1 Obter Detalhes de um Pedido Específico
-  app.get('/api/pedidos/:id', (req, res) => {
+  app.get('/api/pedidos/:id', async (req, res) => {
     const { id } = req.params;
+    const pList = await getFreshPedidos();
     const empId = getTargetEmpresaId(req);
-    const pedido = pedidos.find((p) => p.id === id);
+    const pedido = pList.find((p) => p.id === id);
     if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
     if (empId && pedido.empresaId && pedido.empresaId !== empId) {
       return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });

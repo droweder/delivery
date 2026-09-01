@@ -47,6 +47,7 @@ import {
   Split,
   Coins,
   CreditCard,
+  Pencil,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
@@ -77,6 +78,7 @@ interface Props {
   pedidosEntreguesCount?: number;
   onPedidoCriado: (novoPedido: Pedido, imprimirImediato?: boolean) => void;
   onNovoCliente: (cliente: Cliente) => void;
+  onSalvarCliente?: (cliente: Cliente) => Promise<void> | void;
   onProdutosAtualizados?: () => void;
 }
 
@@ -99,12 +101,15 @@ export const PdvModulo: React.FC<Props> = ({
   pedidosEntreguesCount = 0,
   onPedidoCriado,
   onNovoCliente,
+  onSalvarCliente,
   onProdutosAtualizados,
 }) => {
   // Search & Client State
   const [buscaCliente, setBuscaCliente] = useState('');
   const [clienteSelecionado, setClienteSelecionado] = useState<Cliente | null>(null);
   const [modalNovoCliente, setModalNovoCliente] = useState(false);
+  const [clienteEmEdicaoId, setClienteEmEdicaoId] = useState<string | null>(null);
+  const [salvandoCliente, setSalvandoCliente] = useState(false);
 
   // New Client Form State
   const [novoNome, setNovoNome] = useState('');
@@ -454,48 +459,156 @@ export const PdvModulo: React.FC<Props> = ({
     
     setMostrarSugestoes(false);
   };
-  const handleCadastrarNovoCliente = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!novoNome || !novoTelefone || !novoEndereco || !novoNumero) {
-      alert('Preencha os campos obrigatórios do cliente!');
-      return;
-    }
-    const bairro = bairros.find((b) => b.id === novoBairroId) || bairros[0];
-    const novo: Cliente = {
-      id: `c_${Date.now()}`,
-      nome: novoNome,
-      telefone: novoTelefone,
-      cpfCnpj: novoCpfCnpj || undefined,
-      cep: novoCep || undefined,
-      cidade: novoCidade || 'São Paulo',
-      estado: novoEstado || 'SP',
-      endereco: novoEndereco,
-      numero: novoNumero,
-      complemento: novoComplemento,
-      bairroId: bairro?.id || 'bairro_padrao',
-      bairroNome: bairro?.nome || 'Bairro Genérico',
-      referencia: novaReferencia,
-      lat: novoLat,
-      lng: novoLng,
-      saldoDevedor: 0,
-      totalPedidos: 0,
-      vasilhamesPendentes: { P13: 0, P20L: 0 },
-    };
 
-    onNovoCliente(novo);
-    setClienteSelecionado(novo);
-    setModalNovoCliente(false);
-    setBuscaCliente(novo.telefone);
-    // Limpar form
+  const handleAbrirNovoCliente = () => {
+    setClienteEmEdicaoId(null);
     setNovoNome('');
-    setNovoTelefone('');
+    setNovoTelefone(buscaCliente ? formatarTelefone(buscaCliente) : '');
     setNovoCpfCnpj('');
     setNovoCep('');
     setNovoEndereco('');
     setNovoNumero('');
     setNovoComplemento('');
+    setNovoBairroId(bairros[0]?.id || 'b1');
+    setNovoCidade('São Paulo');
+    setNovoEstado('SP');
+    setNovoLat(-23.55052);
+    setNovoLng(-46.633308);
     setNovaReferencia('');
     setStatusCnpjInfo(null);
+    setErroCnpjInfo(null);
+    setErroCepInfo(null);
+    setStatusCepInfo(null);
+    setModalNovoCliente(true);
+  };
+
+  const handleAbrirEdicaoCliente = (cliente: Cliente) => {
+    setClienteEmEdicaoId(cliente.id);
+    setNovoNome(cliente.nome || '');
+    setNovoTelefone(cliente.telefone || '');
+    setNovoCpfCnpj(cliente.cpfCnpj || '');
+    setNovoCep(cliente.cep || '');
+    setNovoEndereco(cliente.endereco || '');
+    setNovoNumero(cliente.numero || '');
+    setNovoComplemento(cliente.complemento || '');
+    setNovoBairroId(cliente.bairroId || bairros[0]?.id || 'b1');
+    setNovoCidade(cliente.cidade || 'São Paulo');
+    setNovoEstado(cliente.estado || 'SP');
+    setNovoLat(cliente.lat || -23.55052);
+    setNovoLng(cliente.lng || -46.633308);
+    setNovaReferencia(cliente.referencia || '');
+    setStatusCnpjInfo(null);
+    setErroCnpjInfo(null);
+    setErroCepInfo(null);
+    setStatusCepInfo(null);
+    setModalNovoCliente(true);
+  };
+
+  const handleSalvarClienteForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!novoNome || !novoTelefone || !novoEndereco || !novoNumero) {
+      alert('Preencha os campos obrigatórios do cliente (Nome, Telefone, Rua e Número)!');
+      return;
+    }
+    const bairro = bairros.find((b) => b.id === novoBairroId) || bairros[0];
+    setSalvandoCliente(true);
+
+    try {
+      if (clienteEmEdicaoId) {
+        // Modo Edição
+        const clienteExistente = clientes.find((c) => c.id === clienteEmEdicaoId) || clienteSelecionado;
+        const clienteAtualizado: Cliente = {
+          id: clienteEmEdicaoId,
+          empresaId: clienteExistente?.empresaId,
+          nome: novoNome.trim(),
+          telefone: novoTelefone.trim(),
+          cpfCnpj: novoCpfCnpj ? novoCpfCnpj.trim() : undefined,
+          cep: novoCep ? novoCep.trim() : undefined,
+          cidade: novoCidade || 'São Paulo',
+          estado: novoEstado || 'SP',
+          endereco: novoEndereco.trim(),
+          numero: novoNumero.trim(),
+          complemento: novoComplemento ? novoComplemento.trim() : undefined,
+          bairroId: bairro?.id || 'bairro_padrao',
+          bairroNome: bairro?.nome || 'Bairro Genérico',
+          referencia: novaReferencia ? novaReferencia.trim() : undefined,
+          lat: novoLat,
+          lng: novoLng,
+          saldoDevedor: clienteExistente?.saldoDevedor || 0,
+          totalPedidos: clienteExistente?.totalPedidos || 0,
+          vasilhamesPendentes: clienteExistente?.vasilhamesPendentes || { P13: 0, P20L: 0 },
+        };
+
+        if (onSalvarCliente) {
+          await onSalvarCliente(clienteAtualizado);
+        } else {
+          onNovoCliente(clienteAtualizado);
+        }
+
+        setClienteSelecionado(clienteAtualizado);
+        setBuscaCliente(clienteAtualizado.telefone);
+
+        // Se o bairro mudou e tem taxa, atualiza taxa do PDV
+        if (bairro && typeof bairro.taxa === 'number' && bairro.taxa >= 0) {
+          setTaxaEntrega(String(bairro.taxa));
+        }
+
+        setModalNovoCliente(false);
+      } else {
+        // Modo Criação
+        const novo: Cliente = {
+          id: `c_${Date.now()}`,
+          nome: novoNome.trim(),
+          telefone: novoTelefone.trim(),
+          cpfCnpj: novoCpfCnpj ? novoCpfCnpj.trim() : undefined,
+          cep: novoCep ? novoCep.trim() : undefined,
+          cidade: novoCidade || 'São Paulo',
+          estado: novoEstado || 'SP',
+          endereco: novoEndereco.trim(),
+          numero: novoNumero.trim(),
+          complemento: novoComplemento ? novoComplemento.trim() : undefined,
+          bairroId: bairro?.id || 'bairro_padrao',
+          bairroNome: bairro?.nome || 'Bairro Genérico',
+          referencia: novaReferencia ? novaReferencia.trim() : undefined,
+          lat: novoLat,
+          lng: novoLng,
+          saldoDevedor: 0,
+          totalPedidos: 0,
+          vasilhamesPendentes: { P13: 0, P20L: 0 },
+        };
+
+        if (onSalvarCliente) {
+          await onSalvarCliente(novo);
+        } else {
+          onNovoCliente(novo);
+        }
+
+        setClienteSelecionado(novo);
+        setBuscaCliente(novo.telefone);
+        if (bairro && typeof bairro.taxa === 'number' && bairro.taxa >= 0) {
+          setTaxaEntrega(String(bairro.taxa));
+        }
+        setModalNovoCliente(false);
+      }
+
+      // Limpar formulário
+      setClienteEmEdicaoId(null);
+      setNovoNome('');
+      setNovoTelefone('');
+      setNovoCpfCnpj('');
+      setNovoCep('');
+      setNovoEndereco('');
+      setNovoNumero('');
+      setNovoComplemento('');
+      setNovaReferencia('');
+      setStatusCnpjInfo(null);
+      setErroCnpjInfo(null);
+    } catch (err: any) {
+      console.error('Erro ao salvar cliente:', err);
+      alert(err.message || 'Ocorreu um erro ao salvar o cliente.');
+    } finally {
+      setSalvandoCliente(false);
+    }
   };
 
   const handleFinalizarPedido = async (imprimirDireto = false) => {
@@ -640,8 +753,8 @@ export const PdvModulo: React.FC<Props> = ({
               </div>
               <button
                 id="btn-open-new-client-modal"
-                onClick={() => setModalNovoCliente(true)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
+                onClick={handleAbrirNovoCliente}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200 cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
                 Novo Cliente
@@ -663,7 +776,7 @@ export const PdvModulo: React.FC<Props> = ({
                   if (buscaCliente.trim() && !clienteSelecionado && clientesFiltrados.length === 0) {
                     if (confirm('Cliente não encontrado. Deseja cadastrá-lo como novo cliente?')) {
                       setNovoTelefone(buscaCliente.replace(/\D/g, ''));
-                      setModalNovoCliente(true);
+                      handleAbrirNovoCliente();
                     }
                   }
                 }}
@@ -681,6 +794,10 @@ export const PdvModulo: React.FC<Props> = ({
                     onClick={() => {
                       setClienteSelecionado(c);
                       setBuscaCliente(c.telefone);
+                      const b = bairros.find((b) => b.id === c.bairroId || b.nome.toLowerCase() === c.bairroNome?.toLowerCase());
+                      if (b && typeof b.taxa === 'number' && b.taxa >= 0) {
+                        setTaxaEntrega(String(b.taxa));
+                      }
                     }}
                     className="p-2.5 hover:bg-blue-50/70 cursor-pointer transition-colors flex items-center justify-between text-xs"
                   >
@@ -716,15 +833,30 @@ export const PdvModulo: React.FC<Props> = ({
                       <span>{clienteSelecionado.telefone}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setClienteSelecionado(null);
-                      setBuscaCliente('');
-                    }}
-                    className="text-[11px] text-slate-400 hover:text-rose-600 font-semibold"
-                  >
-                    Trocar
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      id="btn-edit-client-pdv"
+                      type="button"
+                      onClick={() => handleAbrirEdicaoCliente(clienteSelecionado)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors border border-blue-300 shadow-2xs cursor-pointer"
+                      title="Editar dados cadastrais deste cliente"
+                    >
+                      <Pencil className="w-3 h-3 text-blue-600" />
+                      <span>Editar</span>
+                    </button>
+                    <button
+                      id="btn-change-client-pdv"
+                      type="button"
+                      onClick={() => {
+                        setClienteSelecionado(null);
+                        setBuscaCliente('');
+                      }}
+                      className="text-[11px] text-slate-400 hover:text-rose-600 font-semibold px-1 py-1 transition-colors cursor-pointer"
+                      title="Desmarcar e buscar outro cliente"
+                    >
+                      Trocar
+                    </button>
+                  </div>
                 </div>
 
                 <div className="text-[11px] text-slate-700 pt-1 border-t border-blue-200/60 flex items-start gap-1">
@@ -1615,7 +1747,7 @@ export const PdvModulo: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Modal: Cadastro Rápido de Novo Cliente */}
+      {/* Modal: Cadastro Rápido / Edição de Cliente */}
       {modalNovoCliente && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-xs"
@@ -1627,18 +1759,24 @@ export const PdvModulo: React.FC<Props> = ({
           >
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-blue-400" />
-                <h3 className="font-bold text-sm">Cadastro Rápido de Cliente</h3>
+                {clienteEmEdicaoId ? (
+                  <Pencil className="w-4 h-4 text-blue-400" />
+                ) : (
+                  <UserPlus className="w-4 h-4 text-blue-400" />
+                )}
+                <h3 className="font-bold text-sm">
+                  {clienteEmEdicaoId ? 'Editar Dados do Cliente' : 'Cadastro Rápido de Cliente'}
+                </h3>
               </div>
               <button
                 onClick={() => setModalNovoCliente(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCadastrarNovoCliente} className="p-5 flex flex-col gap-4 text-xs">
+            <form onSubmit={handleSalvarClienteForm} className="p-5 flex flex-col gap-4 text-xs">
               <div className="flex flex-col md:flex-row gap-5">
                 
                 {/* ESQUERDA: DADOS E ENDEREÇO (2/3) */}
@@ -1896,17 +2034,25 @@ export const PdvModulo: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setModalNovoCliente(false)}
-                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-100 font-bold transition-colors"
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-100 font-bold transition-colors cursor-pointer"
+                  disabled={salvandoCliente}
                 >
                   Cancelar
                 </button>
                 <button
                   id="btn-save-new-client"
                   type="submit"
-                  className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md transition-colors flex items-center gap-1.5"
+                  disabled={salvandoCliente}
+                  className="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
-                  <UserPlus className="w-4 h-4" />
-                  Salvar Cliente
+                  {salvandoCliente ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : clienteEmEdicaoId ? (
+                    <Pencil className="w-4 h-4" />
+                  ) : (
+                    <UserPlus className="w-4 h-4" />
+                  )}
+                  {salvandoCliente ? 'Salvando...' : clienteEmEdicaoId ? 'Salvar Alterações' : 'Cadastrar Cliente'}
                 </button>
               </div>
             </form>

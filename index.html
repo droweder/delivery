@@ -1,6 +1,22 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      window.addEventListener('error', function(e) {
+        var msg = e.message || '';
+        if (msg === 'Script error.' || msg.includes('Google Maps') || msg.includes('RefererNotAllowedMapError') || msg.includes('gm_authFailure')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+        if (msg === 'Script error.' || msg.includes('Google Maps') || msg.includes('RefererNotAllowedMapError') || msg.includes('gm_authFailure')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Delivery</title>
