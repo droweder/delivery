@@ -711,7 +711,10 @@ export const PdvModulo: React.FC<Props> = ({
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error('Erro ao registrar pedido na base');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || errData.message || 'Erro ao registrar pedido na base');
+      }
       const novoPedido = await res.json();
 
       setSucessoFeedback(`Pedido ${novoPedido.codigo} criado com sucesso! Status: PENDENTE`);

@@ -3057,7 +3057,7 @@ app.use(express.json());
         emitidoPorPerfil,
       } = req.body;
 
-      let cliente = clientes.find((c) => c.id === clienteId && (c.empresaId || 'emp1') === empId);
+      let cliente = clientes.find((c) => c.id === clienteId);
       if (!cliente && clienteNovo) {
         const bairro = bairros.find((b) => b.id === clienteNovo.bairroId && (b.empresaId || 'emp1') === empId) || bairros.find((b) => (b.empresaId || 'emp1') === empId) || bairros[0];
         cliente = {
@@ -3078,6 +3078,29 @@ app.use(express.json());
           vasilhamesPendentes: { P13: 0, P20L: 0 },
         };
         clientes.push(cliente);
+
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('clientes').upsert([{
+              id: cliente.id,
+              empresa_id: cliente.empresaId,
+              nome: cliente.nome,
+              telefone: cliente.telefone,
+              endereco: cliente.endereco,
+              numero: cliente.numero,
+              complemento: cliente.complemento,
+              bairro_id: cliente.bairroId,
+              bairro_nome: cliente.bairroNome,
+              cidade: 'São Paulo',
+              estado: 'SP',
+              referencia: cliente.referencia,
+              lat: cliente.lat,
+              lng: cliente.lng,
+              status: 'ATIVO'
+            }]);
+          }
+        } catch (e) {}
       } else if (cliente) {
         cliente.totalPedidos += 1;
       }
@@ -3154,11 +3177,10 @@ app.use(express.json());
       try {
         const supabase = getSupabase();
         if (supabase) {
-          await supabase.from('pedidos').upsert([{
+          const { error: sbErr } = await supabase.from('pedidos').upsert([{
             id: novoPedido.id,
             empresa_id: novoPedido.empresaId,
             codigo: novoPedido.codigo,
-            numero_pedido: novoPedido.codigo,
             cliente_id: novoPedido.clienteId,
             status: novoPedido.status,
             subtotal: novoPedido.subtotal,
@@ -3166,16 +3188,35 @@ app.use(express.json());
             desconto: novoPedido.desconto,
             total: novoPedido.total,
             forma_pagamento_prevista: novoPedido.formaPagamentoPrevista,
-            troco_para: novoPedido.trocoPara,
-            observacoes: novoPedido.observacoes,
-            emitido_por_id: novoPedido.emitidoPorId,
-            emitido_por_nome: novoPedido.emitidoPorNome,
-            emitido_por_perfil: novoPedido.emitidoPorPerfil,
+            troco_para: novoPedido.trocoPara || null,
+            observacoes: novoPedido.observacoes || '',
+            emitido_por_id: novoPedido.emitidoPorId || null,
+            emitido_por_nome: novoPedido.emitidoPorNome || null,
+            emitido_por_perfil: novoPedido.emitidoPorPerfil || null,
             criado_em: novoPedido.criadoEm,
             sincronizado: true,
-            versao: novoPedido.versao
+            versao: novoPedido.versao,
+            itens: novoPedido.itens,
           }]);
-        
+          if (sbErr) console.warn('[Supabase Sync] Erro pedido:', sbErr);
+
+          if (itensProcessados.length > 0) {
+            const rowsItens = itensProcessados.map((it) => ({
+              id: it.id,
+              pedido_id: novoPedido.id,
+              produto_id: it.produtoId,
+              nome_produto: it.nomeProduto,
+              categoria: it.categoria,
+              tipo_vasilhame: it.tipoVasilhame,
+              tipo_venda: it.tipoVenda,
+              quantidade: it.quantidade,
+              preco_unitario: it.precoUnitario,
+              subtotal: it.subtotal,
+              vasilhames_recolhidos_esperados: it.vasilhamesRecolhidosEsperados,
+              vasilhames_recolhidos_reais: it.vasilhamesRecolhidosReais
+            }));
+            await supabase.from('itens_pedido').upsert(rowsItens).catch((e: any) => console.warn('[Supabase Sync] Erro itens_pedido:', e));
+          }
         }
       } catch (err: any) {
         console.warn('[Supabase Sync] Erro pedido:', err?.message || err);
@@ -3632,9 +3673,9 @@ app.use(express.json());
 
     entregador.ultimaSincronizacao = new Date().toISOString();
 
-    // Filtra pedidos em rota ou já entregues no turno ativo
+    // Filtra pedidos em rota, já entregues ou concluídos no turno ativo
     const pedidosCarga = pedidos.filter(
-      (p) => p.entregadorId === id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
+      (p) => p.entregadorId === id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE' || p.status === 'CONCLUIDO')
     );
 
     const payload = {
