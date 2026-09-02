@@ -17,7 +17,7 @@ import {
   showNativePushNotification,
   registerPushDeviceOnServer,
   getHistoricoNotificacoes,
-  sendTestPushNotification,
+  
   markPushNotificationAsRead,
 } from '../lib/supabasePush';
 import {
@@ -96,7 +96,6 @@ export const AppEntregador: React.FC<Props> = ({
   const [historicoPush, setHistoricoPush] = useState<NotificacaoPush[]>([]);
   const [pushPopUpAtivo, setPushPopUpAtivo] = useState<NotificacaoPush | null>(null);
   const [modalPushAberto, setModalPushAberto] = useState(false);
-  const [modalSimuladorPush, setModalSimuladorPush] = useState(false);
   const [somHabilitado, setSomHabilitado] = useState(true);
 
   // Delivery Confirmation Modal State
@@ -537,15 +536,6 @@ export const AppEntregador: React.FC<Props> = ({
                 {totalNaoLidas}
               </span>
             )}
-          </button>
-
-          {/* Push Tester Modal Trigger */}
-          <button
-            onClick={() => setModalSimuladorPush(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all shadow-xs"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Testar Push</span>
           </button>
 
           {/* Toggle Sound */}
@@ -1003,101 +993,7 @@ export const AppEntregador: React.FC<Props> = ({
 
       {/* ---------------------------------------------------------------------- */}
       {/* MODAL DE SIMULAÇÃO DE PUSH NOTIFICATIONS                                */}
-      {/* ---------------------------------------------------------------------- */}
-      {modalSimuladorPush && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 z-50 animate-fade-in">
-          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-3.5">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-amber-100 text-amber-800">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-sm">Simulador de Notificações Push</h3>
-                  <p className="text-[10px] text-slate-500">Dispare eventos em tempo real para o celular do entregador</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setModalSimuladorPush(false)}
-                className="text-slate-400 hover:text-slate-700"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs text-slate-600 font-medium">
-                Selecione um cenário para disparar o push via backend/Supabase:
-              </p>
-
-              {/* Scenario 1: Novo Pedido Normal */}
-              <button
-                onClick={async () => {
-                  await sendTestPushNotification(entregadorAtualId, 'NOVO_PEDIDO', 'NORMAL', {
-                    pedidoCodigo: '#1049',
-                    bairroNome: 'Centro',
-                    valorTotal: 115,
-                  });
-                  setModalSimuladorPush(false);
-                }}
-                className="w-full text-left p-2.5 rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all text-xs flex items-start gap-2.5"
-              >
-                <span className="p-1.5 rounded-lg bg-blue-100 text-blue-700 shrink-0 mt-0.5">🛵</span>
-                <div>
-                  <h4 className="font-bold text-slate-900">Novo Pedido Padrão (#1049)</h4>
-                  <p className="text-[11px] text-slate-500">1x Botijão P13 no Centro • R$ 115,00</p>
-                </div>
-              </button>
-
-              {/* Scenario 2: Pedido Urgente */}
-              <button
-                onClick={async () => {
-                  await sendTestPushNotification(entregadorAtualId, 'NOVO_PEDIDO', 'URGENTE', {
-                    titulo: '🚨 URGENTE: Pedido Prioritário #1050',
-                    corpo: 'Restaurante Sabor Real • Rua das Palmeiras, 88 • 4x Botijões P13 (R$ 460,00)',
-                    pedidoCodigo: '#1050',
-                    valorTotal: 460,
-                  });
-                  setModalSimuladorPush(false);
-                }}
-                className="w-full text-left p-2.5 rounded-xl border border-amber-200 hover:border-amber-500 hover:bg-amber-50/50 transition-all text-xs flex items-start gap-2.5"
-              >
-                <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800 shrink-0 mt-0.5">⚡</span>
-                <div>
-                  <h4 className="font-bold text-slate-900">Pedido Urgente / Prioritário (#1050)</h4>
-                  <p className="text-[11px] text-slate-500">Alerta sonoro de alta prioridade e fanfarra</p>
-                </div>
-              </button>
-
-              {/* Scenario 3: Cancelamento */}
-              <button
-                onClick={async () => {
-                  await sendTestPushNotification(entregadorAtualId, 'CANCELAMENTO', 'ALTA', {
-                    pedidoCodigo: '#1041',
-                  });
-                  setModalSimuladorPush(false);
-                }}
-                className="w-full text-left p-2.5 rounded-xl border border-red-200 hover:border-red-500 hover:bg-red-50/50 transition-all text-xs flex items-start gap-2.5"
-              >
-                <span className="p-1.5 rounded-lg bg-red-100 text-red-700 shrink-0 mt-0.5">⚠️</span>
-                <div>
-                  <h4 className="font-bold text-slate-900">Cancelamento de Pedido (#1041)</h4>
-                  <p className="text-[11px] text-slate-500">Notifica para abortar o trajeto</p>
-                </div>
-              </button>
-            </div>
-
-            <div className="pt-2 border-t border-slate-200 flex justify-end">
-              <button
-                onClick={() => setModalSimuladorPush(false)}
-                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 font-bold rounded-lg text-xs text-slate-700"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      
 
       {/* ---------------------------------------------------------------------- */}
       {/* MODAL DE BAIXA OFFLINE                                                 */}

@@ -117,6 +117,7 @@ export const PdvModulo: React.FC<Props> = ({
   const [novoCpfCnpj, setNovoCpfCnpj] = useState('');
   const [novoCep, setNovoCep] = useState('');
   const [novoEndereco, setNovoEndereco] = useState('');
+  const [bairrosExtras, setBairrosExtras] = useState<BairroTaxa[]>([]);
   const [sugestoesEndereco, setSugestoesEndereco] = useState<ViaCepEndereco[]>([]);
   const [buscandoSugestoes, setBuscandoSugestoes] = useState(false);
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
@@ -316,6 +317,34 @@ export const PdvModulo: React.FC<Props> = ({
     setCarrinho((prev) => prev.filter((_, i) => i !== index));
   };
 
+
+  const autoCadastrarBairro = async (nomeBairro: string) => {
+    if (!nomeBairro) return;
+    const todosBairros = [...bairros, ...bairrosExtras];
+    const found = todosBairros.find(
+      (b) => b.nome.toLowerCase().includes(nomeBairro.toLowerCase()) || nomeBairro.toLowerCase().includes(b.nome.toLowerCase())
+    );
+    if (found) {
+      setNovoBairroId(found.id);
+    } else {
+      try {
+        const resp = await fetch('/api/bairros', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome: nomeBairro, taxaEntrega: 5, tempoMedioMin: 20 })
+        });
+        if (resp.ok) {
+          const novo = await resp.json();
+          setBairrosExtras(prev => [...prev, novo]);
+          setNovoBairroId(novo.id);
+          if (onProdutosAtualizados) onProdutosAtualizados();
+        }
+      } catch (e) {
+        console.warn("Erro ao cadastrar bairro:", e);
+      }
+    }
+  };
+
   const handleConsultarCnpjClientePdv = async (docParam?: string) => {
     const raw = docParam || novoCpfCnpj;
     const clean = apenasDigitos(raw);
@@ -358,14 +387,7 @@ export const PdvModulo: React.FC<Props> = ({
       }
 
       // Auto-match bairro if possible
-      if (res.bairro) {
-        const found = bairros.find(
-          (b) => res.bairro && (b.nome.toLowerCase().includes(res.bairro.toLowerCase()) || res.bairro.toLowerCase().includes(b.nome.toLowerCase()))
-        );
-        if (found) {
-          setNovoBairroId(found.id);
-        }
-      }
+      if (res.bairro) { await autoCadastrarBairro(res.bairro); }
       setStatusCnpjInfo(`${res.razaoSocial || res.nomeFantasia} • ${res.cidade}/${res.estado} (${res.situacao || 'ATIVA'})`);
       setErroCnpjInfo(null);
 
@@ -394,6 +416,10 @@ export const PdvModulo: React.FC<Props> = ({
 
       const res = await consultarCep(clean);
       setNovoCep(res.cepFormatado);
+      if (res.lat && res.lng) {
+        setNovoLat(res.lat);
+        setNovoLng(res.lng);
+      }
 
       if (res.localizado === false) {
         setErroCepInfo(res.mensagem || `CEP ${res.cepFormatado} não localizado automaticamente nos Correios. Preencha os campos abaixo manualmente.`);
@@ -404,14 +430,7 @@ export const PdvModulo: React.FC<Props> = ({
       if (res.cidade) setNovoCidade(res.cidade);
       if (res.estado) setNovoEstado(res.estado);
 
-      if (res.bairro) {
-        const found = bairros.find(
-          (b) => res.bairro && (b.nome.toLowerCase().includes(res.bairro.toLowerCase()) || res.bairro.toLowerCase().includes(b.nome.toLowerCase()))
-        );
-        if (found) {
-          setNovoBairroId(found.id);
-        }
-      }
+      if (res.bairro) { await autoCadastrarBairro(res.bairro); }
 
       if (res.aviso) {
         setStatusCepInfo(res.aviso);
@@ -781,7 +800,7 @@ export const PdvModulo: React.FC<Props> = ({
                   }
                 }}
                 placeholder="Digite telefone com DDD ou nome do cliente..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                className="bg-white border-slate-300 text-slate-900 w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50 focus: text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
             </div>
 
@@ -918,7 +937,7 @@ export const PdvModulo: React.FC<Props> = ({
                 value={buscaProduto}
                 onChange={(e) => setBuscaProduto(e.target.value)}
                 placeholder="Pesquisar produto por nome, marca, código, medida ou categoria..."
-                className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 transition-all font-medium"
+                className="bg-white border-slate-300 text-slate-900 w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus: focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 transition-all font-medium"
               />
               {buscaProduto && (
                 <button
@@ -1303,7 +1322,7 @@ export const PdvModulo: React.FC<Props> = ({
                         type="date"
                         value={dataEntregaAgendada}
                         onChange={(e) => setDataEntregaAgendada(e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </div>
                     <div>
@@ -1313,7 +1332,7 @@ export const PdvModulo: React.FC<Props> = ({
                         type="time"
                         value={horaEntregaAgendada}
                         onChange={(e) => setHoraEntregaAgendada(e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
                       />
                     </div>
                   </div>
@@ -1527,7 +1546,7 @@ export const PdvModulo: React.FC<Props> = ({
                                   )
                                 }
                                 placeholder="0,00"
-                                className="w-full pl-7 pr-2 py-1 rounded border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                className="bg-white border-slate-300 text-slate-900 w-full pl-7 pr-2 py-1 rounded border text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
                               />
                             </div>
 
@@ -1633,7 +1652,7 @@ export const PdvModulo: React.FC<Props> = ({
                         value={taxaEntrega}
                         onChange={(e) => setTaxaEntrega(e.target.value)}
                         placeholder="0,00"
-                        className="w-full pl-8 pr-2 py-1 rounded-lg border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="bg-white border-slate-300 text-slate-900 w-full pl-8 pr-2 py-1 rounded-lg border text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                     <div className="flex items-center gap-1">
@@ -1678,7 +1697,7 @@ export const PdvModulo: React.FC<Props> = ({
                         value={desconto}
                         onChange={(e) => setDesconto(e.target.value)}
                         placeholder="0,00"
-                        className="w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus:bg-[#eaecf0] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="bg-white border-slate-300 text-slate-900 w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus: focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -1690,7 +1709,7 @@ export const PdvModulo: React.FC<Props> = ({
                       value={observacoes}
                       onChange={(e) => setObservacoes(e.target.value.toUpperCase())}
                       placeholder="Ex: interfone 204..."
-                      className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus:bg-[#eaecf0] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus: focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -1754,7 +1773,7 @@ export const PdvModulo: React.FC<Props> = ({
           onClick={() => setModalNovoCliente(false)}
         >
           <div
-            className="w-full max-w-4xl rounded-xl bg-[#eaecf0] shadow-xl border border-slate-200 overflow-hidden flex flex-col"
+            className="bg-white border-slate-300 text-slate-900 w-full max-w-4xl rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
@@ -1805,7 +1824,7 @@ export const PdvModulo: React.FC<Props> = ({
                             }
                           }}
                           placeholder="CPF ou CNPJ"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {consultandoCnpj && (
                           <div className="absolute right-2 top-6 flex items-center gap-1 text-blue-700 font-bold bg-[#eaecf0] px-1 py-0.5 rounded">
@@ -1821,7 +1840,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoTelefone}
                           onChange={(e) => setNovoTelefone(formatarTelefone(e.target.value))}
                           placeholder="(11) 99999-9999"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -1832,7 +1851,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoNome}
                           onChange={(e) => setNovoNome(e.target.value.toUpperCase())}
                           placeholder="Nome do cliente ou empresa"
-                          className="w-full px-3 py-2 rounded-xl border border-blue-300 bg-[#eaecf0] text-slate-950 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
@@ -1865,7 +1884,7 @@ export const PdvModulo: React.FC<Props> = ({
                               if (novoCep && isCepValido(novoCep)) handleConsultarCepClientePdv();
                             }}
                             placeholder="01001-000"
-                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-950 font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                            className="bg-white border-slate-300 text-slate-900 w-full px-2.5 py-2 rounded-xl border font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                           />
                           <button
                             type="button"
@@ -1886,7 +1905,7 @@ export const PdvModulo: React.FC<Props> = ({
                           onChange={(e) => handleRuaChange(e.target.value)}
                           onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
                           onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {buscandoSugestoes && (
                           <div className="absolute right-3 top-9">
@@ -1918,7 +1937,7 @@ export const PdvModulo: React.FC<Props> = ({
                           required
                           value={novoNumero}
                           onChange={(e) => setNovoNumero(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-8 sm:col-span-5">
@@ -1926,9 +1945,9 @@ export const PdvModulo: React.FC<Props> = ({
                         <select
                           value={novoBairroId}
                           onChange={(e) => setNovoBairroId(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         >
-                          {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
+                          {[...bairros, ...bairrosExtras].map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                         </select>
                       </div>
                       <div className="col-span-8 sm:col-span-4">
@@ -1938,14 +1957,14 @@ export const PdvModulo: React.FC<Props> = ({
                             type="text"
                             value={novoCidade}
                             onChange={(e) => setNovoCidade(e.target.value.toUpperCase())}
-                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs min-w-0"
+                            className="bg-white border-slate-300 text-slate-900 w-full px-2 py-2 rounded-xl border font-bold shadow-xs min-w-0"
                           />
                           <input
                             type="text"
                             maxLength={2}
                             value={novoEstado}
                             onChange={(e) => setNovoEstado(e.target.value.toUpperCase())}
-                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs shrink-0"
+                            className="bg-white border-slate-300 text-slate-900 w-10 px-1 py-2 text-center rounded-xl border font-bold shadow-xs shrink-0"
                           />
                         </div>
                       </div>
@@ -1959,7 +1978,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoComplemento}
                           onChange={(e) => setNovoComplemento(e.target.value.toUpperCase())}
                           placeholder="Apto, Bloco..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-12 sm:col-span-7">
@@ -1968,7 +1987,7 @@ export const PdvModulo: React.FC<Props> = ({
                           type="text"
                           value={novaReferencia}
                           onChange={(e) => setNovaReferencia(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-[#eaecf0] text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>

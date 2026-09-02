@@ -1923,6 +1923,7 @@ app.use(express.json());
           ativo: novoBairro.ativo,
           status: novoBairro.ativo ? 'ATIVO' : 'INATIVO'
         }]);
+        
       }
     } catch (err: any) {
       console.warn('[Supabase Sync] Erro bairro:', err?.message || err);
@@ -2046,6 +2047,7 @@ app.use(express.json());
           estoque_minimo: novoProduto.estoqueMinimo,
           ativo: true
         }]);
+        
       }
     } catch (err: any) {
       console.warn('[Supabase Sync] Erro produto:', err?.message || err);
@@ -2361,7 +2363,7 @@ app.use(express.json());
     try {
       const supabase = getSupabase();
       if (supabase) {
-        await supabase.from('clientes').upsert([{
+        const { error: upsertErr } = await supabase.from('clientes').upsert([{
           id: novoCliente.id,
           empresa_id: novoCliente.empresaId,
           nome: novoCliente.nome,
@@ -2380,6 +2382,7 @@ app.use(express.json());
           lat: novoCliente.lat,
           lng: novoCliente.lng,
         }]);
+        if (upsertErr) console.error("[Supabase Sync] Erro no UPSERT Cliente:", upsertErr);
       }
     } catch (err: any) {
       console.warn('[Supabase Sync] Erro cliente:', err?.message || err);
@@ -2518,6 +2521,7 @@ app.use(express.json());
           placa: novoEntregador.placa,
           ativo: true
         }]);
+        
       }
     } catch (err: any) {
       console.warn('[Supabase Sync] Erro entregador:', err?.message || err);
@@ -2674,6 +2678,7 @@ app.use(express.json());
           ativo: novoUsuario.ativo,
           pin_acesso: novoUsuario.pinAcesso,
         }]);
+        
       }
     } catch (err: any) {
       console.warn('[Supabase Sync] Erro usuario:', err?.message || err);
@@ -2785,7 +2790,7 @@ app.use(express.json());
   });
 
   // 6.2 Gerência: Atualizar e Corrigir Pedido (Edição pelo Gerente)
-  app.put('/api/pedidos/:id', (req, res) => {
+  app.put('/api/pedidos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
@@ -2920,6 +2925,23 @@ app.use(express.json());
     }
 
     console.log(`[Gerência] Pedido ${pedido.codigo} atualizado pelo gerente.`);
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+         await supabase.from('pedidos').update({
+            status: pedido.status,
+            entregador_id: pedido.entregadorId || null,
+            subtotal: pedido.subtotal,
+            taxa_entrega: pedido.taxaEntrega,
+            desconto: pedido.desconto,
+            total: pedido.total,
+            forma_pagamento_prevista: pedido.formaPagamentoPrevista,
+            troco_para: pedido.trocoPara || null,
+            observacoes: pedido.observacoes,
+            versao: pedido.versao,
+         }).eq('id', pedido.id);
+      }
+    } catch(e) {}
     res.json({ sucesso: true, pedido });
   });
 
@@ -2959,6 +2981,17 @@ app.use(express.json());
         prioridade: 'ALTA',
       });
     }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+         supabase.from('pedidos').update({
+            status: pedido.status,
+            versao: pedido.versao,
+            observacoes: pedido.observacoes
+         }).eq('id', pedido.id).then(({error}) => { if(error) console.log(error); });
+      }
+    } catch(e) {}
 
     res.json({ sucesso: true, pedido });
   });
@@ -3142,6 +3175,7 @@ app.use(express.json());
             sincronizado: true,
             versao: novoPedido.versao
           }]);
+        
         }
       } catch (err: any) {
         console.warn('[Supabase Sync] Erro pedido:', err?.message || err);
@@ -3199,6 +3233,34 @@ app.use(express.json());
         (p) => p.entregadorId === entObj.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
       ).length;
     }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('pedidos').update({
+          status: pedido.status,
+          devolvido_para_correcao: pedido.devolvidoParaCorrecao,
+          motivo_devolucao: pedido.motivoDevolucao,
+          devolvido_em: pedido.devolvidoEm,
+          devolvido_por_id: pedido.devolvidoPorId,
+          devolvido_por_nome: pedido.devolvidoPorNome,
+          observacoes: pedido.observacoes,
+          versao: pedido.versao,
+        }).eq('id', pedido.id).then(({error}) => { if(error) console.warn('[Supabase] Erro ao atualizar devolvido:', error); });
+
+        // Atualiza estoque devolvido
+        pedido.itens.forEach((item) => {
+          const prod = produtos.find((pr) => pr.id === item.produtoId);
+          if (prod) {
+            supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id).then();
+          }
+        });
+
+        if (entObj) {
+          supabase.from('entregadores').update({ pedidos_ativos_count: entObj.pedidosAtivosCount }).eq('id', entObj.id).then();
+        }
+      }
+    } catch(e) {}
 
     console.log(`[Devolução] Pedido ${pedido.codigo} devolvido por ${entregador.nome}: ${motivoDevolucao}`);
 
@@ -3305,6 +3367,35 @@ app.use(express.json());
       pedido.entregadorNome = undefined;
     }
 
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('pedidos').update({
+          status: pedido.status,
+          entregador_id: pedido.entregadorId || null,
+          subtotal: pedido.subtotal,
+          taxa_entrega: pedido.taxaEntrega,
+          desconto: pedido.desconto,
+          total: pedido.total,
+          forma_pagamento_prevista: pedido.formaPagamentoPrevista,
+          troco_para: pedido.trocoPara,
+          observacoes: pedido.observacoes,
+          devolvido_para_correcao: false,
+          despachado_em: pedido.despachadoEm || null,
+          versao: pedido.versao,
+        }).eq('id', pedido.id).then(({error}) => { if(error) console.warn('[Supabase] Erro ao atualizar pedido corrigido:', error); });
+
+        if (pedido.status === 'EM_ROTA') {
+          pedido.itens.forEach((it) => {
+            const pr = produtos.find((p) => p.id === it.produtoId);
+            if (pr) {
+              supabase.from('produtos').update({ estoque_cheio: pr.estoqueCheio }).eq('id', pr.id).then();
+            }
+          });
+        }
+      }
+    } catch(e) {}
+
     res.json({ sucesso: true, mensagem: 'Pedido corrigido com sucesso!', pedido });
   });
 
@@ -3346,6 +3437,41 @@ app.use(express.json());
     entregador.pedidosAtivosCount = pedidos.filter(
       (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === entregador.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
     ).length;
+
+    try {
+      const supabase = getSupabase();
+      if (supabase && pedidosAtualizados.length > 0) {
+        // Atualiza pedidos em lote no supabase (apenas os campos necessários ou usar upsert)
+        for (const p of pedidosAtualizados) {
+           supabase.from('pedidos').update({
+             entregador_id: p.entregadorId,
+             status: p.status,
+             despachado_em: p.despachadoEm,
+             despachado_por: p.despachadoPor,
+             devolvido_para_correcao: p.devolvidoParaCorrecao,
+             versao: p.versao
+           }).eq('id', p.id).then(({error}) => {
+             if (error) console.warn('[Supabase] Erro ao atribuir pedido:', error);
+           });
+           
+           // Se quiser abater estoque no db
+           p.itens.forEach(item => {
+             const prod = produtos.find(pr => pr.id === item.produtoId);
+             if (prod) {
+               supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id).then();
+             }
+           });
+        }
+        
+        // Update entregador
+        supabase.from('entregadores').update({
+           status: entregador.status,
+           pedidos_ativos_count: entregador.pedidosAtivosCount
+        }).eq('id', entregador.id).then();
+      }
+    } catch(e) {
+      console.warn(e);
+    }
 
     // Dispara Notificação Push para o Celular do Entregador (Supabase Realtime / Web Push)
     let notificacoesGeradas: NotificacaoPush[] = [];
@@ -3455,54 +3581,7 @@ app.use(express.json());
     console.log(`[Push] Dispositivo registrado com sucesso para entregador ${entregadorId}`);
     res.json({ sucesso: true, subscription: novaSub });
   });
-
-  // Enviar Push de Teste (Simulador / Painel de Controle)
-  app.post('/api/push/enviar-teste', async (req, res) => {
-    const { entregadorId, tipo, prioridade, titulo, corpo, pedidoCodigo, valorTotal, bairroNome } = req.body;
-    const entregador = entregadores.find((e) => e.id === entregadorId);
-
-    if (!entregador) {
-      return res.status(404).json({ error: 'Entregador não encontrado' });
-    }
-
-    const defaultTitulo =
-      tipo === 'CANCELAMENTO'
-        ? `⚠️ Pedido ${pedidoCodigo || '#1040'} Cancelado`
-        : tipo === 'ATUALIZACAO_ROTA'
-        ? `📍 Rota Otimizada: Nova Ordem de Entrega`
-        : `🔔 Novo Pedido ${pedidoCodigo || '#1049'} Atribuído!`;
-
-    const defaultCorpo =
-      tipo === 'CANCELAMENTO'
-        ? `O cliente solicitou cancelamento. Não prossiga para a entrega.`
-        : tipo === 'ATUALIZACAO_ROTA'
-        ? `A central reorganizou sua fila de entrega para priorizar o Bairro ${bairroNome || 'Centro'}.`
-        : `Cliente: Juliana Mendes • Av. Paulista, 1000 (${bairroNome || 'Bela Vista'}) • Total: R$ ${
-            valorTotal ? valorTotal.toFixed(2) : '120.00'
-          }`;
-
-    const notif = await dispararNotificacaoPush({
-      entregadorId,
-      titulo: titulo || defaultTitulo,
-      corpo: corpo || defaultCorpo,
-      tipo: tipo || 'NOVO_PEDIDO',
-      pedidoCodigo: pedidoCodigo || '#1049',
-      valorTotal: valorTotal || 120,
-      bairroNome: bairroNome || 'Bela Vista',
-      endereco: 'Av. Paulista, 1000',
-      itensResumo: '1x Botijão P13, 1x Galão Água 20L',
-      prioridade: prioridade || 'ALTA',
-      canal: 'SUPABASE_REALTIME',
-    });
-
-    res.json({
-      sucesso: true,
-      mensagem: `Push disparado com sucesso para ${entregador.nome}`,
-      notificacao: notif,
-    });
-  });
-
-  // Obter Histórico de Notificações Push do Entregador
+// Obter Histórico de Notificações Push do Entregador
   app.get('/api/push/historico/:entregadorId', (req, res) => {
     const { entregadorId } = req.params;
     const historico = pushNotificationsLog.filter((n) => n.entregadorId === entregadorId);
@@ -3583,7 +3662,7 @@ app.use(express.json());
   // 10. ROTA DE SINCRONIZAÇÃO DE BAIXAS OFFLINE
   // Recebe um array de ações executadas offline pelo entregador na rua.
   // Garante idempotência e atualiza pedidos, pagamentos e vasilhames recolhidos.
-  app.post('/api/entregador/sincronizar-baixas', (req, res) => {
+  app.post('/api/entregador/sincronizar-baixas', async (req, res) => {
     const { entregadorId, itensSincronizacao } = req.body as {
       entregadorId: string;
       itensSincronizacao: SyncQueueItem[];
@@ -3600,7 +3679,7 @@ app.use(express.json());
 
     const processados: Array<{ id: string; pedidoId: string; status: string; erro?: string }> = [];
 
-    itensSincronizacao.forEach((syncItem) => {
+    for (const syncItem of itensSincronizacao) {
       // 1. Verificar idempotência (evitar processar duas vezes a mesma ação offline)
       const jaProcessado = syncAuditLog.some((log) => log.idempotencyKey === syncItem.idempotencyKey);
       if (jaProcessado) {
@@ -3658,8 +3737,32 @@ app.use(express.json());
         timestampServidor: new Date().toISOString(),
       });
 
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          // Atualiza pedido no Supabase
+          const { error: errUpdate } = await supabase.from('pedidos').update({
+            status: pedido.status,
+            entregue_em: pedido.entregueEm,
+            sincronizado: true,
+            versao: pedido.versao,
+            observacoes: pedido.observacoes,
+          }).eq('id', pedido.id);
+          if (errUpdate) console.warn("[Supabase] Erro ao sincronizar baixa:", errUpdate);
+
+          // Se houver clientes com fiado
+          if (pedido.cliente && (syncItem.payload.vasilhamesPendentes.P13 > 0 || syncItem.payload.vasilhamesPendentes.P20L > 0)) {
+             await supabase.from('clientes').update({
+               vasilhames_pendentes: pedido.cliente.vasilhamesPendentes
+             }).eq('id', pedido.cliente.id);
+          }
+        }
+      } catch (e) {
+        console.warn("[Supabase] Fallback ao DB offline", e);
+      }
+
       processados.push({ id: syncItem.id, pedidoId: syncItem.pedidoId, status: 'OK' });
-    });
+    }
 
     res.json({
       sucesso: true,
@@ -3767,6 +3870,30 @@ app.use(express.json());
       const supabase = getSupabase();
       if (supabase) {
         await supabase.from('fechamentos_caixa').insert([fechamento]);
+
+        // Atualiza todos os pedidos para CONCLUIDO no Supabase
+        for (const p of pedidosFechamento) {
+          const { error: errConc } = await supabase.from('pedidos').update({
+            status: 'CONCLUIDO',
+            concluido_em: p.concluidoEm,
+          }).eq('id', p.id);
+          if (errConc) console.warn('[Supabase] Erro ao concluir pedido:', errConc);
+        }
+
+        // Atualiza status do entregador no Supabase
+        supabase.from('entregadores').update({
+          status: 'DISPONIVEL',
+          pedidos_ativos_count: 0,
+          total_entregas_hoje: entregador.totalEntregasHoje,
+        }).eq('id', entregador.id).then();
+
+        // Atualiza vasilhames em estoque no Supabase
+        if (p13Prod) {
+          supabase.from('produtos').update({ estoque_vazio: p13Prod.estoqueVazio }).eq('id', p13Prod.id).then();
+        }
+        if (p20Prod) {
+          supabase.from('produtos').update({ estoque_vazio: p20Prod.estoqueVazio }).eq('id', p20Prod.id).then();
+        }
       }
     } catch (e) {}
 

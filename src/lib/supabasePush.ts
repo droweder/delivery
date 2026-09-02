@@ -252,37 +252,6 @@ export async function getHistoricoNotificacoes(entregadorId: string): Promise<No
 }
 
 // ----------------------------------------------------------------------------
-// ENVIAR PUSH DE TESTE OU SIMULAÇÃO
-// ----------------------------------------------------------------------------
-export async function sendTestPushNotification(
-  entregadorId: string,
-  tipo: TipoNotificacaoPush = 'NOVO_PEDIDO',
-  prioridade: PrioridadeNotificacao = 'ALTA',
-  customData?: { titulo?: string; corpo?: string; pedidoCodigo?: string; valorTotal?: number; bairroNome?: string }
-): Promise<{ sucesso: boolean; notificacao?: NotificacaoPush }> {
-  try {
-    const res = await fetch('/api/push/enviar-teste', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        entregadorId,
-        tipo,
-        prioridade,
-        ...customData,
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch (err) {
-    console.error('Erro ao enviar push de teste:', err);
-  }
-  return { sucesso: false };
-}
-
-// ----------------------------------------------------------------------------
 // MARCAR NOTIFICAÇÃO COMO LIDA
 // ----------------------------------------------------------------------------
 export async function markPushNotificationAsRead(id: string): Promise<boolean> {
