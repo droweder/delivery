@@ -2,19 +2,24 @@ import express from 'express';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { GoogleGenAI, Type } from '@google/genai';
 import {
   INITIAL_BAIRROS,
   INITIAL_CLIENTES,
+  INITIAL_COLABORADORES,
   INITIAL_EMPRESAS,
   INITIAL_ENTREGADORES,
   INITIAL_PEDIDOS,
   INITIAL_PRODUTOS,
+  INITIAL_TURNOS,
   INITIAL_USUARIOS,
+  INITIAL_VEICULOS,
 } from './src/data/initialData.js';
 import { SQL_SCHEMA_POSTGRESQL, SQL_TRIGGER_ESTOQUE } from './src/data/schemaSql.js';
 import {
   BairroTaxa,
   Cliente,
+  Colaborador,
   Empresa,
   Entregador,
   FechamentoCaixaEntregador,
@@ -28,7 +33,11 @@ import {
   SyncQueueItem,
   TipoEntrega,
   TipoMovimentacaoEstoque,
+  TurnoEntregador,
   Usuario,
+  Veiculo,
+  PontoLocalizacaoHistorico,
+  CascoItemRecolhimento,
 } from './src/types.js';
 
 // In-Memory Relational Store
@@ -37,9 +46,186 @@ let bairros: BairroTaxa[] = [...INITIAL_BAIRROS];
 let produtos: Produto[] = [...INITIAL_PRODUTOS];
 let clientes: Cliente[] = [...INITIAL_CLIENTES];
 let entregadores: Entregador[] = [...INITIAL_ENTREGADORES];
+let colaboradores: Colaborador[] = [...INITIAL_COLABORADORES];
+let veiculos: Veiculo[] = [...INITIAL_VEICULOS];
+let turnos: TurnoEntregador[] = [...INITIAL_TURNOS];
 let usuarios: Usuario[] = [...INITIAL_USUARIOS];
 let pedidos: Pedido[] = [...INITIAL_PEDIDOS];
 let fechamentos: FechamentoCaixaEntregador[] = [];
+
+// Histórico de Localizações GPS / Telemetria dos Entregadores
+const agoraTimestamp = Date.now();
+let historicoLocalizacoes: PontoLocalizacaoHistorico[] = [
+  // Marcos Vinicius (e1) - rota ativa hoje
+  {
+    id: 'loc_init_1',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55052,
+    lng: -46.633308,
+    velocidadeKmh: 0,
+    bateriaNivel: 98,
+    precisaoMetros: 5,
+    statusEntregador: 'DISPONIVEL',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 110).toISOString(),
+  },
+  {
+    id: 'loc_init_2',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55210,
+    lng: -46.63510,
+    velocidadeKmh: 28,
+    bateriaNivel: 97,
+    precisaoMetros: 8,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1039',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 95).toISOString(),
+  },
+  {
+    id: 'loc_init_3',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55420,
+    lng: -46.63780,
+    velocidadeKmh: 36,
+    bateriaNivel: 97,
+    precisaoMetros: 6,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1039',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 85).toISOString(),
+  },
+  {
+    id: 'loc_init_4',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55640,
+    lng: -46.64050,
+    velocidadeKmh: 0,
+    bateriaNivel: 96,
+    precisaoMetros: 4,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1039',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 70).toISOString(),
+  },
+  {
+    id: 'loc_init_5',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55810,
+    lng: -46.64320,
+    velocidadeKmh: 32,
+    bateriaNivel: 95,
+    precisaoMetros: 7,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1040',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 55).toISOString(),
+  },
+  {
+    id: 'loc_init_6',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.56100,
+    lng: -46.64750,
+    velocidadeKmh: 34,
+    bateriaNivel: 94,
+    precisaoMetros: 5,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1040',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 40).toISOString(),
+  },
+  {
+    id: 'loc_init_7',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.56350,
+    lng: -46.65200,
+    velocidadeKmh: 0,
+    bateriaNivel: 93,
+    precisaoMetros: 4,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1040',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 25).toISOString(),
+  },
+  {
+    id: 'loc_init_8',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55880,
+    lng: -46.64650,
+    velocidadeKmh: 30,
+    bateriaNivel: 93,
+    precisaoMetros: 6,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1041',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 12).toISOString(),
+  },
+  {
+    id: 'loc_init_9',
+    empresaId: 'emp1',
+    entregadorId: 'e1',
+    entregadorNome: 'Marcos Vinicius',
+    lat: -23.55520,
+    lng: -46.64300,
+    velocidadeKmh: 24,
+    bateriaNivel: 92,
+    precisaoMetros: 5,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1041',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 2).toISOString(),
+  },
+
+  // Lucas Gabriel (e2)
+  {
+    id: 'loc_init_10',
+    empresaId: 'emp1',
+    entregadorId: 'e2',
+    entregadorNome: 'Lucas Gabriel',
+    lat: -23.55052,
+    lng: -46.633308,
+    velocidadeKmh: 0,
+    bateriaNivel: 95,
+    precisaoMetros: 5,
+    statusEntregador: 'DISPONIVEL',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 180).toISOString(),
+  },
+  {
+    id: 'loc_init_11',
+    empresaId: 'emp1',
+    entregadorId: 'e2',
+    entregadorNome: 'Lucas Gabriel',
+    lat: -23.56010,
+    lng: -46.63900,
+    velocidadeKmh: 35,
+    bateriaNivel: 91,
+    precisaoMetros: 8,
+    statusEntregador: 'EM_ROTA',
+    pedidoCodigoEmAndamento: '#1037',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 150).toISOString(),
+  },
+  {
+    id: 'loc_init_12',
+    empresaId: 'emp1',
+    entregadorId: 'e2',
+    entregadorNome: 'Lucas Gabriel',
+    lat: -23.56800,
+    lng: -46.65200,
+    velocidadeKmh: 0,
+    bateriaNivel: 85,
+    precisaoMetros: 5,
+    statusEntregador: 'DISPONIVEL',
+    timestamp: new Date(agoraTimestamp - 1000 * 60 * 5).toISOString(),
+  },
+];
+
 let movimentacoesEstoque: MovimentacaoEstoque[] = [
   {
     id: 'mov_init_1',
@@ -82,6 +268,74 @@ let syncAuditLog: Array<{
   timestampOffline: string;
   timestampServidor: string;
 }> = [];
+
+const defaultPermissoes = {
+  ADMIN: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: true,
+    importarErp: true,
+  },
+  GERENTE: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: false,
+    importarErp: true,
+  },
+  ATENDENTE_PDV: {
+    emitirPedidos: true,
+    despacharPedidos: false,
+    cancelarPedidos: false,
+    editarPedidos: true,
+    devolverPedidos: false,
+    realizarAcertoCaixa: false,
+    ajustarEstoque: false,
+    verDashboardGerencial: false,
+    acessarCadastros: true,
+    gerenciarUsuarios: false,
+    importarErp: false,
+  },
+  ENTREGADOR: {
+    emitirPedidos: false,
+    despacharPedidos: false,
+    cancelarPedidos: false,
+    editarPedidos: false,
+    devolverPedidos: true,
+    realizarAcertoCaixa: false,
+    ajustarEstoque: false,
+    verDashboardGerencial: false,
+    acessarCadastros: false,
+    gerenciarUsuarios: false,
+    importarErp: false,
+  },
+  SUPER_ADMIN: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: true,
+    importarErp: true,
+  },
+};
 
 // Helper para Registrar Movimentações de Estoque e Vasilhames (Atômico)
 function registrarMovimentacaoEstoque(dados: {
@@ -715,11 +969,173 @@ let orderCounter = 1045;
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
+
+// Gemini GenAI Client Setup
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    },
+  },
+});
 
 // --------------------------------------------------------------------------
-  // API ROUTES
-  // --------------------------------------------------------------------------
+// API ROUTES
+// --------------------------------------------------------------------------
+
+// OCR Document Parsing Endpoints (Gemini AI Vision)
+app.post('/api/ocr/veiculo', async (req, res) => {
+  try {
+    const { imageBase64, mimeType } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'Nenhum documento/imagem fornecido' });
+    }
+
+    let cleanBase64 = imageBase64;
+    let detectedMime = mimeType || 'image/jpeg';
+
+    if (imageBase64.includes(';base64,')) {
+      const parts = imageBase64.split(';base64,');
+      detectedMime = parts[0].replace('data:', '');
+      cleanBase64 = parts[1];
+    }
+
+    const imagePart = {
+      inlineData: {
+        data: cleanBase64,
+        mimeType: detectedMime,
+      },
+    };
+
+    const prompt = `Você é um especialista em OCR e leitura inteligente de documentos veiculares brasileiros (CRLV - Certificado de Registro e Licenciamento de Veículo / Documento do Veículo).
+Analise o documento fornecido e extraia com precisão os dados para preenchimento do cadastro do veículo.
+Retorne um objeto JSON com os seguintes campos:
+- placa: string (placa do veículo em letras maiúsculas sem traço, ex: ABC1D23 ou ABC1234)
+- modelo: string (marca e modelo completo do veículo, ex: HONDA CG 160 FAN, FIAT FIORINO 1.4)
+- tipo: string (deve ser um destes exatos valores em maiúsculas: 'MOTO', 'CARRO', 'TRICICLO', 'CAMINHAO' ou 'OUTRO')
+- ano: number ou null (ano de fabricação ou modelo, ex: 2022)
+- cor: string ou null (cor do veículo, ex: PRETA, BRANCA, PRATA)
+- renavam: string ou null (número do RENAVAM se presente)
+- chassi: string ou null (número do chassi se presente)
+- observacoes: string ou null (informações complementares se houver)
+
+Se algum campo não for identificado com clareza no documento, retorne null para ele.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: { parts: [imagePart, { text: prompt }] },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            placa: { type: Type.STRING },
+            modelo: { type: Type.STRING },
+            tipo: { type: Type.STRING },
+            ano: { type: Type.NUMBER },
+            cor: { type: Type.STRING },
+            renavam: { type: Type.STRING },
+            chassi: { type: Type.STRING },
+            observacoes: { type: Type.STRING },
+          },
+        },
+      },
+    });
+
+    const text = response.text || '{}';
+    const dadosExtraidos = JSON.parse(text);
+
+    return res.json({
+      success: true,
+      dados: dadosExtraidos,
+    });
+  } catch (error: any) {
+    console.error('Erro na extração OCR do documento do veículo:', error);
+    return res.status(500).json({
+      error: 'Falha ao analisar o documento do veículo com IA',
+      message: error.message || String(error),
+    });
+  }
+});
+
+app.post('/api/ocr/colaborador', async (req, res) => {
+  try {
+    const { imageBase64, mimeType } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'Nenhum documento/imagem fornecido' });
+    }
+
+    let cleanBase64 = imageBase64;
+    let detectedMime = mimeType || 'image/jpeg';
+
+    if (imageBase64.includes(';base64,')) {
+      const parts = imageBase64.split(';base64,');
+      detectedMime = parts[0].replace('data:', '');
+      cleanBase64 = parts[1];
+    }
+
+    const imagePart = {
+      inlineData: {
+        data: cleanBase64,
+        mimeType: detectedMime,
+      },
+    };
+
+    const prompt = `Você é um especialista em OCR e extração inteligente de documentos pessoais brasileiros (CNH - Carteira Nacional de Habilitação, RG ou CPF).
+Analise o documento fornecido e extraia com precisão os dados para o cadastro do colaborador / entregador.
+Retorne um objeto JSON com os seguintes campos:
+- nome: string (nome completo da pessoa)
+- cpf: string ou null (número do CPF no formato 000.000.000-00)
+- rg: string ou null (número do RG)
+- cnh: string ou null (número do registro da CNH)
+- categoriaCnh: string ou null (categoria da CNH em maiúsculas ex: 'A', 'B', 'AB', 'C', 'D')
+- validadeCnh: string ou null (data de validade da CNH no formato AAAA-MM-DD)
+- dataNascimento: string ou null (data de nascimento no formato AAAA-MM-DD)
+- telefone: string ou null (caso haja telefone de contato)
+- cargoSugerido: string ou null (sugestão de cargo ex: 'Entregador de Rota' se CNH for A ou AB, 'Motorista' se CNH for C ou D, ou 'Atendente')
+
+Se algum campo não for identificado no documento, retorne null para ele.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: { parts: [imagePart, { text: prompt }] },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            nome: { type: Type.STRING },
+            cpf: { type: Type.STRING },
+            rg: { type: Type.STRING },
+            cnh: { type: Type.STRING },
+            categoriaCnh: { type: Type.STRING },
+            validadeCnh: { type: Type.STRING },
+            dataNascimento: { type: Type.STRING },
+            telefone: { type: Type.STRING },
+            cargoSugerido: { type: Type.STRING },
+          },
+        },
+      },
+    });
+
+    const text = response.text || '{}';
+    const dadosExtraidos = JSON.parse(text);
+
+    return res.json({
+      success: true,
+      dados: dadosExtraidos,
+    });
+  } catch (error: any) {
+    console.error('Erro na extração OCR do documento do colaborador:', error);
+    return res.status(500).json({
+      error: 'Falha ao analisar o documento do colaborador com IA',
+      message: error.message || String(error),
+    });
+  }
+});
 
   // 1. Health check
   app.get('/api/health', (req, res) => {
@@ -1786,6 +2202,7 @@ app.use(express.json());
   app.post('/api/auth/login', async (req, res) => {
     const { login, senha, pin } = req.body;
     const loginFormatado = String(login || '').toLowerCase().trim();
+    const senhaOuPin = String(senha || pin || '').trim();
 
     try {
       const supabase = getSupabase();
@@ -1793,61 +2210,97 @@ app.use(express.json());
         // Tenta autenticação real no Supabase Auth se houver e-mail
         const { data, error } = await supabase.auth.signInWithPassword({
           email: loginFormatado,
-          password: senha || pin || '',
+          password: senhaOuPin,
         });
 
         if (!error && data?.user) {
-          let usuarioEncontrado = usuarios.find((u) => u.email === loginFormatado || u.id === data.user.id);
+          let usuarioEncontrado = usuarios.find(
+            (u) => u.email?.toLowerCase() === loginFormatado || u.id === data.user.id
+          );
           if (!usuarioEncontrado) {
+            const isSuper = loginFormatado === 'admin@droweder.com.br';
+            const userEmpresaId = isSuper ? undefined : (data.user.user_metadata?.empresaId || 'emp1');
+            const userPerfil = isSuper
+              ? 'SUPER_ADMIN'
+              : ((data.user.user_metadata?.perfil as any) || 'ATENDENTE_PDV');
+
             usuarioEncontrado = {
               id: data.user.id,
+              empresaId: userEmpresaId,
               nome: data.user.user_metadata?.nome || data.user.email?.split('@')[0] || 'Usuário Supabase',
               login: loginFormatado,
-              email: data.user.email,
-              perfil: loginFormatado === 'admin@droweder.com.br' ? 'SUPER_ADMIN' : ((data.user.user_metadata?.perfil as any) || 'ADMIN'),
-              cargo: data.user.user_metadata?.cargo || 'Administrador',
+              email: data.user.email || loginFormatado,
+              perfil: userPerfil,
+              cargo: data.user.user_metadata?.cargo || (userPerfil === 'ADMIN' ? 'Administrador' : 'Atendente'),
               ativo: true,
-              permissoes: {
-                emitirPedidos: true,
-                despacharPedidos: true,
-                cancelarPedidos: true,
-                editarPedidos: true,
-                devolverPedidos: true,
-                realizarAcertoCaixa: true,
-                ajustarEstoque: true,
-                verDashboardGerencial: true,
-                acessarCadastros: true,
-                gerenciarUsuarios: true,
-                importarErp: true,
-              },
+              permissoes: defaultPermissoes[userPerfil as keyof typeof defaultPermissoes] || defaultPermissoes.ATENDENTE_PDV,
               criadoEm: new Date().toISOString(),
             };
             usuarios.push(usuarioEncontrado);
           }
 
+          const emp = usuarioEncontrado.empresaId
+            ? empresas.find((e) => e.id === usuarioEncontrado.empresaId)
+            : null;
+
           return res.json({
             sucesso: true,
             usuario: usuarioEncontrado,
+            empresa: emp || null,
             token: data.session?.access_token,
             modo: 'SUPABASE_AUTH',
           });
         }
       }
 
-      // Fallback em memória para PIN / credenciais locais de desenvolvimento
-      const usuarioLocal = usuarios.find(
-        (u) =>
-          u.ativo &&
-          (u.login.toLowerCase() === loginFormatado ||
-            (u.pinAcesso && (u.pinAcesso === pin || u.pinAcesso === senha || u.pinAcesso === loginFormatado)) ||
-            (u.email && u.email.toLowerCase() === loginFormatado))
-      );
+      // Fallback em memória / Local
+      let usuarioLocal: Usuario | undefined;
+
+      if (loginFormatado) {
+        // 1. Tenta buscar usuário por login exato ou e-mail exato
+        usuarioLocal = usuarios.find(
+          (u) =>
+            u.ativo &&
+            (u.login.toLowerCase() === loginFormatado ||
+              (u.email && u.email.toLowerCase() === loginFormatado))
+        );
+
+        // Se encontrou por login/email, valida senha ou PIN (se fornecidos)
+        if (usuarioLocal) {
+          if (senhaOuPin) {
+            const pinValido = usuarioLocal.pinAcesso && usuarioLocal.pinAcesso === senhaOuPin;
+            const senhaValida = usuarioLocal.senha && usuarioLocal.senha === senhaOuPin;
+            const devPass = senhaOuPin === '1234' && usuarioLocal.perfil !== 'SUPER_ADMIN';
+
+            if (!pinValido && !senhaValida && !devPass) {
+              return res.status(401).json({ error: 'Senha ou PIN incorreto.' });
+            }
+          }
+        } else {
+          // 2. Se o campo login tiver apenas um PIN, busca prioritariamente em usuários normais (NÃO super admin)
+          usuarioLocal = usuarios.find(
+            (u) => u.ativo && u.pinAcesso && u.pinAcesso === loginFormatado && u.perfil !== 'SUPER_ADMIN'
+          );
+
+          // 3. Se não achou usuário comum e o login for o PIN exclusivo do Super Admin
+          if (!usuarioLocal) {
+            usuarioLocal = usuarios.find(
+              (u) => u.ativo && u.pinAcesso && u.pinAcesso === loginFormatado && u.perfil === 'SUPER_ADMIN'
+            );
+          }
+        }
+      }
 
       if (usuarioLocal) {
         usuarioLocal.ultimoAcesso = new Date().toISOString();
+        const emp = usuarioLocal.empresaId
+          ? empresas.find((e) => e.id === usuarioLocal.empresaId)
+          : null;
+
         return res.json({
           sucesso: true,
           usuario: usuarioLocal,
+          empresa: emp || null,
           token: `jwt_local_demo_${usuarioLocal.id}_${Date.now()}`,
           modo: 'LOCAL_DEV',
         });
@@ -2546,8 +2999,247 @@ app.use(express.json());
     if (dados.placa !== undefined) ent.placa = dados.placa.toUpperCase();
     if (dados.status !== undefined) ent.status = dados.status;
     if (dados.bateriaNivel !== undefined) ent.bateriaNivel = Number(dados.bateriaNivel);
+    if (dados.cpf !== undefined) ent.cpf = dados.cpf;
+    if (dados.rg !== undefined) ent.rg = dados.rg;
+    if (dados.cnh !== undefined) ent.cnh = dados.cnh;
+    if (dados.categoriaCnh !== undefined) ent.categoriaCnh = dados.categoriaCnh;
+    if (dados.validadeCnh !== undefined) ent.validadeCnh = dados.validadeCnh;
+    if (dados.usuarioIdVinculado !== undefined) ent.usuarioIdVinculado = dados.usuarioIdVinculado;
+    if (dados.colaboradorId !== undefined) ent.colaboradorId = dados.colaboradorId;
 
     res.json(ent);
+  });
+
+  // ==========================================
+  // 5.0 RASTREAMENTO GPS EM TEMPO REAL E HISTÓRICO DE LOCALIZAÇÕES
+  // ==========================================
+  app.post('/api/entregadores/:id/localizacao', async (req, res) => {
+    const { id } = req.params;
+    const {
+      lat,
+      lng,
+      velocidadeKmh,
+      bateriaNivel,
+      precisaoMetros,
+      pedidoIdEmAndamento,
+      pedidoCodigoEmAndamento,
+    } = req.body;
+
+    const ent = entregadores.find((e) => e.id === id);
+    if (!ent) return res.status(404).json({ error: 'Entregador não encontrado' });
+
+    const agoraIso = new Date().toISOString();
+    ent.latAtual = Number(lat);
+    ent.lngAtual = Number(lng);
+    ent.ultimaAtualizacaoGps = agoraIso;
+    if (bateriaNivel !== undefined && !isNaN(Number(bateriaNivel))) {
+      ent.bateriaNivel = Math.min(100, Math.max(0, Number(bateriaNivel)));
+    }
+
+    const novoPonto: PontoLocalizacaoHistorico = {
+      id: `pos_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      empresaId: ent.empresaId || 'emp1',
+      entregadorId: ent.id,
+      entregadorNome: ent.nome,
+      lat: Number(lat),
+      lng: Number(lng),
+      velocidadeKmh: velocidadeKmh !== undefined ? Number(velocidadeKmh) : 0,
+      bateriaNivel: ent.bateriaNivel,
+      precisaoMetros: precisaoMetros !== undefined ? Number(precisaoMetros) : 10,
+      pedidoIdEmAndamento: pedidoIdEmAndamento || undefined,
+      pedidoCodigoEmAndamento: pedidoCodigoEmAndamento || undefined,
+      statusEntregador: ent.status,
+      timestamp: agoraIso,
+    };
+
+    historicoLocalizacoes.push(novoPonto);
+    if (historicoLocalizacoes.length > 5000) {
+      historicoLocalizacoes.shift();
+    }
+
+    // Persiste no Supabase se configurado
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        Promise.resolve(
+          supabase.from('historico_localizacoes').insert([
+            {
+              id: novoPonto.id,
+              empresa_id: novoPonto.empresaId,
+              entregador_id: novoPonto.entregadorId,
+              entregador_nome: novoPonto.entregadorNome,
+              lat: novoPonto.lat,
+              lng: novoPonto.lng,
+              velocidade_kmh: novoPonto.velocidadeKmh,
+              bateria_nivel: novoPonto.bateriaNivel,
+              precisao_metros: novoPonto.precisaoMetros,
+              pedido_id_em_andamento: novoPonto.pedidoIdEmAndamento,
+              pedido_codigo_em_andamento: novoPonto.pedidoCodigoEmAndamento,
+              status_entregador: novoPonto.statusEntregador,
+              timestamp: novoPonto.timestamp,
+            },
+          ])
+        ).catch(() => {});
+
+        Promise.resolve(
+          supabase
+            .from('entregadores')
+            .update({
+              lat: ent.latAtual,
+              lng: ent.lngAtual,
+              ultima_localizacao: agoraIso,
+              bateria: ent.bateriaNivel,
+            })
+            .eq('id', ent.id)
+        ).catch(() => {});
+      }
+    } catch (e) {}
+
+    res.json({
+      sucesso: true,
+      ponto: novoPonto,
+      entregador: {
+        id: ent.id,
+        nome: ent.nome,
+        latAtual: ent.latAtual,
+        lngAtual: ent.lngAtual,
+        bateriaNivel: ent.bateriaNivel,
+        ultimaAtualizacaoGps: ent.ultimaAtualizacaoGps,
+      },
+    });
+  });
+
+  // Obter Histórico de Trajeto de um Entregador (com filtro de data)
+  app.get('/api/entregadores/:id/historico-localizacao', async (req, res) => {
+    const { id } = req.params;
+    const { data: filtroData, limite } = req.query;
+    const limitNum = limite ? Math.min(1000, Number(limite)) : 500;
+
+    const ent = entregadores.find((e) => e.id === id);
+
+    let pontos = historicoLocalizacoes.filter((p) => p.entregadorId === id);
+
+    if (filtroData && typeof filtroData === 'string') {
+      pontos = pontos.filter((p) => p.timestamp.startsWith(filtroData));
+    }
+
+    // Tenta enriquecer com Supabase se houver dados persistidos no banco
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        let query = supabase
+          .from('historico_localizacoes')
+          .select('*')
+          .eq('entregador_id', id)
+          .order('timestamp', { ascending: true })
+          .limit(limitNum);
+
+        if (filtroData && typeof filtroData === 'string') {
+          query = query.gte('timestamp', `${filtroData}T00:00:00.000Z`).lte('timestamp', `${filtroData}T23:59:59.999Z`);
+        }
+
+        const { data: dbData, error } = await query;
+        if (!error && dbData && dbData.length > 0) {
+          const mappedDb: PontoLocalizacaoHistorico[] = dbData.map((r: any) => ({
+            id: r.id,
+            empresaId: r.empresa_id || 'emp1',
+            entregadorId: r.entregador_id,
+            entregadorNome: r.entregador_nome || ent?.nome,
+            lat: Number(r.lat),
+            lng: Number(r.lng),
+            velocidadeKmh: Number(r.velocidade_kmh ?? 0),
+            bateriaNivel: Number(r.bateria_nivel ?? 100),
+            precisaoMetros: Number(r.precisao_metros ?? 10),
+            pedidoIdEmAndamento: r.pedido_id_em_andamento,
+            pedidoCodigoEmAndamento: r.pedido_codigo_em_andamento,
+            statusEntregador: r.status_entregador || 'EM_ROTA',
+            timestamp: r.timestamp,
+          }));
+
+          // Merge sem duplicatas por ID
+          const idsMap = new Set(pontos.map((p) => p.id));
+          for (const item of mappedDb) {
+            if (!idsMap.has(item.id)) {
+              pontos.push(item);
+              idsMap.add(item.id);
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Ordena cronologicamente crescente para desenho do trajeto
+    pontos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    res.json({
+      entregadorId: id,
+      entregadorNome: ent?.nome || 'Entregador',
+      veiculo: ent?.veiculo,
+      placa: ent?.placa,
+      totalPontos: pontos.length,
+      filtroData: filtroData || null,
+      pontos,
+    });
+  });
+
+  // Snapshot em Tempo Real de Toda a Frota de Entregadores
+  app.get('/api/rastreamento/frota', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? entregadores.filter((e) => (e.empresaId || 'emp1') === empId) : entregadores;
+
+    const frota = lista.map((ent) => {
+      // Pega último ponto registrado no histórico
+      const ultimosPontos = historicoLocalizacoes
+        .filter((p) => p.entregadorId === ent.id)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      const ultimoPonto = ultimosPontos[0] || null;
+
+      // Pega pedidos em rota com este entregador
+      const pedidosDoEntregador = pedidos.filter(
+        (p) => p.entregadorId === ent.id && (p.status === 'EM_ROTA' || p.status === 'PENDENTE')
+      );
+
+      return {
+        id: ent.id,
+        nome: ent.nome,
+        telefone: ent.telefone,
+        veiculo: ent.veiculo,
+        placa: ent.placa,
+        status: ent.status,
+        pedidosAtivosCount: pedidosDoEntregador.filter((p) => p.status === 'EM_ROTA').length,
+        pedidosEmRota: pedidosDoEntregador.map((p) => ({
+          id: p.id,
+          codigo: p.codigo,
+          clienteNome: p.cliente?.nome,
+          endereco: `${p.cliente?.endereco || ''}, ${p.cliente?.numero || ''} (${p.cliente?.bairroNome || ''})`,
+          total: p.total,
+          itensResumo: p.itens?.map((i) => `${i.quantidade}x ${i.nomeProduto}`).join(', '),
+        })),
+        bateriaNivel: ent.bateriaNivel,
+        latAtual: ent.latAtual ?? -23.55052,
+        lngAtual: ent.lngAtual ?? -46.633308,
+        ultimaAtualizacaoGps: ent.ultimaAtualizacaoGps || new Date().toISOString(),
+        velocidadeAtualKmh: ultimoPonto?.velocidadeKmh ?? 0,
+        precisaoMetros: ultimoPonto?.precisaoMetros ?? 10,
+        totalEntregasHoje: ent.totalEntregasHoje || 0,
+      };
+    });
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      totalEntregadores: frota.length,
+      emRotaCount: frota.filter((f) => f.status === 'EM_ROTA').length,
+      disponiveisCount: frota.filter((f) => f.status === 'DISPONIVEL').length,
+      frota,
+    });
+  });
+
+  // Limpar histórico de posições de um entregador (útil para reiniciar testes)
+  app.delete('/api/entregadores/:id/historico-localizacao', (req, res) => {
+    const { id } = req.params;
+    historicoLocalizacoes = historicoLocalizacoes.filter((p) => p.entregadorId !== id);
+    res.json({ sucesso: true, mensagem: 'Histórico de localizações limpo com sucesso' });
   });
 
   app.delete('/api/entregadores/:id', async (req, res) => {
@@ -2569,6 +3261,379 @@ app.use(express.json());
     res.json({ sucesso: true, entregador: removido });
   });
 
+  // ==========================================
+  // 5.1 CADASTRO DE VEÍCULOS
+  // ==========================================
+  app.get('/api/veiculos', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? veiculos.filter((v) => (v.empresaId || 'emp1') === empId) : veiculos;
+    res.json(lista);
+  });
+
+  app.post('/api/veiculos', (req, res) => {
+    const dados = req.body;
+    if (!dados.placa || !dados.modelo) {
+      return res.status(400).json({ error: 'Placa e Modelo são obrigatórios' });
+    }
+    const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
+
+    const novoVeiculo: Veiculo = {
+      id: dados.id || `v_${Date.now()}`,
+      empresaId: empId,
+      placa: String(dados.placa).toUpperCase().trim(),
+      modelo: String(dados.modelo).trim(),
+      tipo: dados.tipo || 'MOTO',
+      ano: dados.ano ? Number(dados.ano) : undefined,
+      cor: dados.cor || '',
+      kmAtual: Number(dados.kmAtual) || 0,
+      kmUltimaRevisao: dados.kmUltimaRevisao ? Number(dados.kmUltimaRevisao) : undefined,
+      status: dados.status || 'DISPONIVEL',
+      observacoes: dados.observacoes || '',
+      criadoEm: new Date().toISOString(),
+    };
+
+    veiculos.push(novoVeiculo);
+    res.status(201).json(novoVeiculo);
+  });
+
+  app.put('/api/veiculos/:id', (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const vec = veiculos.find((v) => v.id === id);
+    if (!vec) return res.status(404).json({ error: 'Veículo não encontrado' });
+    if (empId && vec.empresaId && vec.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: veículo de outra empresa.' });
+    }
+
+    const dados = req.body;
+    if (dados.placa !== undefined) vec.placa = String(dados.placa).toUpperCase().trim();
+    if (dados.modelo !== undefined) vec.modelo = String(dados.modelo).trim();
+    if (dados.tipo !== undefined) vec.tipo = dados.tipo;
+    if (dados.ano !== undefined) vec.ano = Number(dados.ano);
+    if (dados.cor !== undefined) vec.cor = dados.cor;
+    if (dados.kmAtual !== undefined) vec.kmAtual = Number(dados.kmAtual);
+    if (dados.kmUltimaRevisao !== undefined) vec.kmUltimaRevisao = Number(dados.kmUltimaRevisao);
+    if (dados.status !== undefined) vec.status = dados.status;
+    if (dados.observacoes !== undefined) vec.observacoes = dados.observacoes;
+
+    res.json(vec);
+  });
+
+  app.delete('/api/veiculos/:id', (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const index = veiculos.findIndex((v) => v.id === id);
+    if (index === -1) return res.status(404).json({ error: 'Veículo não encontrado' });
+    if (empId && veiculos[index].empresaId && veiculos[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: veículo de outra empresa.' });
+    }
+
+    const [removido] = veiculos.splice(index, 1);
+    res.json({ sucesso: true, veiculo: removido });
+  });
+
+  // ==========================================
+  // 5.2 CADASTRO DE COLABORADORES
+  // ==========================================
+  app.get('/api/colaboradores', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? colaboradores.filter((c) => (c.empresaId || 'emp1') === empId) : colaboradores;
+    res.json(lista);
+  });
+
+  app.post('/api/colaboradores', (req, res) => {
+    const dados = req.body;
+    if (!dados.nome) {
+      return res.status(400).json({ error: 'Nome do colaborador é obrigatório' });
+    }
+    const empId = getTargetEmpresaId(req) || dados.empresaId || 'emp1';
+
+    const novoColab: Colaborador = {
+      id: dados.id || `colab_${Date.now()}`,
+      empresaId: empId,
+      nome: String(dados.nome).trim(),
+      cpf: dados.cpf || '',
+      rg: dados.rg || '',
+      cnh: dados.cnh || '',
+      categoriaCnh: dados.categoriaCnh || '',
+      validadeCnh: dados.validadeCnh || '',
+      telefone: dados.telefone || '',
+      email: dados.email || '',
+      endereco: dados.endereco || '',
+      bairro: dados.bairro || '',
+      cidade: dados.cidade || '',
+      dataNascimento: dados.dataNascimento || '',
+      dataAdmissao: dados.dataAdmissao || new Date().toISOString().split('T')[0],
+      cargo: dados.cargo || 'Entregador de Rota',
+      usuarioIdVinculado: dados.usuarioIdVinculado || '',
+      status: dados.status || 'ATIVO',
+      observacoes: dados.observacoes || '',
+      criadoEm: new Date().toISOString(),
+    };
+
+    colaboradores.push(novoColab);
+
+    // Se o colaborador for Entregador/Motorista e não existir na lista de entregadores, sincroniza
+    const ehEntregador = novoColab.cargo.toLowerCase().includes('entregador') || novoColab.cargo.toLowerCase().includes('motorista');
+    if (ehEntregador) {
+      let ent = entregadores.find((e) => e.colaboradorId === novoColab.id || e.nome.toLowerCase() === novoColab.nome.toLowerCase());
+      if (!ent) {
+        ent = {
+          id: `e_${Date.now()}`,
+          empresaId: empId,
+          nome: novoColab.nome,
+          telefone: novoColab.telefone || '(11) 90000-0000',
+          veiculo: 'Moto/Veículo a Selecionar',
+          placa: 'A SELECIONAR',
+          status: 'DISPONIVEL',
+          pedidosAtivosCount: 0,
+          bateriaNivel: 100,
+          ultimaSincronizacao: new Date().toISOString(),
+          totalEntregasHoje: 0,
+          cpf: novoColab.cpf,
+          rg: novoColab.rg,
+          cnh: novoColab.cnh,
+          categoriaCnh: novoColab.categoriaCnh,
+          validadeCnh: novoColab.validadeCnh,
+          colaboradorId: novoColab.id,
+          usuarioIdVinculado: novoColab.usuarioIdVinculado,
+        };
+        entregadores.push(ent);
+      }
+    }
+
+    res.status(201).json(novoColab);
+  });
+
+  app.put('/api/colaboradores/:id', (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const colab = colaboradores.find((c) => c.id === id);
+    if (!colab) return res.status(404).json({ error: 'Colaborador não encontrado' });
+    if (empId && colab.empresaId && colab.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: colaborador de outra empresa.' });
+    }
+
+    const dados = req.body;
+    if (dados.nome !== undefined) colab.nome = dados.nome;
+    if (dados.cpf !== undefined) colab.cpf = dados.cpf;
+    if (dados.rg !== undefined) colab.rg = dados.rg;
+    if (dados.cnh !== undefined) colab.cnh = dados.cnh;
+    if (dados.categoriaCnh !== undefined) colab.categoriaCnh = dados.categoriaCnh;
+    if (dados.validadeCnh !== undefined) colab.validadeCnh = dados.validadeCnh;
+    if (dados.telefone !== undefined) colab.telefone = dados.telefone;
+    if (dados.email !== undefined) colab.email = dados.email;
+    if (dados.endereco !== undefined) colab.endereco = dados.endereco;
+    if (dados.bairro !== undefined) colab.bairro = dados.bairro;
+    if (dados.cidade !== undefined) colab.cidade = dados.cidade;
+    if (dados.dataNascimento !== undefined) colab.dataNascimento = dados.dataNascimento;
+    if (dados.dataAdmissao !== undefined) colab.dataAdmissao = dados.dataAdmissao;
+    if (dados.cargo !== undefined) colab.cargo = dados.cargo;
+    if (dados.usuarioIdVinculado !== undefined) colab.usuarioIdVinculado = dados.usuarioIdVinculado;
+    if (dados.status !== undefined) colab.status = dados.status;
+    if (dados.observacoes !== undefined) colab.observacoes = dados.observacoes;
+
+    // Atualiza também no perfil do entregador vinculado se existir
+    const ent = entregadores.find((e) => e.colaboradorId === colab.id);
+    if (ent) {
+      ent.nome = colab.nome;
+      ent.telefone = colab.telefone || ent.telefone;
+      ent.cpf = colab.cpf;
+      ent.cnh = colab.cnh;
+      ent.categoriaCnh = colab.categoriaCnh;
+      ent.validadeCnh = colab.validadeCnh;
+      ent.usuarioIdVinculado = colab.usuarioIdVinculado;
+    }
+
+    res.json(colab);
+  });
+
+  app.delete('/api/colaboradores/:id', (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const index = colaboradores.findIndex((c) => c.id === id);
+    if (index === -1) return res.status(404).json({ error: 'Colaborador não encontrado' });
+    if (empId && colaboradores[index].empresaId && colaboradores[index].empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: colaborador de outra empresa.' });
+    }
+
+    const [removido] = colaboradores.splice(index, 1);
+    res.json({ sucesso: true, colaborador: removido });
+  });
+
+  // ==========================================
+  // 5.3 ROTINA DE ABERTURA E FECHAMENTO DE TURNO / TROCO / KM DE ENTREGADOR
+  // ==========================================
+  app.get(['/api/turnos', '/api/turnos/historico'], (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? turnos.filter((t) => (t.empresaId || 'emp1') === empId) : turnos;
+    res.json(lista.sort((a, b) => new Date(b.dataHoraAbertura).getTime() - new Date(a.dataHoraAbertura).getTime()));
+  });
+
+  app.get('/api/turnos/ativo', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const { entregadorId } = req.query;
+    if (!entregadorId) return res.status(400).json({ error: 'entregadorId é obrigatório' });
+
+    const turnoAtivo = turnos.find(
+      (t) =>
+        t.entregadorId === String(entregadorId) &&
+        t.status === 'EM_ANDAMENTO' &&
+        (!empId || (t.empresaId || 'emp1') === empId)
+    );
+
+    res.json(turnoAtivo || null);
+  });
+
+  app.post('/api/turnos/abrir', (req, res) => {
+    const { entregadorId, veiculoId, trocoInicial, kmInicial, observacoes } = req.body;
+    const empId = getTargetEmpresaId(req) || 'emp1';
+
+    if (!entregadorId || !veiculoId) {
+      return res.status(400).json({ error: 'Entregador e Veículo são obrigatórios para iniciar o turno' });
+    }
+
+    const ent = entregadores.find((e) => e.id === entregadorId);
+    if (!ent) return res.status(404).json({ error: 'Entregador não encontrado' });
+
+    const vec = veiculos.find((v) => v.id === veiculoId);
+    if (!vec) return res.status(404).json({ error: 'Veículo não encontrado' });
+
+    // Verifica se já existe um turno em aberto para esse entregador
+    const turnoExistente = turnos.find((t) => t.entregadorId === entregadorId && t.status === 'EM_ANDAMENTO');
+    if (turnoExistente) {
+      return res.status(400).json({
+        error: 'Este entregador já possui um turno ativo em andamento. Faça o fechamento primeiro.',
+        turnoAtivo: turnoExistente,
+      });
+    }
+
+    const kmInicialNum = kmInicial !== undefined && kmInicial !== null ? Number(kmInicial) : vec.kmAtual;
+    const trocoNum = Number(trocoInicial) || 0;
+
+    const novoTurno: TurnoEntregador = {
+      id: `turno_${Date.now()}`,
+      empresaId: empId,
+      entregadorId: ent.id,
+      entregadorNome: ent.nome,
+      colaboradorId: ent.colaboradorId,
+      usuarioId: ent.usuarioIdVinculado,
+      veiculoId: vec.id,
+      veiculoPlaca: vec.placa,
+      veiculoModelo: vec.modelo,
+      dataHoraAbertura: new Date().toISOString(),
+      trocoInicial: trocoNum,
+      kmInicial: kmInicialNum,
+      status: 'EM_ANDAMENTO',
+      observacoes: observacoes || `Início de turno com ${vec.modelo} (${vec.placa}) e troco de R$ ${trocoNum.toFixed(2)}`,
+    };
+
+    turnos.push(novoTurno);
+
+    // Atualiza estado do veículo e do entregador
+    vec.status = 'EM_USO';
+    if (kmInicialNum > vec.kmAtual) {
+      vec.kmAtual = kmInicialNum;
+    }
+
+    ent.veiculo = `${vec.modelo} (${vec.placa})`;
+    ent.placa = vec.placa;
+    ent.veiculoIdAtual = vec.id;
+    ent.trocoInicialAtual = trocoNum;
+    ent.kmInicialAtual = kmInicialNum;
+    ent.turnoAtivoId = novoTurno.id;
+    ent.status = 'DISPONIVEL';
+
+    res.status(201).json({
+      sucesso: true,
+      mensagem: `Turno de ${ent.nome} iniciado com sucesso com o veículo ${vec.placa} e troco inicial de R$ ${trocoNum.toFixed(2)}`,
+      turno: novoTurno,
+    });
+  });
+
+  app.post('/api/turnos/fechar', (req, res) => {
+    const { turnoId, entregadorId, kmFinal, totalDinheiroInformado, cascosP13Recolhidos, cascosP20LRecolhidos, observacoes } = req.body;
+    const empId = getTargetEmpresaId(req) || 'emp1';
+
+    let turno = turnos.find((t) => t.id === turnoId);
+    if (!turno && entregadorId) {
+      turno = turnos.find((t) => t.entregadorId === entregadorId && t.status === 'EM_ANDAMENTO');
+    }
+
+    if (!turno) {
+      return res.status(404).json({ error: 'Nenhum turno ativo em aberto foi encontrado para encerramento' });
+    }
+
+    const ent = entregadores.find((e) => e.id === turno.entregadorId);
+    const vec = veiculos.find((v) => v.id === turno.veiculoId);
+
+    const kmFinalNum = Number(kmFinal) || turno.kmInicial;
+    const kmRodados = Math.max(0, kmFinalNum - turno.kmInicial);
+
+    // Calcular entregas realizadas no turno
+    const pedidosDoTurno = pedidos.filter(
+      (p) =>
+        p.entregadorId === turno!.entregadorId &&
+        (p.status === 'ENTREGUE' || p.status === 'CONCLUIDO') &&
+        new Date(p.criadoEm || p.despachadoEm || Date.now()).getTime() >= new Date(turno!.dataHoraAbertura).getTime()
+    );
+
+    let totalDinheiroVendas = 0;
+    let totalPixVendas = 0;
+    let totalCartaoVendas = 0;
+    let totalPrazoVendas = 0;
+
+    pedidosDoTurno.forEach((p) => {
+      const forma = p.formaPagamentoRealizada || p.formaPagamentoPrevista;
+      const valor = p.valorRecebido || p.total;
+
+      if (forma === 'DINHEIRO') totalDinheiroVendas += p.total;
+      else if (forma === 'PIX') totalPixVendas += valor;
+      else if (forma === 'CARTAO_DEBITO' || forma === 'CARTAO_CREDITO') totalCartaoVendas += valor;
+      else if (forma === 'A_PRAZO_FIADO') totalPrazoVendas += valor;
+    });
+
+    const totalDinheiroEsperadoComTroco = turno.trocoInicial + totalDinheiroVendas;
+    const dinheiroInformadoNum = totalDinheiroInformado !== undefined ? Number(totalDinheiroInformado) : totalDinheiroEsperadoComTroco;
+    const diferencaDinheiro = dinheiroInformadoNum - totalDinheiroEsperadoComTroco;
+
+    turno.dataHoraFechamento = new Date().toISOString();
+    turno.kmFinal = kmFinalNum;
+    turno.kmRodados = kmRodados;
+    turno.totalEntregasRealizadas = pedidosDoTurno.length;
+    turno.totalDinheiroVendas = totalDinheiroVendas;
+    turno.totalPixVendas = totalPixVendas;
+    turno.totalCartaoVendas = totalCartaoVendas;
+    turno.totalPrazoVendas = totalPrazoVendas;
+    turno.totalDinheiroEsperadoComTroco = totalDinheiroEsperadoComTroco;
+    turno.totalDinheiroInformado = dinheiroInformadoNum;
+    turno.diferencaDinheiro = diferencaDinheiro;
+    turno.cascosP13Recolhidos = cascosP13Recolhidos ? Number(cascosP13Recolhidos) : 0;
+    turno.cascosP20LRecolhidos = cascosP20LRecolhidos ? Number(cascosP20LRecolhidos) : 0;
+    turno.status = 'FECHADO';
+    if (observacoes) turno.observacoes = (turno.observacoes ? `${turno.observacoes} | ` : '') + observacoes;
+
+    // Atualiza odômetro e status do veículo
+    if (vec) {
+      vec.kmAtual = Math.max(vec.kmAtual, kmFinalNum);
+      vec.status = 'DISPONIVEL';
+    }
+
+    // Libera o entregador
+    if (ent) {
+      ent.trocoInicialAtual = undefined;
+      ent.kmInicialAtual = undefined;
+      ent.turnoAtivoId = undefined;
+      ent.veiculoIdAtual = undefined;
+    }
+
+    res.json({
+      sucesso: true,
+      mensagem: `Turno encerrado. Quilometragem percorrida: ${kmRodados} km. Diferença de caixa: R$ ${diferencaDinheiro.toFixed(2)}`,
+      turno,
+    });
+  });
+
   // 5.1 Usuários e Gestão de Permissões
   app.get('/api/usuarios', async (req, res) => {
     const uList = await getFreshUsuarios();
@@ -2586,61 +3651,6 @@ app.use(express.json());
       return res.status(400).json({ error: 'Nome e login são obrigatórios' });
     }
     const empId = getTargetEmpresaId(req);
-
-    const defaultPermissoes = {
-      ADMIN: {
-        emitirPedidos: true,
-        despacharPedidos: true,
-        cancelarPedidos: true,
-        editarPedidos: true,
-        devolverPedidos: true,
-        realizarAcertoCaixa: true,
-        ajustarEstoque: true,
-        verDashboardGerencial: true,
-        acessarCadastros: true,
-        gerenciarUsuarios: true,
-        importarErp: true,
-      },
-      GERENTE: {
-        emitirPedidos: true,
-        despacharPedidos: true,
-        cancelarPedidos: true,
-        editarPedidos: true,
-        devolverPedidos: true,
-        realizarAcertoCaixa: true,
-        ajustarEstoque: true,
-        verDashboardGerencial: true,
-        acessarCadastros: true,
-        gerenciarUsuarios: false,
-        importarErp: true,
-      },
-      ATENDENTE_PDV: {
-        emitirPedidos: true,
-        despacharPedidos: false,
-        cancelarPedidos: false,
-        editarPedidos: true,
-        devolverPedidos: false,
-        realizarAcertoCaixa: false,
-        ajustarEstoque: false,
-        verDashboardGerencial: false,
-        acessarCadastros: true,
-        gerenciarUsuarios: false,
-        importarErp: false,
-      },
-      ENTREGADOR: {
-        emitirPedidos: false,
-        despacharPedidos: false,
-        cancelarPedidos: false,
-        editarPedidos: false,
-        devolverPedidos: true,
-        realizarAcertoCaixa: false,
-        ajustarEstoque: false,
-        verDashboardGerencial: false,
-        acessarCadastros: false,
-        gerenciarUsuarios: false,
-        importarErp: false,
-      },
-    };
 
     const perfil = dados.perfil || 'ATENDENTE_PDV';
     const permissoesBase = defaultPermissoes[perfil as keyof typeof defaultPermissoes] || defaultPermissoes.ATENDENTE_PDV;
@@ -3720,12 +4730,206 @@ app.use(express.json());
 
     const processados: Array<{ id: string; pedidoId: string; status: string; erro?: string }> = [];
 
+    // Função auxiliar central de baixa de pedido com recolhimento de cascos
+    function executarBaixaInterna(
+      pedido: Pedido,
+      payload: any,
+      timestampOffline: string,
+      origemOffline = false
+    ) {
+      pedido.status = 'ENTREGUE';
+      pedido.formaPagamentoRealizada = payload.formaPagamentoRealizada;
+      if (payload.pagamentosRealizados && payload.pagamentosRealizados.length > 0) {
+        pedido.pagamentosRealizados = payload.pagamentosRealizados;
+      }
+      pedido.valorRecebido = Number(payload.valorRecebido) || pedido.total;
+      pedido.entregueEm = timestampOffline;
+      pedido.origemOffline = origemOffline;
+      pedido.sincronizado = true;
+      pedido.versao += 1;
+
+      if (payload.observacaoEntrega) {
+        pedido.observacoes = (pedido.observacoes ? `${pedido.observacoes} | ` : '') + payload.observacaoEntrega;
+      }
+
+      // Dinâmica de Recolhimento de Cascos / Vasilhames Detalhados
+      if (payload.cascosDetalhados && Array.isArray(payload.cascosDetalhados) && payload.cascosDetalhados.length > 0) {
+        pedido.cascosRecolhidos = payload.cascosDetalhados;
+        pedido.totalCascosRecolhidos = payload.cascosDetalhados.reduce(
+          (acc: number, c: CascoItemRecolhimento) => acc + (Number(c.quantidadeRecolhida) || 0),
+          0
+        );
+        pedido.totalCascosPendentes = payload.cascosDetalhados.reduce(
+          (acc: number, c: CascoItemRecolhimento) => acc + (Number(c.quantidadePendente) || 0),
+          0
+        );
+        pedido.valeCascoGerado = (pedido.totalCascosPendentes || 0) > 0;
+
+        // Atualizar itens do pedido
+        pedido.itens.forEach((it) => {
+          const match = payload.cascosDetalhados.find(
+            (c: CascoItemRecolhimento) => c.itemId === it.id || c.produtoId === it.produtoId
+          );
+          if (match) {
+            it.vasilhamesRecolhidosReais = Number(match.quantidadeRecolhida) || 0;
+            it.vasilhamesPendentes = Number(match.quantidadePendente) || 0;
+          }
+        });
+
+        // Registrar entrada de cascos vazios no estoque da base e ledger
+        payload.cascosDetalhados.forEach((c: CascoItemRecolhimento) => {
+          const qtdRecolhida = Number(c.quantidadeRecolhida) || 0;
+          const qtdPendente = Number(c.quantidadePendente) || 0;
+
+          if (qtdRecolhida > 0) {
+            const prodAlvo = produtos.find(
+              (pr) => pr.id === c.produtoId || (c.tipoVasilhame !== 'NENHUM' && pr.tipoVasilhame === c.tipoVasilhame)
+            );
+            if (prodAlvo) {
+              registrarMovimentacaoEstoque({
+                produtoId: prodAlvo.id,
+                tipoMovimentacao: 'RETORNO_ROTA',
+                deltaCheio: 0,
+                deltaVazio: qtdRecolhida,
+                pedidoId: pedido.id,
+                pedidoCodigo: pedido.codigo,
+                entregadorId: pedido.entregadorId,
+                entregadorNome: pedido.entregadorNome,
+                motivo: `Recolhimento de ${qtdRecolhida}x ${c.nomeCasco} no pedido ${pedido.codigo} (Estado: ${c.estadoCasco || 'PERFEITO'}${c.marcaCasco ? ` - Marca: ${c.marcaCasco}` : ''})`,
+              });
+            }
+          }
+
+          // Se gerou pendência (Vale-Casco), registra débito na ficha do cliente
+          if (qtdPendente > 0 && pedido.cliente) {
+            if (!pedido.cliente.vasilhamesPendentes) {
+              pedido.cliente.vasilhamesPendentes = { P13: 0, P20L: 0 };
+            }
+            if (c.tipoVasilhame === 'P13' || c.nomeCasco.toUpperCase().includes('P13') || c.nomeCasco.toUpperCase().includes('13KG')) {
+              pedido.cliente.vasilhamesPendentes.P13 = (pedido.cliente.vasilhamesPendentes.P13 || 0) + qtdPendente;
+            } else if (c.tipoVasilhame === 'P20L' || c.nomeCasco.toUpperCase().includes('20L') || c.nomeCasco.toUpperCase().includes('GALÃO')) {
+              pedido.cliente.vasilhamesPendentes.P20L = (pedido.cliente.vasilhamesPendentes.P20L || 0) + qtdPendente;
+            }
+
+            const cliNaMemoria = clientes.find((cli) => cli.id === pedido.clienteId);
+            if (cliNaMemoria) {
+              cliNaMemoria.vasilhamesPendentes = { ...pedido.cliente.vasilhamesPendentes };
+            }
+          }
+        });
+      } else {
+        // Fallback legado com P13 / P20L
+        const p13Rec = payload.vasilhamesRecolhidos?.P13 || 0;
+        const p20Rec = payload.vasilhamesRecolhidos?.P20L || 0;
+        const p13Pend = payload.vasilhamesPendentes?.P13 || 0;
+        const p20Pend = payload.vasilhamesPendentes?.P20L || 0;
+
+        pedido.totalCascosRecolhidos = p13Rec + p20Rec;
+        pedido.totalCascosPendentes = p13Pend + p20Pend;
+        pedido.valeCascoGerado = (pedido.totalCascosPendentes || 0) > 0;
+
+        pedido.itens.forEach((it) => {
+          if (it.tipoVasilhame === 'P13') {
+            it.vasilhamesRecolhidosReais = p13Rec;
+            it.vasilhamesPendentes = p13Pend;
+          } else if (it.tipoVasilhame === 'P20L') {
+            it.vasilhamesRecolhidosReais = p20Rec;
+            it.vasilhamesPendentes = p20Pend;
+          }
+        });
+
+        if (p13Rec > 0) {
+          const prodP13 = produtos.find((pr) => pr.tipoVasilhame === 'P13');
+          if (prodP13) {
+            registrarMovimentacaoEstoque({
+              produtoId: prodP13.id,
+              tipoMovimentacao: 'RETORNO_ROTA',
+              deltaCheio: 0,
+              deltaVazio: p13Rec,
+              pedidoId: pedido.id,
+              pedidoCodigo: pedido.codigo,
+              entregadorId: pedido.entregadorId,
+              entregadorNome: pedido.entregadorNome,
+              motivo: `Recolhimento de ${p13Rec}x Casco P13 no pedido ${pedido.codigo}`,
+            });
+          }
+        }
+        if (p20Rec > 0) {
+          const prodP20 = produtos.find((pr) => pr.tipoVasilhame === 'P20L');
+          if (prodP20) {
+            registrarMovimentacaoEstoque({
+              produtoId: prodP20.id,
+              tipoMovimentacao: 'RETORNO_ROTA',
+              deltaCheio: 0,
+              deltaVazio: p20Rec,
+              pedidoId: pedido.id,
+              pedidoCodigo: pedido.codigo,
+              entregadorId: pedido.entregadorId,
+              entregadorNome: pedido.entregadorNome,
+              motivo: `Recolhimento de ${p20Rec}x Casco Galão 20L no pedido ${pedido.codigo}`,
+            });
+          }
+        }
+
+        if (pedido.cliente && (p13Pend > 0 || p20Pend > 0)) {
+          if (!pedido.cliente.vasilhamesPendentes) {
+            pedido.cliente.vasilhamesPendentes = { P13: 0, P20L: 0 };
+          }
+          pedido.cliente.vasilhamesPendentes.P13 += p13Pend;
+          pedido.cliente.vasilhamesPendentes.P20L += p20Pend;
+          const cliNaMemoria = clientes.find((cli) => cli.id === pedido.clienteId);
+          if (cliNaMemoria) {
+            cliNaMemoria.vasilhamesPendentes = { ...pedido.cliente.vasilhamesPendentes };
+          }
+        }
+      }
+
+      // Atualiza contador de entregas do entregador
+      if (entregador) {
+        entregador.totalEntregasHoje = (entregador.totalEntregasHoje || 0) + 1;
+      }
+
+      // Persiste no Supabase com resiliência
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          supabase
+            .from('pedidos')
+            .update({
+              status: pedido.status,
+              entregue_em: pedido.entregueEm,
+              sincronizado: true,
+              versao: pedido.versao,
+              observacoes: pedido.observacoes,
+              forma_pagamento_realizada: pedido.formaPagamentoRealizada,
+              valor_recebido: pedido.valorRecebido,
+            })
+            .eq('id', pedido.id)
+            .then(({ error }) => {
+              if (error) console.warn('[Supabase] Erro ao sincronizar baixa:', error);
+            });
+
+          if (pedido.cliente && pedido.cliente.vasilhamesPendentes) {
+            supabase
+              .from('clientes')
+              .update({
+                vasilhames_pendentes: pedido.cliente.vasilhamesPendentes,
+              })
+              .eq('id', pedido.cliente.id)
+              .then();
+          }
+        }
+      } catch (e) {
+        console.warn('[Supabase] Fallback ao DB offline', e);
+      }
+    }
+
     for (const syncItem of itensSincronizacao) {
-      // 1. Verificar idempotência (evitar processar duas vezes a mesma ação offline)
+      // 1. Verificar idempotência
       const jaProcessado = syncAuditLog.some((log) => log.idempotencyKey === syncItem.idempotencyKey);
       if (jaProcessado) {
         processados.push({ id: syncItem.id, pedidoId: syncItem.pedidoId, status: 'OK' });
-        return;
+        continue;
       }
 
       const pedido = pedidos.find((p) => p.id === syncItem.pedidoId);
@@ -3736,39 +4940,13 @@ app.use(express.json());
           status: 'ERRO',
           erro: 'Pedido não encontrado no banco de dados',
         });
-        return;
+        continue;
       }
 
-      // 2. Aplicar as baixas nos pedidos
-      pedido.status = 'ENTREGUE';
-      pedido.formaPagamentoRealizada = syncItem.payload.formaPagamentoRealizada;
-      if (syncItem.payload.pagamentosRealizados && syncItem.payload.pagamentosRealizados.length > 0) {
-        pedido.pagamentosRealizados = syncItem.payload.pagamentosRealizados;
-      }
-      pedido.valorRecebido = syncItem.payload.valorRecebido;
-      pedido.entregueEm = syncItem.timestampOffline;
-      pedido.origemOffline = true;
-      pedido.sincronizado = true;
-      pedido.versao += 1;
+      // Executa a baixa com dinâmica de vasilhames
+      executarBaixaInterna(pedido, syncItem.payload, syncItem.timestampOffline, true);
 
-      // 3. Atualizar vasilhames recolhidos nos itens
-      pedido.itens.forEach((it) => {
-        if (it.tipoVasilhame === 'P13') {
-          it.vasilhamesRecolhidosReais = syncItem.payload.vasilhamesRecolhidos.P13;
-          it.vasilhamesPendentes = syncItem.payload.vasilhamesPendentes.P13;
-        } else if (it.tipoVasilhame === 'P20L') {
-          it.vasilhamesRecolhidosReais = syncItem.payload.vasilhamesRecolhidos.P20L;
-          it.vasilhamesPendentes = syncItem.payload.vasilhamesPendentes.P20L;
-        }
-      });
-
-      // 4. Se houver vasilhames pendentes (fiado de casco), registra no cliente
-      if (pedido.cliente) {
-        pedido.cliente.vasilhamesPendentes.P13 += syncItem.payload.vasilhamesPendentes.P13 || 0;
-        pedido.cliente.vasilhamesPendentes.P20L += syncItem.payload.vasilhamesPendentes.P20L || 0;
-      }
-
-      // 5. Registrar no log de auditoria
+      // Registrar no log de auditoria
       syncAuditLog.push({
         id: syncItem.id,
         idempotencyKey: syncItem.idempotencyKey,
@@ -3778,30 +4956,6 @@ app.use(express.json());
         timestampServidor: new Date().toISOString(),
       });
 
-      try {
-        const supabase = getSupabase();
-        if (supabase) {
-          // Atualiza pedido no Supabase
-          const { error: errUpdate } = await supabase.from('pedidos').update({
-            status: pedido.status,
-            entregue_em: pedido.entregueEm,
-            sincronizado: true,
-            versao: pedido.versao,
-            observacoes: pedido.observacoes,
-          }).eq('id', pedido.id);
-          if (errUpdate) console.warn("[Supabase] Erro ao sincronizar baixa:", errUpdate);
-
-          // Se houver clientes com fiado
-          if (pedido.cliente && (syncItem.payload.vasilhamesPendentes.P13 > 0 || syncItem.payload.vasilhamesPendentes.P20L > 0)) {
-             await supabase.from('clientes').update({
-               vasilhames_pendentes: pedido.cliente.vasilhamesPendentes
-             }).eq('id', pedido.cliente.id);
-          }
-        }
-      } catch (e) {
-        console.warn("[Supabase] Fallback ao DB offline", e);
-      }
-
       processados.push({ id: syncItem.id, pedidoId: syncItem.pedidoId, status: 'OK' });
     }
 
@@ -3810,6 +4964,196 @@ app.use(express.json());
       timestampServidor: new Date().toISOString(),
       processados,
     });
+  });
+
+  // 10.1 BAIXA DIRETA DE PEDIDO (Via Hub / Kanban Desktop ou Web)
+  app.post('/api/pedidos/:id/baixa', async (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const pedido = pedidos.find((p) => p.id === id);
+    if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
+
+    const payload = req.body;
+    const agoraIso = new Date().toISOString();
+
+    pedido.status = 'ENTREGUE';
+    if (payload.formaPagamentoRealizada) pedido.formaPagamentoRealizada = payload.formaPagamentoRealizada;
+    if (payload.pagamentosRealizados && payload.pagamentosRealizados.length > 0) {
+      pedido.pagamentosRealizados = payload.pagamentosRealizados;
+    }
+    if (payload.valorRecebido !== undefined) pedido.valorRecebido = Number(payload.valorRecebido);
+    pedido.entregueEm = agoraIso;
+    pedido.sincronizado = true;
+    pedido.versao += 1;
+
+    if (payload.observacaoEntrega) {
+      pedido.observacoes = (pedido.observacoes ? `${pedido.observacoes} | ` : '') + payload.observacaoEntrega;
+    }
+
+    // Processa cascos
+    if (payload.cascosDetalhados && Array.isArray(payload.cascosDetalhados) && payload.cascosDetalhados.length > 0) {
+      pedido.cascosRecolhidos = payload.cascosDetalhados;
+      pedido.totalCascosRecolhidos = payload.cascosDetalhados.reduce(
+        (acc: number, c: CascoItemRecolhimento) => acc + (Number(c.quantidadeRecolhida) || 0),
+        0
+      );
+      pedido.totalCascosPendentes = payload.cascosDetalhados.reduce(
+        (acc: number, c: CascoItemRecolhimento) => acc + (Number(c.quantidadePendente) || 0),
+        0
+      );
+      pedido.valeCascoGerado = (pedido.totalCascosPendentes || 0) > 0;
+
+      pedido.itens.forEach((it) => {
+        const match = payload.cascosDetalhados.find(
+          (c: CascoItemRecolhimento) => c.itemId === it.id || c.produtoId === it.produtoId
+        );
+        if (match) {
+          it.vasilhamesRecolhidosReais = Number(match.quantidadeRecolhida) || 0;
+          it.vasilhamesPendentes = Number(match.quantidadePendente) || 0;
+        }
+      });
+
+      payload.cascosDetalhados.forEach((c: CascoItemRecolhimento) => {
+        const qtdRecolhida = Number(c.quantidadeRecolhida) || 0;
+        const qtdPendente = Number(c.quantidadePendente) || 0;
+
+        if (qtdRecolhida > 0) {
+          const prodAlvo = produtos.find(
+            (pr) => pr.id === c.produtoId || (c.tipoVasilhame !== 'NENHUM' && pr.tipoVasilhame === c.tipoVasilhame)
+          );
+          if (prodAlvo) {
+            registrarMovimentacaoEstoque({
+              produtoId: prodAlvo.id,
+              tipoMovimentacao: 'RETORNO_ROTA',
+              deltaCheio: 0,
+              deltaVazio: qtdRecolhida,
+              pedidoId: pedido.id,
+              pedidoCodigo: pedido.codigo,
+              entregadorId: pedido.entregadorId,
+              entregadorNome: pedido.entregadorNome,
+              motivo: `Recolhimento de ${qtdRecolhida}x ${c.nomeCasco} no pedido ${pedido.codigo} (Estado: ${c.estadoCasco || 'PERFEITO'})`,
+            });
+          }
+        }
+
+        if (qtdPendente > 0 && pedido.cliente) {
+          if (!pedido.cliente.vasilhamesPendentes) {
+            pedido.cliente.vasilhamesPendentes = { P13: 0, P20L: 0 };
+          }
+          if (c.tipoVasilhame === 'P13' || c.nomeCasco.toUpperCase().includes('P13') || c.nomeCasco.toUpperCase().includes('13KG')) {
+            pedido.cliente.vasilhamesPendentes.P13 = (pedido.cliente.vasilhamesPendentes.P13 || 0) + qtdPendente;
+          } else if (c.tipoVasilhame === 'P20L' || c.nomeCasco.toUpperCase().includes('20L') || c.nomeCasco.toUpperCase().includes('GALÃO')) {
+            pedido.cliente.vasilhamesPendentes.P20L = (pedido.cliente.vasilhamesPendentes.P20L || 0) + qtdPendente;
+          }
+
+          const cliNaMemoria = clientes.find((cli) => cli.id === pedido.clienteId);
+          if (cliNaMemoria) {
+            cliNaMemoria.vasilhamesPendentes = { ...pedido.cliente.vasilhamesPendentes };
+          }
+        }
+      });
+    }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('pedidos').update({
+          status: pedido.status,
+          entregue_em: pedido.entregueEm,
+          sincronizado: true,
+          versao: pedido.versao,
+          observacoes: pedido.observacoes,
+          forma_pagamento_realizada: pedido.formaPagamentoRealizada,
+          valor_recebido: pedido.valorRecebido,
+        }).eq('id', pedido.id).then();
+
+        if (pedido.cliente && pedido.cliente.vasilhamesPendentes) {
+          supabase.from('clientes').update({
+            vasilhames_pendentes: pedido.cliente.vasilhamesPendentes,
+          }).eq('id', pedido.cliente.id).then();
+        }
+      }
+    } catch(e) {}
+
+    res.json({
+      sucesso: true,
+      mensagem: `Baixa do pedido ${pedido.codigo} concluída com sucesso!`,
+      pedido,
+    });
+  });
+
+  // 10.2 CONSULTAR CLIENTES COM VALES-CASCO PENDENTES
+  app.get('/api/vasilhames/pendencias-clientes', (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const cliLista = empId ? clientes.filter((c) => (c.empresaId || 'emp1') === empId) : clientes;
+
+    const pendentes = cliLista
+      .filter((c) => (c.vasilhamesPendentes?.P13 > 0 || c.vasilhamesPendentes?.P20L > 0))
+      .map((c) => {
+        const pedidosComVale = pedidos.filter((p) => p.clienteId === c.id && p.valeCascoGerado);
+        return {
+          clienteId: c.id,
+          nome: c.nome,
+          telefone: c.telefone,
+          endereco: `${c.endereco}, ${c.numero} (${c.bairroNome})`,
+          vasilhamesPendentes: c.vasilhamesPendentes,
+          pedidosCodigos: pedidosComVale.map((p) => p.codigo),
+          totalPendentes: (c.vasilhamesPendentes?.P13 || 0) + (c.vasilhamesPendentes?.P20L || 0),
+        };
+      });
+
+    res.json({
+      totalClientes: pendentes.length,
+      clientes: pendentes,
+    });
+  });
+
+  // 10.3 LIQUIDAR / DEVOLVER VALE-CASCO DE CLIENTE NA BASE
+  app.post('/api/vasilhames/liquidar-pendencia-cliente', (req, res) => {
+    const { clienteId, tipoVasilhame, quantidade, observacao } = req.body;
+    const cli = clientes.find((c) => c.id === clienteId);
+    if (!cli) return res.status(404).json({ error: 'Cliente não encontrado' });
+
+    const qtd = Number(quantidade) || 1;
+    if (tipoVasilhame === 'P13') {
+      cli.vasilhamesPendentes.P13 = Math.max(0, (cli.vasilhamesPendentes.P13 || 0) - qtd);
+      const prodP13 = produtos.find((p) => p.tipoVasilhame === 'P13');
+      if (prodP13) {
+        registrarMovimentacaoEstoque({
+          produtoId: prodP13.id,
+          tipoMovimentacao: 'ENTRADA',
+          deltaCheio: 0,
+          deltaVazio: qtd,
+          motivo: `Devolução de vale-casco P13 na base pelo cliente ${cli.nome} (${observacao || 'Devolução física'})`,
+        });
+      }
+    } else if (tipoVasilhame === 'P20L') {
+      cli.vasilhamesPendentes.P20L = Math.max(0, (cli.vasilhamesPendentes.P20L || 0) - qtd);
+      const prodP20 = produtos.find((p) => p.tipoVasilhame === 'P20L');
+      if (prodP20) {
+        registrarMovimentacaoEstoque({
+          produtoId: prodP20.id,
+          tipoMovimentacao: 'ENTRADA',
+          deltaCheio: 0,
+          deltaVazio: qtd,
+          motivo: `Devolução de vale-casco 20L na base pelo cliente ${cli.nome} (${observacao || 'Devolução física'})`,
+        });
+      }
+    }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        supabase.from('clientes').update({
+          vasilhames_pendentes: cli.vasilhamesPendentes,
+        }).eq('id', cli.id).then();
+      }
+    } catch(e) {}
+
+    res.json({ sucesso: true, mensagem: `Devolução de ${qtd}x vasilhame ${tipoVasilhame} registrada com sucesso!`, cliente: cli });
   });
 
   // 11. Fechamento e Acerto de Caixa do Entregador
@@ -4029,6 +5373,11 @@ app.use(express.json());
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('Unhandled API Error:', err);
     res.status(500).json({ error: 'Internal Server Error', message: err.message, stack: err.stack });
+  });
+
+  // Fallback 404 para rotas de API não encontradas (impede que o Vite retorne HTML em chamadas /api/*)
+  app.use('/api/*', (req, res) => {
+    res.status(404).json({ error: 'Rota de API não encontrada', path: req.originalUrl });
   });
 
   // --------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { FormaPagamento, Pedido, SyncQueueItem, PagamentoItem } from '../types';
+import { FormaPagamento, Pedido, SyncQueueItem, PagamentoItem, CascoItemRecolhimento } from '../types';
 
 const DB_NAME = 'DiskEntregaOfflineDB';
 const DB_VERSION = 1;
@@ -117,8 +117,9 @@ export async function darBaixaOffline(
     pagamentosRealizados?: PagamentoItem[];
     valorRecebido: number;
     trocoDevolvido: number;
-    vasilhamesRecolhidos: { P13: number; P20L: number };
-    vasilhamesPendentes: { P13: number; P20L: number };
+    vasilhamesRecolhidos: { P13: number; P20L: number; [key: string]: number };
+    vasilhamesPendentes: { P13: number; P20L: number; [key: string]: number };
+    cascosDetalhados?: CascoItemRecolhimento[];
     observacaoEntrega?: string;
     latConfirmacao?: number;
     lngConfirmacao?: number;
@@ -159,9 +160,22 @@ export async function darBaixaOffline(
         pedidoExistente.origemOffline = true;
         pedidoExistente.sincronizado = false;
 
+        if (dados.cascosDetalhados) {
+          pedidoExistente.cascosRecolhidos = dados.cascosDetalhados;
+          pedidoExistente.totalCascosRecolhidos = dados.cascosDetalhados.reduce((acc, c) => acc + (c.quantidadeRecolhida || 0), 0);
+          pedidoExistente.totalCascosPendentes = dados.cascosDetalhados.reduce((acc, c) => acc + (c.quantidadePendente || 0), 0);
+          pedidoExistente.valeCascoGerado = pedidoExistente.totalCascosPendentes > 0;
+        }
+
         // Atualizar vasilhames recolhidos nos itens
         pedidoExistente.itens.forEach((item) => {
-          if (item.tipoVasilhame === 'P13') {
+          if (dados.cascosDetalhados && dados.cascosDetalhados.length > 0) {
+            const matchCasco = dados.cascosDetalhados.find((c) => c.produtoId === item.produtoId || c.itemId === item.id);
+            if (matchCasco) {
+              item.vasilhamesRecolhidosReais = matchCasco.quantidadeRecolhida;
+              item.vasilhamesPendentes = matchCasco.quantidadePendente;
+            }
+          } else if (item.tipoVasilhame === 'P13') {
             item.vasilhamesRecolhidosReais = dados.vasilhamesRecolhidos.P13;
             item.vasilhamesPendentes = dados.vasilhamesPendentes.P13;
           } else if (item.tipoVasilhame === 'P20L') {

@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Entregador, FormaPagamento, NotificacaoPush, PagamentoItem, Pedido, SyncQueueItem, TipoEntrega, Usuario } from '../types';
+import {
+  CascoItemRecolhimento,
+  Entregador,
+  FormaPagamento,
+  NotificacaoPush,
+  PagamentoItem,
+  Pedido,
+  SyncQueueItem,
+  TipoEntrega,
+  Usuario,
+} from '../types';
 import { formatarMoeda, formatarDataHora } from '../lib/thermalPrinter';
+import { ModalBaixaEntrega } from './ModalBaixaEntrega';
 import {
   darBaixaOffline,
   isDeviceOffline,
@@ -97,6 +108,80 @@ export const AppEntregador: React.FC<Props> = ({
   const [pushPopUpAtivo, setPushPopUpAtivo] = useState<NotificacaoPush | null>(null);
   const [modalPushAberto, setModalPushAberto] = useState(false);
   const [somHabilitado, setSomHabilitado] = useState(true);
+
+  // GPS Tracking State
+  const [gpsAtivo, setGpsAtivo] = useState(true);
+  const [coordsGps, setCoordsGps] = useState<{ lat: number; lng: number } | null>({
+    lat: -23.55052,
+    lng: -46.633308,
+  });
+  const [ultimaAtualizacaoGpsStr, setUltimaAtualizacaoGpsStr] = useState<string>('');
+
+  // Auto GPS Tracking Effect
+  useEffect(() => {
+    if (!gpsAtivo || !entregadorAtualId) return;
+
+    const enviarPosicaoGps = async (lat: number, lng: number, velocidade?: number, precisao?: number) => {
+      try {
+        setCoordsGps({ lat, lng });
+        setUltimaAtualizacaoGpsStr(new Date().toLocaleTimeString());
+
+        const pedidoAtivo = pedidosLocais.find((p) => p.status === 'EM_ROTA');
+        const entAtual = entregadores.find((e) => e.id === entregadorAtualId);
+
+        await fetch(`/api/entregadores/${entregadorAtualId}/localizacao`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lat,
+            lng,
+            velocidadeKmh: velocidade !== undefined ? velocidade : (pedidoAtivo ? Math.floor(22 + Math.random() * 14) : 0),
+            bateriaNivel: entAtual?.bateriaNivel ?? 88,
+            precisaoMetros: precisao ?? 8,
+            pedidoIdEmAndamento: pedidoAtivo?.id,
+            pedidoCodigoEmAndamento: pedidoAtivo?.codigo,
+          }),
+        });
+      } catch (e) {
+        console.warn('[GPS Tracking] Erro ao enviar posicao:', e);
+      }
+    };
+
+    let watchId: number | null = null;
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const vel = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : undefined;
+          enviarPosicaoGps(pos.coords.latitude, pos.coords.longitude, vel, pos.coords.accuracy);
+        },
+        (err) => {
+          console.warn('[GPS Geolocation] Fallback devido a erro/iframe:', err.message);
+          // Fallback de simulação suave
+          enviarPosicaoGps(-23.55052 + (Math.random() - 0.5) * 0.005, -46.633308 + (Math.random() - 0.5) * 0.005, 26, 12);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      );
+    }
+
+    const interval = setInterval(() => {
+      // Periodic ping
+      if (coordsGps) {
+        enviarPosicaoGps(
+          coordsGps.lat + (Math.random() - 0.5) * 0.002,
+          coordsGps.lng + (Math.random() - 0.5) * 0.002,
+          Math.floor(20 + Math.random() * 16),
+          6
+        );
+      }
+    }, 12000);
+
+    return () => {
+      if (watchId !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+      clearInterval(interval);
+    };
+  }, [gpsAtivo, entregadorAtualId, pedidosLocais, entregadores]);
 
   // Delivery Confirmation Modal State
   const [pedidoParaBaixa, setPedidoParaBaixa] = useState<Pedido | null>(null);
@@ -305,150 +390,55 @@ export const AppEntregador: React.FC<Props> = ({
   // Abre Modal de Baixa
   const abrirModalBaixa = (pedido: Pedido) => {
     setPedidoParaBaixa(pedido);
-
-    if (pedido.pagamentosPrevistos && pedido.pagamentosPrevistos.length > 0) {
-      setPagamentosBaixa(pedido.pagamentosPrevistos.map((p) => ({ ...p })));
-      setModoMultiploBaixa(pedido.pagamentosPrevistos.length > 1);
-      setFormaPagtoRealizada(pedido.pagamentosPrevistos[0]?.forma || pedido.formaPagamentoPrevista);
-      const primeiroDinheiro = pedido.pagamentosPrevistos.find((p) => p.forma === 'DINHEIRO');
-      setValorRecebido(primeiroDinheiro?.trocoPara || pedido.total);
-    } else {
-      setPagamentosBaixa([
-        {
-          id: 'pg_1',
-          forma: pedido.formaPagamentoPrevista,
-          valor: pedido.total,
-          trocoPara: pedido.trocoPara,
-        },
-      ]);
-      setModoMultiploBaixa(false);
-      setFormaPagtoRealizada(pedido.formaPagamentoPrevista);
-      setValorRecebido(pedido.trocoPara || pedido.total);
-    }
-
-    let p13Esperado = 0;
-    let p20lEsperado = 0;
-    pedido.itens.forEach((it) => {
-      if (it.tipoVasilhame === 'P13' && it.tipoVenda === 'RECARGA') p13Esperado += it.quantidade;
-      if (it.tipoVasilhame === 'P20L' && it.tipoVenda === 'RECARGA') p20lEsperado += it.quantidade;
-    });
-
-    setCascosP13Recolhidos(p13Esperado);
-    setCascosP13Pendentes(0);
-    setCascosP20LRecolhidos(p20lEsperado);
-    setCascosP20LPendentes(0);
-    setObsEntrega('');
   };
 
-  const handleAddPagamentoBaixa = (formaPadrao: FormaPagamento = 'PIX') => {
+  // Confirmação de Baixa com dinâmica completa de recolhimento de cascos
+  const handleConfirmarBaixaModal = async (dados: {
+    formaPagamentoRealizada: FormaPagamento;
+    pagamentosRealizados?: PagamentoItem[];
+    valorRecebido: number;
+    trocoDevolvido: number;
+    vasilhamesRecolhidos: { P13: number; P20L: number; [key: string]: number };
+    vasilhamesPendentes: { P13: number; P20L: number; [key: string]: number };
+    cascosDetalhados: CascoItemRecolhimento[];
+    observacaoEntrega: string;
+    totalAjustado?: number;
+  }) => {
     if (!pedidoParaBaixa) return;
-    const somaAtual = pagamentosBaixa.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
-    const restante = Math.max(0, parseFloat((pedidoParaBaixa.total - somaAtual).toFixed(2)));
-    setPagamentosBaixa((prev) => [
-      ...prev,
-      {
-        id: `pg_bx_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-        forma: formaPadrao,
-        valor: restante,
-        trocoPara: undefined,
-      },
-    ]);
-  };
-
-  const handleRemoverPagamentoBaixa = (index: number) => {
-    if (pagamentosBaixa.length <= 1) return;
-    setPagamentosBaixa((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleAlterarPagamentoBaixa = (
-    index: number,
-    campo: keyof PagamentoItem,
-    valor: any
-  ) => {
-    setPagamentosBaixa((prev) => {
-      const clone = [...prev];
-      clone[index] = { ...clone[index], [campo]: valor };
-      return clone;
-    });
-  };
-
-  const handlePreencherRestanteBaixa = (index: number) => {
-    if (!pedidoParaBaixa) return;
-    const outrosSoma = pagamentosBaixa.reduce(
-      (acc, p, i) => (i === index ? acc : acc + (Number(p.valor) || 0)),
-      0
-    );
-    const restante = Math.max(0, pedidoParaBaixa.total - outrosSoma);
-    handleAlterarPagamentoBaixa(index, 'valor', parseFloat(restante.toFixed(2)));
-  };
-
-  // Confirma Baixa (100% Offline-First)
-  const confirmarBaixa = async () => {
-    if (!pedidoParaBaixa) return;
-
-    let pagamentosRealizadosPayload: PagamentoItem[] | undefined = undefined;
-    let formaRealizadaFinal: FormaPagamento = formaPagtoRealizada;
-    let trocoFinal = 0;
-
-    if (modoMultiploBaixa) {
-      const validos = pagamentosBaixa.filter((p) => Number(p.valor) > 0);
-      if (validos.length === 0) {
-        alert('Informe ao menos uma forma de pagamento com valor!');
-        return;
-      }
-      pagamentosRealizadosPayload = validos.map((p) => ({
-        forma: p.forma,
-        valor: Number(p.valor),
-        trocoPara: p.forma === 'DINHEIRO' && p.trocoPara ? Number(p.trocoPara) : undefined,
-        observacao: p.observacao,
-      }));
-      formaRealizadaFinal = pagamentosRealizadosPayload[0]?.forma || 'DINHEIRO';
-      const dinheiroItem = pagamentosRealizadosPayload.find((p) => p.forma === 'DINHEIRO');
-      if (dinheiroItem && dinheiroItem.trocoPara) {
-        trocoFinal = Math.max(0, dinheiroItem.trocoPara - dinheiroItem.valor);
-      }
-    } else {
-      formaRealizadaFinal = formaPagtoRealizada;
-      trocoFinal = formaPagtoRealizada === 'DINHEIRO' ? Math.max(0, (Number(valorRecebido) || 0) - pedidoParaBaixa.total) : 0;
-      pagamentosRealizadosPayload = [
-        {
-          forma: formaPagtoRealizada,
-          valor: pedidoParaBaixa.total,
-          trocoPara: formaPagtoRealizada === 'DINHEIRO' && valorRecebido > pedidoParaBaixa.total ? Number(valorRecebido) : undefined,
-        },
-      ];
-    }
 
     try {
       const { sincronizadoImediato } = await darBaixaOffline(pedidoParaBaixa.id, entregadorAtualId, {
-        formaPagamentoRealizada: formaRealizadaFinal,
-        pagamentosRealizados: pagamentosRealizadosPayload,
-        valorRecebido: Number(valorRecebido) || pedidoParaBaixa.total,
-        trocoDevolvido: trocoFinal,
-        vasilhamesRecolhidos: {
-          P13: cascosP13Recolhidos,
-          P20L: cascosP20LRecolhidos,
-        },
-        vasilhamesPendentes: {
-          P13: cascosP13Pendentes,
-          P20L: cascosP20LPendentes,
-        },
-        observacaoEntrega: obsEntrega,
+        formaPagamentoRealizada: dados.formaPagamentoRealizada,
+        pagamentosRealizados: dados.pagamentosRealizados,
+        valorRecebido: dados.valorRecebido,
+        trocoDevolvido: dados.trocoDevolvido,
+        vasilhamesRecolhidos: dados.vasilhamesRecolhidos,
+        vasilhamesPendentes: dados.vasilhamesPendentes,
+        cascosDetalhados: dados.cascosDetalhados,
+        observacaoEntrega: dados.observacaoEntrega,
       });
+
+      const codPedido = pedidoParaBaixa.codigo;
+      const totalRecolhidos = dados.cascosDetalhados.reduce((acc, c) => acc + c.quantidadeRecolhida, 0);
+      const totalPendentes = dados.cascosDetalhados.reduce((acc, c) => acc + c.quantidadePendente, 0);
 
       setPedidoParaBaixa(null);
       await carregarDadosDoIndexedDB();
       if (onPedidoAtualizadoNoServidor) onPedidoAtualizadoNoServidor();
 
+      let resumoCascos = '';
+      if (totalRecolhidos > 0) resumoCascos += ` (${totalRecolhidos} casco(s) recolhido(s))`;
+      if (totalPendentes > 0) resumoCascos += ` [⚠️ ${totalPendentes} Vale-Casco pendente gerado]`;
+
       if (sincronizadoImediato) {
         setNotificacao({
           tipo: 'sucesso',
-          texto: `Pedido ${pedidoParaBaixa.codigo} entregue e sincronizado imediatamente com o servidor!`,
+          texto: `Pedido ${codPedido} entregue e sincronizado com o servidor!${resumoCascos}`,
         });
       } else {
         setNotificacao({
           tipo: 'info',
-          texto: `Pedido ${pedidoParaBaixa.codigo} gravado OFFLINE no celular (IndexedDB)! Sincronizará quando houver conexão.`,
+          texto: `Pedido ${codPedido} gravado OFFLINE no celular (IndexedDB)!${resumoCascos}`,
         });
       }
     } catch (e: any) {
@@ -966,6 +956,24 @@ export const AppEntregador: React.FC<Props> = ({
                       <span>Data: {formatarDataHora(pedido.entregueEm || pedido.criadoEm)}</span>
                       <span>Itens: {pedido.itens.map((it) => `${it.quantidade}x ${it.nomeProduto}`).join(', ')}</span>
                     </div>
+
+                    {/* Resumo de Cascos Recolhidos do Pedido */}
+                    {pedido.cascosRecolhidos && pedido.cascosRecolhidos.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                        {pedido.cascosRecolhidos.map((c, cIdx) => (
+                          <span
+                            key={cIdx}
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-1 ${
+                              c.quantidadeRecolhida > 0
+                                ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/80'
+                                : 'bg-amber-950/60 text-amber-300 border border-amber-800/80'
+                            }`}
+                          >
+                            📦 {c.quantidadeRecolhida}x {c.nomeCasco} {c.quantidadePendente > 0 ? `(⚠️ ${c.quantidadePendente} pendente)` : '✓'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               )
@@ -1067,329 +1075,15 @@ export const AppEntregador: React.FC<Props> = ({
       
 
       {/* ---------------------------------------------------------------------- */}
-      {/* MODAL DE BAIXA OFFLINE                                                 */}
+      {/* MODAL DE BAIXA E RECOLHIMENTO DE CASCOS                               */}
       {/* ---------------------------------------------------------------------- */}
-      {pedidoParaBaixa && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 z-50 animate-fade-in">
-          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-4 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-200">
-              <div>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                  CONFIRMAÇÃO DE ENTREGA
-                </span>
-                <h3 className="font-black text-slate-900 text-base mt-0.5">
-                  Baixa do Pedido {pedidoParaBaixa.codigo}
-                </h3>
-              </div>
-              <button onClick={() => setPedidoParaBaixa(null)} className="text-slate-400 hover:text-slate-700">
-                ✕
-              </button>
-            </div>
-
-            {/* Customer info */}
-            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
-              <div className="font-bold text-slate-900">{pedidoParaBaixa.cliente.nome}</div>
-              <div className="text-slate-600">
-                {pedidoParaBaixa.cliente.endereco}, {pedidoParaBaixa.cliente.numero} - {pedidoParaBaixa.cliente.bairroNome}
-              </div>
-              <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-                <span className="font-bold text-slate-700">Total a Cobrar:</span>
-                <span className="font-black text-emerald-700 text-sm">{formatarMoeda(pedidoParaBaixa.total)}</span>
-              </div>
-            </div>
-
-            {/* Payment Method Selector (Single vs Multiple / Split) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Coins className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Forma de Pagamento no Ato:</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const novoModo = !modoMultiploBaixa;
-                    setModoMultiploBaixa(novoModo);
-                    if (novoModo && pagamentosBaixa.length === 0) {
-                      setPagamentosBaixa([
-                        { id: 'pg_bx_1', forma: formaPagtoRealizada, valor: pedidoParaBaixa.total },
-                      ]);
-                    }
-                  }}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors ${
-                    modoMultiploBaixa
-                      ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                  }`}
-                >
-                  <Split className="w-3 h-3" />
-                  <span>{modoMultiploBaixa ? '✓ Múltiplas Formas' : '+ Dividir / Alterar'}</span>
-                </button>
-              </div>
-
-              {!modoMultiploBaixa ? (
-                /* Modo Pagamento Único */
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-1">
-                    {(
-                      [
-                        ['DINHEIRO', 'Dinheiro'],
-                        ['PIX', 'Pix'],
-                        ['CARTAO_DEBITO', 'Débito'],
-                        ['CARTAO_CREDITO', 'Crédito'],
-                        ['A_PRAZO_FIADO', 'Fiado'],
-                      ] as const
-                    ).map(([tipo, label]) => (
-                      <button
-                        key={tipo}
-                        type="button"
-                        onClick={() => {
-                          setFormaPagtoRealizada(tipo);
-                          setPagamentosBaixa([
-                            { id: 'pg_bx_1', forma: tipo, valor: pedidoParaBaixa.total },
-                          ]);
-                        }}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all ${
-                          formaPagtoRealizada === tipo
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {formaPagtoRealizada === 'DINHEIRO' && (
-                    <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 space-y-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-amber-900">Valor Recebido do Cliente:</span>
-                        <div className="flex items-center gap-1">
-                          <span className="font-bold text-amber-800">R$</span>
-                          <input
-                            type="number"
-                            value={valorRecebido || ''}
-                            onChange={(e) => setValorRecebido(Number(e.target.value))}
-                            className="w-24 px-2 py-1 rounded bg-[#eaecf0] border border-amber-300 font-black text-right text-slate-900 text-xs"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between font-bold text-amber-900 pt-1 border-t border-amber-200">
-                        <span>Troco a Devolver:</span>
-                        <span className="text-sm font-black text-amber-800 font-mono">
-                          {formatarMoeda(Math.max(0, valorRecebido - pedidoParaBaixa.total))}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* Modo Múltiplas Formas / Dividido */
-                <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 space-y-2 text-xs">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-purple-900">
-                    <span>Valores Recebidos:</span>
-                    <span className="font-mono">Total: {formatarMoeda(pedidoParaBaixa.total)}</span>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    {pagamentosBaixa.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="p-2 rounded-lg bg-white border border-purple-200 shadow-2xs space-y-1.5"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={item.forma}
-                            onChange={(e) =>
-                              handleAlterarPagamentoBaixa(idx, 'forma', e.target.value as FormaPagamento)
-                            }
-                            className="px-2 py-1 rounded border border-slate-300 text-xs font-bold bg-[#eaecf0] text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500 shrink-0"
-                          >
-                            <option value="DINHEIRO">Dinheiro</option>
-                            <option value="PIX">Pix</option>
-                            <option value="CARTAO_DEBITO">Débito</option>
-                            <option value="CARTAO_CREDITO">Crédito</option>
-                            <option value="A_PRAZO_FIADO">Fiado</option>
-                          </select>
-
-                          <div className="relative flex-1">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px]">
-                              R$
-                            </span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={item.valor || ''}
-                              onChange={(e) =>
-                                handleAlterarPagamentoBaixa(
-                                  idx,
-                                  'valor',
-                                  parseFloat(e.target.value) || 0
-                                )
-                              }
-                              placeholder="0,00"
-                              className="w-full pl-7 pr-2 py-1 rounded border border-slate-300 text-xs font-mono font-bold bg-[#eaecf0] text-slate-900 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                            />
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handlePreencherRestanteBaixa(idx)}
-                            className="px-2 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-900 text-[10px] font-bold border border-purple-300 shrink-0 transition-colors"
-                          >
-                            Completar
-                          </button>
-
-                          {pagamentosBaixa.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoverPagamentoBaixa(idx)}
-                              className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-
-                        {item.forma === 'DINHEIRO' && (
-                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[10px]">
-                            <span className="text-slate-600 font-medium">Nota recebida (Troco):</span>
-                            <div className="flex items-center gap-1">
-                              <span className="font-bold text-slate-500">R$</span>
-                              <input
-                                type="number"
-                                value={item.trocoPara || ''}
-                                onChange={(e) =>
-                                  handleAlterarPagamentoBaixa(
-                                    idx,
-                                    'trocoPara',
-                                    e.target.value ? Number(e.target.value) : undefined
-                                  )
-                                }
-                                placeholder="0,00"
-                                className="w-16 px-1.5 py-0.5 rounded border border-slate-300 text-[10px] font-bold bg-[#eaecf0]"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleAddPagamentoBaixa('PIX')}
-                      className="flex items-center gap-1 text-[10px] font-bold text-purple-700 hover:text-purple-900 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>Adicionar outra forma</span>
-                    </button>
-
-                    {/* Status de Cobertura */}
-                    {(() => {
-                      const soma = pagamentosBaixa.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
-                      const dif = pedidoParaBaixa.total - soma;
-                      return (
-                        <div className="text-[10px] font-bold font-mono">
-                          {Math.abs(dif) < 0.01 ? (
-                            <span className="text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              100% Cobrado ({formatarMoeda(soma)})
-                            </span>
-                          ) : dif > 0 ? (
-                            <span className="text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
-                              Falta {formatarMoeda(dif)}
-                            </span>
-                          ) : (
-                            <span className="text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
-                              Excesso {formatarMoeda(Math.abs(dif))}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Vasilhames recolhidos vs pendentes */}
-            <div className="space-y-2 text-xs">
-              <span className="font-bold text-slate-800">Controle de Vasilhames / Cascos:</span>
-
-              <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-slate-700">Casco Botijão P13:</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500">Recolhido:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={cascosP13Recolhidos}
-                      onChange={(e) => setCascosP13Recolhidos(Number(e.target.value))}
-                      className="w-12 px-1.5 py-0.5 rounded border border-slate-300 text-center font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-slate-700">Casco Galão Água 20L:</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500">Recolhido:</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={cascosP20LRecolhidos}
-                      onChange={(e) => setCascosP20LRecolhidos(Number(e.target.value))}
-                      className="w-12 px-1.5 py-0.5 rounded border border-slate-300 text-center font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Delivery Note */}
-            <div className="space-y-1 text-xs">
-              <label className="font-bold text-slate-800">Observação da Entrega (Opcional):</label>
-              <input
-                type="text"
-                placeholder="Ex: Deixado na portaria, recebido pela esposa..."
-                value={obsEntrega}
-                onChange={(e) => setObsEntrega(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs"
-              />
-            </div>
-
-            {/* Confirm Actions */}
-            <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setPedidoParaBaixa(null)}
-                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 font-bold rounded-lg text-xs text-slate-700"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={confirmarBaixa}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs shadow-md transition-all"
-              >
-                ✓ CONFIRMAR BAIXA
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Devolver Pedido para Correção pelo Emitente */}
-      <ModalDevolverPedido
-        pedido={pedidoParaDevolucao}
-        isOpen={Boolean(pedidoParaDevolucao)}
-        onClose={() => setPedidoParaDevolucao(null)}
-        onConfirmarDevolucao={handleConfirmarDevolucao}
-        nomeEntregador={entregadorAtual?.nome || 'Entregador'}
+      <ModalBaixaEntrega
+        pedido={pedidoParaBaixa}
+        isOpen={Boolean(pedidoParaBaixa)}
+        onClose={() => setPedidoParaBaixa(null)}
+        onConfirmarBaixa={handleConfirmarBaixaModal}
+        nomeOperadorOuEntregador={entregadorAtual?.nome || 'Entregador'}
+        isOffline={isOffline}
       />
     </div>
   );

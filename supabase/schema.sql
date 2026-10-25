@@ -251,6 +251,25 @@ CREATE TABLE IF NOT EXISTS delivery.fechamentos_caixa (
     criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2.11 HISTÓRICO DE LOCALIZAÇÕES (RASTREAMENTO GPS / TELEMETRIA)
+CREATE TABLE IF NOT EXISTS delivery.historico_localizacoes (
+    id VARCHAR(50) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    empresa_id VARCHAR(36) REFERENCES delivery.empresas(id) ON DELETE CASCADE,
+    entregador_id VARCHAR(36) REFERENCES delivery.entregadores(id) ON DELETE CASCADE,
+    entregador_nome VARCHAR(150),
+    lat NUMERIC(10,7) NOT NULL,
+    lng NUMERIC(10,7) NOT NULL,
+    velocidade_kmh NUMERIC(5,2),
+    bateria_nivel INT,
+    precisao_metros NUMERIC(6,2),
+    pedido_id_em_andamento VARCHAR(36),
+    pedido_codigo_em_andamento VARCHAR(50),
+    status_entregador VARCHAR(20) DEFAULT 'EM_ROTA',
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hist_loc_entregador_data ON delivery.historico_localizacoes(entregador_id, timestamp DESC);
+
 -- 3. REAPLICAÇÃO DE GRANTS APÓS CRIAÇÃO DAS TABELAS
 GRANT ALL ON ALL TABLES IN SCHEMA delivery TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA delivery TO anon, authenticated, service_role;

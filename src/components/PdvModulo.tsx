@@ -50,7 +50,6 @@ import {
   Pencil,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
-import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
 import {
   apenasDigitos,
@@ -739,27 +738,13 @@ export const PdvModulo: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Header com Botão de Menus Integrado */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="1"
-        moduloCor="bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"
-        titulo="PDV Express • Entrada de Pedidos"
-        subtitulo="Busca por telefone com auto-preenchimento, taxa de entrega por bairro e separação de recarga vs vasilhame."
-      >
-        {sucessoFeedback && (
-          <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 rounded-xl text-xs font-bold animate-fade-in shadow-xs">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>{sucessoFeedback}</span>
-          </div>
-        )}
-      </ModuloHeader>
+      {/* Alerta de Sucesso / Feedback de Pedido */}
+      {sucessoFeedback && (
+        <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-3.5 py-2 rounded-xl text-xs font-bold animate-fade-in shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span>{sucessoFeedback}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Client Identification & Catalog (7 cols) */}

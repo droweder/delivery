@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Entregador, FechamentoCaixaEntregador, Pedido, Usuario } from '../types';
+import { Entregador, FechamentoCaixaEntregador, Pedido, TurnoEntregador, Usuario, Veiculo } from '../types';
 import { formatarMoeda, formatarDataHora } from '../lib/thermalPrinter';
 import {
   DollarSign,
@@ -15,13 +15,19 @@ import {
   History,
   Clock,
   ChevronRight,
+  PlayCircle,
+  Gauge,
+  Bike,
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { AberturaTurnoModal } from './AberturaTurnoModal';
 
 interface Props {
   pedidos: Pedido[];
   entregadores: Entregador[];
+  veiculos?: Veiculo[];
+  turnos?: TurnoEntregador[];
   usuarioLogado?: Usuario | null;
   activeTab?: MainTab;
   setActiveTab?: (tab: MainTab) => void;
@@ -30,11 +36,15 @@ interface Props {
   pedidosEmRotaCount?: number;
   pedidosEntreguesCount?: number;
   onAcertoConcluido: () => void;
+  onTurnoIniciado?: (turno?: TurnoEntregador) => void;
+  onTurnoFechado?: (turno?: TurnoEntregador) => void;
 }
 
 export const AcertoCaixa: React.FC<Props> = ({
   pedidos,
   entregadores,
+  veiculos = [],
+  turnos = [],
   usuarioLogado,
   activeTab = 'acerto',
   setActiveTab = () => {},
@@ -43,9 +53,12 @@ export const AcertoCaixa: React.FC<Props> = ({
   pedidosEmRotaCount = 0,
   pedidosEntreguesCount = 0,
   onAcertoConcluido,
+  onTurnoIniciado = (_turno?: TurnoEntregador) => {},
+  onTurnoFechado = (_turno?: TurnoEntregador) => {},
 }) => {
   const [entregadorId, setEntregadorId] = useState<string>(entregadores[0]?.id || 'e1');
   const [dinheiroContado, setDinheiroContado] = useState<string>('');
+  const [kmFinalInput, setKmFinalInput] = useState<string>('');
   const [cascosP13Contados, setCascosP13Contados] = useState<string>('');
   const [cascosP20LContados, setCascosP20LContados] = useState<string>('');
   const [observacoesFechamento, setObservacoesFechamento] = useState('');
@@ -53,6 +66,7 @@ export const AcertoCaixa: React.FC<Props> = ({
   const [ultimoFechamento, setUltimoFechamento] = useState<FechamentoCaixaEntregador | null>(null);
   const [historicoFechamentos, setHistoricoFechamentos] = useState<FechamentoCaixaEntregador[]>([]);
   const [visualizarHistorico, setVisualizarHistorico] = useState(false);
+  const [modalAberturaTurno, setModalAberturaTurno] = useState(false);
 
   const entregadorSelecionado = entregadores.find((e) => e.id === entregadorId) || entregadores[0];
 
@@ -111,32 +125,61 @@ export const AcertoCaixa: React.FC<Props> = ({
   const valorInformadoNum = Number(dinheiroContado) || 0;
   const diferencaDinheiro = valorInformadoNum - totalDinheiroEsperado;
 
+  // Turno ativo do entregador selecionado
+  const turnoAtivo = turnos.find(
+    (t) => t.entregadorId === entregadorId && t.status === 'EM_ANDAMENTO'
+  );
+
   const handleFecharCaixa = async () => {
-    if (pedidosParaAcerto.length === 0) {
-      alert('Não há pedidos com status "Entregue" para este entregador acertar no momento.');
+    if (pedidosParaAcerto.length === 0 && !turnoAtivo) {
+      alert('Não há entregas nem turno ativo pendente para este entregador acertar.');
       return;
     }
 
     setFechando(true);
     try {
-      const res = await fetch('/api/acerto/fechamento', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entregadorId,
-          pedidosIds: pedidosParaAcerto.map((p) => p.id),
-          totalDinheiroInformado: valorInformadoNum,
-          cascosP13Recolhidos: cascosP13Contados ? Number(cascosP13Contados) : totalCascosP13Calculados,
-          cascosP20LRecolhidos: cascosP20LContados ? Number(cascosP20LContados) : totalCascosP20LCalculados,
-          observacoes: observacoesFechamento,
-        }),
-      });
+      // 1. Processa acerto de caixa de pedidos
+      if (pedidosParaAcerto.length > 0) {
+        const res = await fetch('/api/acerto/fechamento', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entregadorId,
+            pedidosIds: pedidosParaAcerto.map((p) => p.id),
+            totalDinheiroInformado: valorInformadoNum,
+            cascosP13Recolhidos: cascosP13Contados ? Number(cascosP13Contados) : totalCascosP13Calculados,
+            cascosP20LRecolhidos: cascosP20LContados ? Number(cascosP20LContados) : totalCascosP20LCalculados,
+            observacoes: observacoesFechamento,
+          }),
+        });
 
-      if (!res.ok) throw new Error('Falha ao processar fechamento');
-      const data = await res.json();
+        if (!res.ok) throw new Error('Falha ao processar fechamento do caixa');
+        const data = await res.json();
+        setUltimoFechamento(data.fechamento);
+      }
 
-      setUltimoFechamento(data.fechamento);
+      // 2. Se houver turno ativo, encerra o turno e devolve veículo com kmFinal
+      if (turnoAtivo) {
+        const kmFinalNum = kmFinalInput ? Number(kmFinalInput) : turnoAtivo.kmInicial;
+        const resTurno = await fetch('/api/turnos/fechar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            turnoId: turnoAtivo.id,
+            kmFinal: kmFinalNum,
+            totalDinheiroInformado: valorInformadoNum,
+            observacoes: observacoesFechamento,
+          }),
+        });
+
+        if (resTurno.ok) {
+          const dataTurno = await resTurno.json();
+          onTurnoFechado?.(dataTurno.turno);
+        }
+      }
+
       setDinheiroContado('');
+      setKmFinalInput('');
       setCascosP13Contados('');
       setCascosP20LContados('');
       setObservacoesFechamento('');
@@ -165,6 +208,14 @@ export const AcertoCaixa: React.FC<Props> = ({
         subtitulo="Conferência de valores recebidos (Dinheiro físico, PIX, Cartão) e recolhimento de vasilhames vazios no final do turno."
       >
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setModalAberturaTurno(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs"
+          >
+            <PlayCircle className="w-3.5 h-3.5" />
+            <span>Iniciar Turno de Entregador</span>
+          </button>
+
           <button
             onClick={() => setVisualizarHistorico(!visualizarHistorico)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-xs ${
@@ -380,6 +431,58 @@ export const AcertoCaixa: React.FC<Props> = ({
               </div>
             </div>
 
+            {/* Active Shift Info & Vehicle Return Box */}
+            {turnoAtivo ? (
+              <div className="p-3 rounded-xl bg-blue-50/90 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                    <Bike className="w-4 h-4 text-blue-600" />
+                    Turno Ativo • {turnoAtivo.veiculoModelo} ({turnoAtivo.veiculoPlaca})
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px] flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    Em Uso
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700 dark:text-slate-300">
+                  <div>
+                    <span className="text-slate-500">Troco Inicial:</span>{' '}
+                    <strong className="text-emerald-600">{formatarMoeda(turnoAtivo.trocoInicial)}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">KM Inicial:</span>{' '}
+                    <strong className="font-mono">{turnoAtivo.kmInicial} km</strong>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-blue-200 dark:border-blue-800">
+                  <label className="block font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-1">
+                    <Gauge className="w-3.5 h-3.5 text-blue-600" />
+                    Odômetro na Devolução (KM Final):
+                  </label>
+                  <input
+                    type="number"
+                    min={turnoAtivo.kmInicial}
+                    value={kmFinalInput}
+                    onChange={(e) => setKmFinalInput(e.target.value)}
+                    placeholder={`Ex: ${turnoAtivo.kmInicial + 15}`}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                <span className="text-slate-600 dark:text-slate-400 font-medium">Nenhum turno aberto para este entregador.</span>
+                <button
+                  type="button"
+                  onClick={() => setModalAberturaTurno(true)}
+                  className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px]"
+                >
+                  Abrir Turno
+                </button>
+              </div>
+            )}
+
             {/* Operator physical counting inputs */}
             <div className="space-y-2 text-xs">
               <div>
@@ -497,6 +600,17 @@ export const AcertoCaixa: React.FC<Props> = ({
         </div>
       </div>
       )}
+      {/* Modal Abertura de Turno */}
+      <AberturaTurnoModal
+        isOpen={modalAberturaTurno}
+        onClose={() => setModalAberturaTurno(false)}
+        entregadores={entregadores}
+        veiculos={veiculos}
+        onTurnoIniciado={(t) => {
+          onTurnoIniciado?.(t);
+          setModalAberturaTurno(false);
+        }}
+      />
     </div>
   );
 };

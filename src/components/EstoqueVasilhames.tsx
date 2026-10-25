@@ -58,7 +58,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
   const [ajustandoId, setAjustandoId] = useState<string | null>(null);
   const [modalImportar, setModalImportar] = useState(false);
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
-  const [subTab, setSubTab] = useState<'catalogo' | 'historico'>('catalogo');
+  const [subTab, setSubTab] = useState<'catalogo' | 'historico' | 'pendencias'>('catalogo');
   const [buscaEstoque, setBuscaEstoque] = useState('');
   const [categoriaFiltro, setCategoriaFiltro] = useState<'TODOS' | 'GAS' | 'AGUA' | 'BEBIDAS' | 'CONVENIENCIA'>('TODOS');
 
@@ -66,6 +66,16 @@ export const EstoqueVasilhames: React.FC<Props> = ({
   const [movimentacoes, setMovimentacoes] = useState<MovimentacaoEstoque[]>([]);
   const [carregandoMovs, setCarregandoMovs] = useState(false);
   const [filtroTipoMov, setFiltroTipoMov] = useState<string>('TODOS');
+
+  // Vales-Casco / Pendências com Clientes State
+  const [pendenciasClientes, setPendenciasClientes] = useState<any[]>([]);
+  const [carregandoPendencias, setCarregandoPendencias] = useState(false);
+  const [buscaPendencia, setBuscaPendencia] = useState('');
+  const [modalLiquidarAberto, setModalLiquidarAberto] = useState(false);
+  const [pendenciaSelecionada, setPendenciaSelecionada] = useState<any | null>(null);
+  const [qtdLiquidar, setQtdLiquidar] = useState(1);
+  const [motivoLiquidar, setMotivoLiquidar] = useState('');
+  const [salvandoLiquidacao, setSalvandoLiquidacao] = useState(false);
 
   // Form State para Novo Ajuste / Entrada
   const [formProdutoId, setFormProdutoId] = useState<string>(produtos[0]?.id || '');
@@ -105,10 +115,60 @@ export const EstoqueVasilhames: React.FC<Props> = ({
     }
   };
 
+  const carregarPendencias = async () => {
+    setCarregandoPendencias(true);
+    try {
+      const res = await fetch('/api/vasilhames/pendencias-clientes');
+      if (res.ok) {
+        const data = await res.json();
+        setPendenciasClientes(data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCarregandoPendencias(false);
+    }
+  };
+
   useEffect(() => {
     carregarBalanco();
     carregarMovimentacoes();
+    carregarPendencias();
   }, [produtos]);
+
+  const handleLiquidarPendencia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendenciaSelecionada) return;
+
+    setSalvandoLiquidacao(true);
+    try {
+      const res = await fetch('/api/vasilhames/liquidar-pendencia-cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clienteId: pendenciaSelecionada.clienteId,
+          tipoVasilhame: pendenciaSelecionada.tipoVasilhame,
+          quantidadeDevolvida: qtdLiquidar,
+          motivo: motivoLiquidar || 'Devolução física de casco na base / portaria',
+          usuarioResponsavel: usuarioLogado?.nome || 'Operador de Base',
+        }),
+      });
+
+      if (res.ok) {
+        setModalLiquidarAberto(false);
+        setPendenciaSelecionada(null);
+        setMotivoLiquidar('');
+        onEstoqueAtualizado();
+        await carregarBalanco();
+        await carregarMovimentacoes();
+        await carregarPendencias();
+      }
+    } catch (err) {
+      console.error('Erro ao liquidar pendência:', err);
+    } finally {
+      setSalvandoLiquidacao(false);
+    }
+  };
 
   const handleSalvarAjuste = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,6 +436,18 @@ export const EstoqueVasilhames: React.FC<Props> = ({
         >
           <History className="w-3.5 h-3.5" />
           <span>Livro-Razão & Movimentações ({movimentacoes.length})</span>
+        </button>
+
+        <button
+          onClick={() => setSubTab('pendencias')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 transition-all ${
+            subTab === 'pendencias'
+              ? 'border-amber-600 text-amber-800 dark:text-amber-400 bg-amber-50/50'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <ClipboardList className="w-3.5 h-3.5" />
+          <span>Vales-Casco & Pendências ({pendenciasClientes.length})</span>
         </button>
       </div>
 
@@ -675,6 +747,272 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                   })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 3: Vales-Casco & Vasilhames Pendentes com Clientes */}
+      {subTab === 'pendencias' && (
+        <div className="bg-[#eaecf0] p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
+            <div>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-rose-600" />
+                <h3 className="font-black text-slate-900 text-xs sm:text-sm">
+                  Vales-Casco & Vasilhames Retornáveis em Poder de Clientes
+                </h3>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Acompanhe clientes que não entregaram o vasilhame na baixa da entrega (vale-casco / débito em ficha) e liquide quando devolverem na base.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={carregarPendencias}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${carregandoPendencias ? 'animate-spin' : ''}`} />
+                <span>Atualizar Ficha</span>
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 bg-rose-50/70 rounded-xl border border-rose-200/60">
+              <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wide block">Clientes c/ Casco</span>
+              <span className="text-xl font-black text-rose-900 font-mono">
+                {new Set(pendenciasClientes.map(p => p.clienteId)).size}
+              </span>
+            </div>
+            <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200/60">
+              <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wide block">Botijões P13 Pendentes</span>
+              <span className="text-xl font-black text-amber-900 font-mono">
+                {pendenciasClientes.filter(p => p.tipoVasilhame === 'P13').reduce((acc, curr) => acc + (curr.quantidadePendente || 0), 0)}
+              </span>
+            </div>
+            <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200/60">
+              <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide block">Galões 20L Pendentes</span>
+              <span className="text-xl font-black text-blue-900 font-mono">
+                {pendenciasClientes.filter(p => p.tipoVasilhame === 'P20L').reduce((acc, curr) => acc + (curr.quantidadePendente || 0), 0)}
+              </span>
+            </div>
+            <div className="p-3 bg-slate-100/70 rounded-xl border border-slate-200/60">
+              <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wide block">Total de Cascos</span>
+              <span className="text-xl font-black text-slate-800 font-mono">
+                {pendenciasClientes.reduce((acc, curr) => acc + (curr.quantidadePendente || 0), 0)}
+              </span>
+            </div>
+          </div>
+
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={buscaPendencia}
+              onChange={(e) => setBuscaPendencia(e.target.value)}
+              placeholder="Buscar cliente por nome, telefone ou tipo de vasilhame..."
+              className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus:bg-[#eaecf0] focus:ring-2 focus:ring-rose-500 focus:outline-hidden text-xs text-slate-800 font-medium"
+            />
+            {buscaPendencia && (
+              <button
+                onClick={() => setBuscaPendencia('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Table / List */}
+          {pendenciasClientes.length === 0 ? (
+            <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200/60 space-y-2">
+              <ShieldCheck className="w-8 h-8 text-emerald-500 mx-auto" />
+              <div className="font-bold text-slate-800 text-sm">Nenhum vale-casco pendente com clientes</div>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Todos os pedidos entregues tiveram seus cascos recolhidos em 100% ou não possuem vasilhames retornáveis pendentes no momento.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
+                    <th className="p-2.5">Cliente</th>
+                    <th className="p-2.5">Tipo de Casco</th>
+                    <th className="p-2.5 text-center">Qtd. Pendente</th>
+                    <th className="p-2.5">Pedidos / Origem</th>
+                    <th className="p-2.5">Última Ocorrência</th>
+                    <th className="p-2.5 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
+                  {pendenciasClientes
+                    .filter((p) => {
+                      if (!buscaPendencia.trim()) return true;
+                      const q = buscaPendencia.toLowerCase().trim();
+                      return (
+                        p.clienteNome.toLowerCase().includes(q) ||
+                        (p.telefone || '').includes(q) ||
+                        p.tipoVasilhame.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((pend, idx) => (
+                      <tr key={`${pend.clienteId}-${pend.tipoVasilhame}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="p-2.5">
+                          <div className="font-bold text-slate-900 text-xs">{pend.clienteNome}</div>
+                          {pend.telefone && (
+                            <div className="text-[10px] text-slate-500 font-mono">{pend.telefone}</div>
+                          )}
+                          {pend.endereco && (
+                            <div className="text-[10px] text-slate-400 truncate max-w-xs">{pend.endereco}</div>
+                          )}
+                        </td>
+                        <td className="p-2.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-black text-[11px] ${
+                              pend.tipoVasilhame === 'P13'
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : pend.tipoVasilhame === 'P20L'
+                                ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                : 'bg-slate-100 text-slate-800 border border-slate-300'
+                            }`}
+                          >
+                            {pend.tipoVasilhame === 'P13' ? (
+                              <Flame className="w-3 h-3 text-amber-600" />
+                            ) : (
+                              <Droplet className="w-3 h-3 text-blue-600" />
+                            )}
+                            {pend.tipoVasilhame === 'P13'
+                              ? 'Botijão P13'
+                              : pend.tipoVasilhame === 'P20L'
+                              ? 'Galão Água 20L'
+                              : `Vasilhame ${pend.tipoVasilhame}`}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-center">
+                          <span className="inline-flex items-center justify-center min-w-7 px-2 py-0.5 rounded-md font-mono font-black text-xs bg-rose-100 text-rose-800 border border-rose-300">
+                            {pend.quantidadePendente} un
+                          </span>
+                        </td>
+                        <td className="p-2.5">
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {pend.pedidosAfetados && pend.pedidosAfetados.length > 0 ? (
+                              pend.pedidosAfetados.map((num: string, pIdx: number) => (
+                                <span key={pIdx} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold">
+                                  #{num}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-slate-400 text-[10px]">Histórico PDV</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2.5 text-slate-500 font-mono text-[10px]">
+                          {pend.dataUltimaOcorrencia ? formatarDataHora(pend.dataUltimaOcorrencia) : '-'}
+                        </td>
+                        <td className="p-2.5 text-right">
+                          <button
+                            onClick={() => {
+                              setPendenciaSelecionada(pend);
+                              setQtdLiquidar(pend.quantidadePendente || 1);
+                              setMotivoLiquidar(`Devolução de vale-casco na base - Cliente: ${pend.clienteNome}`);
+                              setModalLiquidarAberto(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs transition-colors"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Receber na Base</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal de Liquidação / Recebimento de Casco na Base */}
+      {modalLiquidarAberto && pendenciaSelecionada && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-[#eaecf0] rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-emerald-800 font-black text-sm">
+                <Warehouse className="w-4 h-4 text-emerald-600" />
+                <span>Receber Devolução de Casco na Base</span>
+              </div>
+              <button
+                onClick={() => setModalLiquidarAberto(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1">
+              <div className="font-bold text-emerald-900">
+                Cliente: <span className="font-normal">{pendenciaSelecionada.clienteNome}</span>
+              </div>
+              <div className="text-emerald-800">
+                Tipo: <strong>{pendenciaSelecionada.tipoVasilhame}</strong> | Saldo Pendente:{' '}
+                <strong className="text-rose-700">{pendenciaSelecionada.quantidadePendente} un</strong>
+              </div>
+              <p className="text-[11px] text-emerald-700 pt-1">
+                Ao confirmar, o estoque físico de <strong>vazios na base</strong> aumentará automaticamente e o débito na ficha do cliente será abatido.
+              </p>
+            </div>
+
+            <form onSubmit={handleLiquidarPendencia} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Quantidade Devolvida Física (unidades):
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={pendenciaSelecionada.quantidadePendente}
+                  value={qtdLiquidar}
+                  onChange={(e) => setQtdLiquidar(Math.min(pendenciaSelecionada.quantidadePendente, Math.max(1, Number(e.target.value) || 1)))}
+                  className="w-full p-2.5 rounded-lg border border-emerald-300 font-mono font-black text-base text-emerald-900 bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Motivo / Observação da Devolução:
+                </label>
+                <input
+                  type="text"
+                  value={motivoLiquidar}
+                  onChange={(e) => setMotivoLiquidar(e.target.value)}
+                  placeholder="Ex: Entregue no balcão da distribuidora pelo cliente"
+                  className="w-full p-2 rounded-lg border border-slate-300 bg-white"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalLiquidarAberto(false)}
+                  className="px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoLiquidacao}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{salvandoLiquidacao ? 'Registrando...' : 'Confirmar Devolução'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

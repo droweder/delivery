@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Entregador, Pedido, Usuario } from '../types';
 import { formatarMoeda, formatarDataHora, imprimirComanda } from '../lib/thermalPrinter';
+import { abrirWhatsApp, gerarMensagemWhatsApp } from '../utils/whatsapp';
 import {
   Truck,
   Printer,
@@ -18,9 +19,13 @@ import {
   BellRing,
   Radio,
   Zap,
+  MessageCircle,
+  Navigation,
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { ModalRastreamentoEntregadores } from './ModalRastreamentoEntregadores';
+import { ModalBaixaEntrega } from './ModalBaixaEntrega';
 
 interface Props {
   pedidos: Pedido[];
@@ -34,6 +39,7 @@ interface Props {
   pedidosEntreguesCount?: number;
   onDespacharPedidos: (pedidosIds: string[], entregadorId: string, imprimir?: boolean) => Promise<void>;
   onVisualizarComanda: (pedido: Pedido) => void;
+  onPedidoAtualizado?: () => void;
 }
 
 export const DespachoKanban: React.FC<Props> = ({
@@ -48,12 +54,16 @@ export const DespachoKanban: React.FC<Props> = ({
   pedidosEntreguesCount = 0,
   onDespacharPedidos,
   onVisualizarComanda,
+  onPedidoAtualizado = () => {},
 }) => {
   const [selecionados, setSelecionados] = useState<string[]>([]);
   const [entregadorDestino, setEntregadorDestino] = useState<string>(entregadores[0]?.id || 'e1');
   const [despachando, setDespachando] = useState(false);
   const [filtroEntregador, setFiltroEntregador] = useState<string>('TODOS');
   const [alertaPushEnviado, setAlertaPushEnviado] = useState<string | null>(null);
+  const [modalRastreamentoAberto, setModalRastreamentoAberto] = useState(false);
+  const [entregadorRastrearId, setEntregadorRastrearId] = useState<string | undefined>(undefined);
+  const [pedidoParaBaixaHub, setPedidoParaBaixaHub] = useState<Pedido | null>(null);
 
   const pedidosPendentes = pedidos.filter((p) => p.status === 'PENDENTE');
   const pedidosEmRota = pedidos.filter((p) => {
@@ -130,6 +140,18 @@ export const DespachoKanban: React.FC<Props> = ({
             <Radio className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
             <span>Supabase Push Ativo</span>
           </div>
+
+          <button
+            id="btn-rastreamento-gps"
+            onClick={() => {
+              setEntregadorRastrearId(undefined);
+              setModalRastreamentoAberto(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+          >
+            <Navigation className="w-3.5 h-3.5 animate-pulse" />
+            <span>Rastreamento GPS & Rotas</span>
+          </button>
 
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1">
@@ -307,18 +329,28 @@ export const DespachoKanban: React.FC<Props> = ({
                     </div>
 
                     {/* Total & Action */}
-                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1">
                       <div>
                         <span className="text-[9px] text-slate-500">Total:</span>
                         <div className="font-black font-mono text-blue-700 text-xs">{formatarMoeda(pedido.total)}</div>
                       </div>
-                      <button
-                        onClick={() => onVisualizarComanda(pedido)}
-                        className="flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition-colors"
-                      >
-                        <Printer className="w-3 h-3" />
-                        Comanda
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido))}
+                          className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors"
+                          title="Enviar aviso do pedido no WhatsApp do Cliente"
+                        >
+                          <MessageCircle className="w-3 h-3" />
+                          WhatsApp
+                        </button>
+                        <button
+                          onClick={() => onVisualizarComanda(pedido)}
+                          className="flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition-colors"
+                        >
+                          <Printer className="w-3 h-3" />
+                          Comanda
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -393,20 +425,50 @@ export const DespachoKanban: React.FC<Props> = ({
                     <span className="font-black font-mono text-slate-900">{formatarMoeda(pedido.total)}</span>
                   </div>
 
-                  {/* Comanda Button */}
-                  <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {formatarDataHora(pedido.despachadoEm)}
-                    </span>
-                    <button
-                      onClick={() => onVisualizarComanda(pedido)}
-                      className="flex items-center gap-1 text-blue-600 hover:text-blue-800 font-bold text-[11px]"
-                    >
-                      <Printer className="w-3 h-3" /> Re-imprimir
-                    </button>
+                    {/* Comanda and WhatsApp Button & Dar Baixa */}
+                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px] flex-wrap gap-1">
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {formatarDataHora(pedido.despachadoEm)}
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {pedido.entregadorId && (
+                          <button
+                            onClick={() => {
+                              setEntregadorRastrearId(pedido.entregadorId);
+                              setModalRastreamentoAberto(true);
+                            }}
+                            className="flex items-center gap-1 text-sky-600 hover:text-sky-800 font-bold text-[11px]"
+                            title="Rastrear entregador no mapa"
+                          >
+                            <Navigation className="w-3 h-3" /> GPS
+                          </button>
+                        )}
+                        <button
+                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido))}
+                          className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[11px]"
+                          title="Avisar cliente via WhatsApp que pedido está em rota"
+                        >
+                          <MessageCircle className="w-3 h-3" /> WhatsApp
+                        </button>
+                        <button
+                          onClick={() => onVisualizarComanda(pedido)}
+                          className="flex items-center gap-1 text-blue-600 hover:text-blue-800 font-bold text-[11px]"
+                        >
+                          <Printer className="w-3 h-3" /> Comanda
+                        </button>
+                        <button
+                          onClick={() => setPedidoParaBaixaHub(pedido)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer ml-1"
+                          title="Dar baixa no pedido e registrar recolhimento de cascos"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Dar Baixa</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))
+                )
+              )
             )}
           </div>
         </div>
@@ -463,6 +525,24 @@ export const DespachoKanban: React.FC<Props> = ({
                     </div>
                   </div>
 
+                  {/* Resumo de Cascos Recolhidos e Vales-Casco */}
+                  {pedido.cascosRecolhidos && pedido.cascosRecolhidos.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-emerald-100">
+                      {pedido.cascosRecolhidos.map((c, cIdx) => (
+                        <span
+                          key={cIdx}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-1 ${
+                            c.quantidadeRecolhida > 0
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          📦 {c.quantidadeRecolhida}x {c.nomeCasco} {c.quantidadePendente > 0 ? `(⚠️ ${c.quantidadePendente} Vale-Casco)` : '✓'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {pedido.origemOffline && (
                     <div className="text-[9px] bg-purple-50 text-purple-700 font-bold px-1.5 py-0.5 rounded border border-purple-200">
                       ⚡ Registrado Offline
@@ -478,6 +558,36 @@ export const DespachoKanban: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Baixa de Pedido no Hub (Desktop/Web) */}
+      <ModalBaixaEntrega
+        pedido={pedidoParaBaixaHub}
+        isOpen={Boolean(pedidoParaBaixaHub)}
+        onClose={() => setPedidoParaBaixaHub(null)}
+        nomeOperadorOuEntregador={usuarioLogado?.nome || 'Operador de Despacho'}
+        onConfirmarBaixa={async (dados) => {
+          if (!pedidoParaBaixaHub) return;
+          const res = await fetch(`/api/pedidos/${pedidoParaBaixaHub.id}/baixa`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dados),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Erro ao registrar baixa');
+          }
+          setPedidoParaBaixaHub(null);
+          onPedidoAtualizado();
+        }}
+      />
+
+      {/* Modal de Rastreamento de Frota & Histórico de Trajeto */}
+      <ModalRastreamentoEntregadores
+        aberto={modalRastreamentoAberto}
+        onFechar={() => setModalRastreamentoAberto(false)}
+        entregadores={entregadores}
+        entregadorInicialId={entregadorRastrearId}
+      />
     </div>
   );
 };

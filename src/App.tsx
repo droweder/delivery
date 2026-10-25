@@ -3,14 +3,20 @@ import { CheckCircle2, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import {
   BairroTaxa,
   Cliente,
+  Colaborador,
   Empresa,
   Entregador,
   Pedido,
   Produto,
+  TurnoEntregador,
   Usuario,
+  Veiculo,
 } from './types';
 import { INITIAL_EMPRESAS, INITIAL_USUARIOS } from './data/initialData';
-import { MainTab, Navbar } from './components/Navbar';
+import { MainTab } from './components/Navbar';
+import { TopBar } from './components/TopBar';
+import { Sidebar } from './components/Sidebar';
+import { isDeviceOffline, setSimulatedOffline } from './lib/offlineDb';
 import { PdvModulo } from './components/PdvModulo';
 import { DespachoKanban } from './components/DespachoKanban';
 import { AppEntregador } from './components/AppEntregador';
@@ -115,12 +121,45 @@ export default function App() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>(INITIAL_USUARIOS);
+  const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
+  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [turnos, setTurnos] = useState<TurnoEntregador[]>([]);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoComandaModal, setPedidoComandaModal] = useState<Pedido | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [syncFeedback, setSyncFeedback] = useState<{ tipo: 'sucesso' | 'erro' | 'info'; mensagem: string } | null>(null);
   const [sincronizandoAgora, setSincronizandoAgora] = useState(false);
+
+  // Estados do Menu Lateral (Sidebar) & Conectividade
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      return true;
+    }
+    return false;
+  });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [offlineMode, setOfflineMode] = useState(isDeviceOffline());
+
+  const toggleOfflineSimulation = () => {
+    const next = !offlineMode;
+    setSimulatedOffline(next);
+    setOfflineMode(next);
+  };
+
+  useEffect(() => {
+    const handleNetworkChange = () => {
+      setOfflineMode(isDeviceOffline());
+    };
+    window.addEventListener('network-status-changed', handleNetworkChange);
+    window.addEventListener('online', handleNetworkChange);
+    window.addEventListener('offline', handleNetworkChange);
+    return () => {
+      window.removeEventListener('network-status-changed', handleNetworkChange);
+      window.removeEventListener('online', handleNetworkChange);
+      window.removeEventListener('offline', handleNetworkChange);
+    };
+  }, []);
 
   // Helper para requisições autenticadas com contexto de Tenant
   const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -172,7 +211,22 @@ export default function App() {
         headers['x-user-id'] = usuarioLogado.id;
       }
 
-      const [resBairros, resProdutos, resClientes, resEntregadores, resPedidos, resUsuarios, resEmpresas] =
+      const parseSafeJson = async (res: Response) => {
+        if (!res.ok) return null;
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.warn(`[API] Resposta para ${res.url} não é JSON (${contentType})`);
+          return null;
+        }
+        try {
+          return await res.json();
+        } catch (err) {
+          console.warn(`[API] Erro ao decodificar JSON de ${res.url}:`, err);
+          return null;
+        }
+      };
+
+      const [resBairros, resProdutos, resClientes, resEntregadores, resPedidos, resUsuarios, resEmpresas, resVeiculos, resColaboradores, resTurnos] =
         await Promise.all([
           fetch('/api/bairros', { headers }),
           fetch('/api/produtos', { headers }),
@@ -181,19 +235,43 @@ export default function App() {
           fetch('/api/pedidos', { headers }),
           fetch('/api/usuarios', { headers }),
           fetch('/api/empresas', { headers }),
+          fetch('/api/veiculos', { headers }),
+          fetch('/api/colaboradores', { headers }),
+          fetch('/api/turnos/historico', { headers }),
         ]);
 
-      if (resBairros.ok) setBairros(await resBairros.json());
-      if (resProdutos.ok) setProdutos(await resProdutos.json());
-      if (resClientes.ok) setClientes(await resClientes.json());
-      if (resEntregadores.ok) setEntregadores(await resEntregadores.json());
-      if (resPedidos.ok) setPedidos(await resPedidos.json());
-      if (resEmpresas.ok) setEmpresas(await resEmpresas.json());
-      if (resUsuarios.ok) {
-        const users = await resUsuarios.json();
-        setUsuarios(users);
+      const dataBairros = await parseSafeJson(resBairros);
+      if (dataBairros) setBairros(dataBairros);
+
+      const dataProdutos = await parseSafeJson(resProdutos);
+      if (dataProdutos) setProdutos(dataProdutos);
+
+      const dataClientes = await parseSafeJson(resClientes);
+      if (dataClientes) setClientes(dataClientes);
+
+      const dataEntregadores = await parseSafeJson(resEntregadores);
+      if (dataEntregadores) setEntregadores(dataEntregadores);
+
+      const dataPedidos = await parseSafeJson(resPedidos);
+      if (dataPedidos) setPedidos(dataPedidos);
+
+      const dataEmpresas = await parseSafeJson(resEmpresas);
+      if (dataEmpresas) setEmpresas(dataEmpresas);
+
+      const dataVeiculos = await parseSafeJson(resVeiculos);
+      if (dataVeiculos) setVeiculos(dataVeiculos);
+
+      const dataColaboradores = await parseSafeJson(resColaboradores);
+      if (dataColaboradores) setColaboradores(dataColaboradores);
+
+      const dataTurnos = await parseSafeJson(resTurnos);
+      if (dataTurnos) setTurnos(dataTurnos);
+
+      const dataUsuarios = await parseSafeJson(resUsuarios);
+      if (dataUsuarios) {
+        setUsuarios(dataUsuarios);
         if (usuarioLogado) {
-          setUsuarioLogado((prev) => (prev ? users.find((u: Usuario) => u.id === prev.id) || prev : null));
+          setUsuarioLogado((prev) => (prev ? dataUsuarios.find((u: Usuario) => u.id === prev.id) || prev : null));
         }
       }
     } catch (err) {
@@ -501,6 +579,58 @@ export default function App() {
     await carregarDadosServidor();
   };
 
+  const handleSalvarVeiculo = async (veiculo: Partial<Veiculo>) => {
+    const isEdicao = Boolean(veiculo.id);
+    const url = isEdicao ? `/api/veiculos/${veiculo.id}` : '/api/veiculos';
+    const method = isEdicao ? 'PUT' : 'POST';
+
+    const res = await authFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(veiculo),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao salvar veículo');
+    }
+    await carregarDadosServidor();
+  };
+
+  const handleExcluirVeiculo = async (id: string) => {
+    const res = await authFetch(`/api/veiculos/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao excluir veículo');
+    }
+    await carregarDadosServidor();
+  };
+
+  const handleSalvarColaborador = async (colaborador: Partial<Colaborador>) => {
+    const isEdicao = Boolean(colaborador.id);
+    const url = isEdicao ? `/api/colaboradores/${colaborador.id}` : '/api/colaboradores';
+    const method = isEdicao ? 'PUT' : 'POST';
+
+    const res = await authFetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(colaborador),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao salvar colaborador');
+    }
+    await carregarDadosServidor();
+  };
+
+  const handleExcluirColaborador = async (id: string) => {
+    const res = await authFetch(`/api/colaboradores/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro ao excluir colaborador');
+    }
+    await carregarDadosServidor();
+  };
+
   const handleImportarProdutosErp = async (produtosImportados: any[]) => {
     const res = await authFetch('/api/produtos/importar-erp', {
       method: 'POST',
@@ -543,9 +673,9 @@ export default function App() {
   const isSuperAdminAtivo = usuarioLogado.perfil === 'SUPER_ADMIN';
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Top Navbar */}
-      <Navbar
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col lg:flex-row font-sans selection:bg-blue-600 selection:text-white">
+      {/* Sidebar Navigation */}
+      <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         pedidosPendentesCount={pendentesCount}
@@ -558,189 +688,221 @@ export default function App() {
         onVoltarSuperAdmin={isSuperAdminAtivo ? handleVoltarSuperAdmin : undefined}
         onLogout={handleLogout}
         onRefreshAll={() => carregarDadosServidor(true)}
+        offlineMode={offlineMode}
+        toggleOfflineSimulation={toggleOfflineSimulation}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
+        setMobileOpen={setMobileSidebarOpen}
       />
 
-      {/* Sync Feedback Toast / Banner */}
-      {syncFeedback && (
-        <div className="max-w-[1440px] w-full mx-auto px-3 sm:px-4 lg:px-5 pt-3">
-          <div
-            className={`p-3.5 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-medium shadow-sm transition-all ${
-              syncFeedback.tipo === 'sucesso'
-                ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-200'
-                : 'bg-amber-950/80 border-amber-600/60 text-amber-200'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              {syncFeedback.tipo === 'sucesso' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              )}
-              <span>{syncFeedback.mensagem}</span>
-            </div>
-            <button
-              onClick={() => setSyncFeedback(null)}
-              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+      {/* Main Content Workspace Container */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+        {/* Fixed Contextual TopBar aligned with Sidebar */}
+        <TopBar
+          activeTab={activeTab}
+          empresaNome={empresaNome}
+          setMobileSidebarOpen={setMobileSidebarOpen}
+          pedidosPendentesCount={pendentesCount}
+          pedidosEmRotaCount={emRotaCount}
+          pedidosEntreguesCount={entreguesCount}
+        />
+
+        {/* Sync Feedback Toast / Banner */}
+        {syncFeedback && (
+          <div className="w-full px-3 sm:px-4 lg:px-6 pt-3">
+            <div
+              className={`p-3.5 rounded-xl border flex items-center justify-between text-xs sm:text-sm font-medium shadow-sm transition-all ${
+                syncFeedback.tipo === 'sucesso'
+                  ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-200'
+                  : 'bg-amber-950/80 border-amber-600/60 text-amber-200'
+              }`}
             >
-              <X className="w-4 h-4" />
-            </button>
+              <div className="flex items-center gap-2.5">
+                {syncFeedback.tipo === 'sucesso' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                )}
+                <span>{syncFeedback.mensagem}</span>
+              </div>
+              <button
+                onClick={() => setSyncFeedback(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Main Container */}
-      <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-4 lg:p-5">
-        {carregando ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-3">
-            <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-              Carregando sistema de distribuição e conveniência...
-            </p>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'pdv' && (
-              <PdvModulo
-                clientes={clientes}
-                produtos={produtos}
-                bairros={bairros}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onPedidoCriado={handlePedidoCriado}
-                onNovoCliente={handleNovoCliente}
-                onSalvarCliente={handleSalvarCliente}
-                onProdutosAtualizados={carregarDadosServidor}
-              />
-            )}
-
-            {activeTab === 'despacho' && (
-              <DespachoKanban
-                pedidos={pedidos}
-                entregadores={entregadores}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onDespacharPedidos={handleDespacharPedidos}
-                onVisualizarComanda={(p) => setPedidoComandaModal(p)}
-              />
-            )}
-
-            {activeTab === 'acerto' && (
-              <AcertoCaixa
-                pedidos={pedidos}
-                entregadores={entregadores}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onAcertoConcluido={carregarDadosServidor}
-              />
-            )}
-
-            {activeTab === 'vasilhames' && (
-              <EstoqueVasilhames
-                produtos={produtos}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onEstoqueAtualizado={carregarDadosServidor}
-              />
-            )}
-
-            {activeTab === 'gerencia' && (
-              <DashboardGerente
-                pedidos={pedidos}
-                produtos={produtos}
-                bairros={bairros}
-                entregadores={entregadores}
-                clientes={clientes}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onPedidoAtualizado={carregarDadosServidor}
-                onVisualizarComanda={(p) => setPedidoComandaModal(p)}
-                onNovoPedidoClick={() => setActiveTab('pdv')}
-              />
-            )}
-
-            {activeTab === 'cadastros' && (
-              <CadastrosHub
-                produtos={produtos}
-                clientes={clientes}
-                entregadores={entregadores}
-                bairros={bairros}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onSalvarProduto={handleSalvarProduto}
-                onExcluirProduto={handleExcluirProduto}
-                onSalvarCliente={handleSalvarCliente}
-                onExcluirCliente={handleExcluirCliente}
-                onSalvarEntregador={handleSalvarEntregador}
-                onExcluirEntregador={handleExcluirEntregador}
-                onSalvarBairro={handleSalvarBairro}
-                onExcluirBairro={handleExcluirBairro}
-                onImportarProdutosErp={handleImportarProdutosErp}
-              />
-            )}
-
-            {activeTab === 'usuarios' && (
-              <GestaoUsuarios
-                usuarios={usuarios}
-                entregadores={entregadores}
-                usuarioAtual={usuarioLogado}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onSalvarUsuario={handleSalvarUsuario}
-                onExcluirUsuario={handleExcluirUsuario}
-              />
-            )}
-
-            {activeTab === 'entregador' && (
-              <AppEntregador
-                entregadores={entregadores}
-                usuarioLogado={usuarioLogado}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                isSuperAdmin={isSuperAdminAtivo}
-                pedidosPendentesCount={pendentesCount}
-                pedidosEmRotaCount={emRotaCount}
-                pedidosEntreguesCount={entreguesCount}
-                onPedidoAtualizadoNoServidor={carregarDadosServidor}
-              />
-            )}
-          </>
         )}
-      </main>
+
+        {/* Main Content Area */}
+        <main className="flex-1 w-full p-2.5 sm:p-4 lg:p-5 overflow-x-hidden">
+          {carregando ? (
+            <div className="flex flex-col items-center justify-center py-20 space-y-3">
+              <div className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                Carregando sistema de distribuição e conveniência...
+              </p>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'pdv' && (
+                <PdvModulo
+                  clientes={clientes}
+                  produtos={produtos}
+                  bairros={bairros}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onPedidoCriado={handlePedidoCriado}
+                  onNovoCliente={handleNovoCliente}
+                  onSalvarCliente={handleSalvarCliente}
+                  onProdutosAtualizados={carregarDadosServidor}
+                />
+              )}
+
+              {activeTab === 'despacho' && (
+                <DespachoKanban
+                  pedidos={pedidos}
+                  entregadores={entregadores}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onDespacharPedidos={handleDespacharPedidos}
+                  onVisualizarComanda={(p) => setPedidoComandaModal(p)}
+                  onPedidoAtualizado={carregarDadosServidor}
+                />
+              )}
+
+              {activeTab === 'acerto' && (
+                <AcertoCaixa
+                  pedidos={pedidos}
+                  entregadores={entregadores}
+                  veiculos={veiculos}
+                  turnos={turnos}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onAcertoConcluido={() => carregarDadosServidor()}
+                  onTurnoIniciado={() => carregarDadosServidor()}
+                  onTurnoFechado={() => carregarDadosServidor()}
+                />
+              )}
+
+              {activeTab === 'vasilhames' && (
+                <EstoqueVasilhames
+                  produtos={produtos}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onEstoqueAtualizado={carregarDadosServidor}
+                />
+              )}
+
+              {activeTab === 'gerencia' && (
+                <DashboardGerente
+                  pedidos={pedidos}
+                  produtos={produtos}
+                  bairros={bairros}
+                  entregadores={entregadores}
+                  clientes={clientes}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onPedidoAtualizado={carregarDadosServidor}
+                  onVisualizarComanda={(p) => setPedidoComandaModal(p)}
+                  onNovoPedidoClick={() => setActiveTab('pdv')}
+                />
+              )}
+
+              {activeTab === 'cadastros' && (
+                <CadastrosHub
+                  produtos={produtos}
+                  clientes={clientes}
+                  entregadores={entregadores}
+                  bairros={bairros}
+                  veiculos={veiculos}
+                  colaboradores={colaboradores}
+                  turnos={turnos}
+                  usuarios={usuarios}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onSalvarProduto={handleSalvarProduto}
+                  onExcluirProduto={handleExcluirProduto}
+                  onSalvarCliente={handleSalvarCliente}
+                  onExcluirCliente={handleExcluirCliente}
+                  onSalvarEntregador={handleSalvarEntregador}
+                  onExcluirEntregador={handleExcluirEntregador}
+                  onSalvarBairro={handleSalvarBairro}
+                  onExcluirBairro={handleExcluirBairro}
+                  onSalvarVeiculo={handleSalvarVeiculo}
+                  onExcluirVeiculo={handleExcluirVeiculo}
+                  onSalvarColaborador={handleSalvarColaborador}
+                  onExcluirColaborador={handleExcluirColaborador}
+                  onImportarProdutosErp={handleImportarProdutosErp}
+                />
+              )}
+
+              {activeTab === 'usuarios' && (
+                <GestaoUsuarios
+                  usuarios={usuarios}
+                  entregadores={entregadores}
+                  usuarioAtual={usuarioLogado}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onSalvarUsuario={handleSalvarUsuario}
+                  onExcluirUsuario={handleExcluirUsuario}
+                />
+              )}
+
+              {activeTab === 'entregador' && (
+                <AppEntregador
+                  entregadores={entregadores}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  isSuperAdmin={isSuperAdminAtivo}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onPedidoAtualizadoNoServidor={carregarDadosServidor}
+                />
+              )}
+            </>
+          )}
+        </main>
+      </div>
 
       {/* Thermal Receipt Preview Modal */}
       <ThermalReceiptModal pedido={pedidoComandaModal} onClose={() => setPedidoComandaModal(null)} />

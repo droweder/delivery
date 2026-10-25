@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LocationPickerMap } from './LocationPickerMap';
-import { BairroTaxa, Cliente, Entregador, Produto, TipoVasilhame, Usuario } from '../types';
+import { BairroTaxa, Cliente, Colaborador, Entregador, Produto, TipoVasilhame, TurnoEntregador, Usuario, Veiculo } from '../types';
+import { GestaoVeiculos } from './GestaoVeiculos';
+import { GestaoColaboradores } from './GestaoColaboradores';
+import { AbaHistoricoJornadas } from './AbaHistoricoJornadas';
 import { formatarMoeda } from '../lib/thermalPrinter';
 import {
   FolderKanban,
@@ -32,6 +35,9 @@ import {
   Globe,
   Loader2,
   Sparkles,
+  Car,
+  History,
+  UserCheck,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
@@ -54,6 +60,10 @@ interface Props {
   clientes: Cliente[];
   entregadores: Entregador[];
   bairros: BairroTaxa[];
+  veiculos?: Veiculo[];
+  colaboradores?: Colaborador[];
+  turnos?: TurnoEntregador[];
+  usuarios?: Usuario[];
   usuarioLogado?: Usuario | null;
   activeTab?: MainTab;
   setActiveTab?: (tab: MainTab) => void;
@@ -69,16 +79,24 @@ interface Props {
   onExcluirEntregador: (id: string) => Promise<void>;
   onSalvarBairro: (bairro: Partial<BairroTaxa> & { id?: string }) => Promise<void>;
   onExcluirBairro: (id: string) => Promise<void>;
+  onSalvarVeiculo?: (veiculo: Partial<Veiculo>) => Promise<void>;
+  onExcluirVeiculo?: (id: string) => Promise<void>;
+  onSalvarColaborador?: (colab: Partial<Colaborador>) => Promise<void>;
+  onExcluirColaborador?: (id: string) => Promise<void>;
   onImportarProdutosErp?: (produtosImportados: any[]) => Promise<void>;
 }
 
-type AbaCadastro = 'PRODUTOS' | 'CLIENTES' | 'ENTREGADORES' | 'BAIRROS';
+type AbaCadastro = 'PRODUTOS' | 'CLIENTES' | 'ENTREGADORES' | 'VEICULOS' | 'COLABORADORES' | 'HISTORICO_JORNADAS' | 'BAIRROS';
 
 export const CadastrosHub: React.FC<Props> = ({
   produtos,
   clientes,
   entregadores,
   bairros,
+  veiculos = [],
+  colaboradores = [],
+  turnos = [],
+  usuarios = [],
   usuarioLogado,
   activeTab = 'cadastros',
   setActiveTab = () => {},
@@ -94,6 +112,10 @@ export const CadastrosHub: React.FC<Props> = ({
   onExcluirEntregador,
   onSalvarBairro,
   onExcluirBairro,
+  onSalvarVeiculo = async () => {},
+  onExcluirVeiculo = async () => {},
+  onSalvarColaborador = async () => {},
+  onExcluirColaborador = async () => {},
   onImportarProdutosErp,
 }) => {
   const [abaAtiva, setAbaAtiva] = useState<AbaCadastro>('PRODUTOS');
@@ -560,7 +582,43 @@ export const CadastrosHub: React.FC<Props> = ({
             }`}
           >
             <Truck className="w-4 h-4" />
-            <span>Colaboradores / Frota ({entregadores.length})</span>
+            <span>Entregadores ({entregadores.length})</span>
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('COLABORADORES')}
+            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
+              abaAtiva === 'COLABORADORES'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>Equipe / Colaboradores ({colaboradores.length})</span>
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('VEICULOS')}
+            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
+              abaAtiva === 'VEICULOS'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Car className="w-4 h-4" />
+            <span>Frota de Veículos ({veiculos.length})</span>
+          </button>
+
+          <button
+            onClick={() => setAbaAtiva('HISTORICO_JORNADAS')}
+            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
+              abaAtiva === 'HISTORICO_JORNADAS'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>Jornadas & Rastreio ({turnos.length})</span>
           </button>
 
           <button
@@ -970,6 +1028,36 @@ export const CadastrosHub: React.FC<Props> = ({
             </div>
           ))}
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: FROTA DE VEÍCULOS                                                    */}
+      {/* ========================================================================= */}
+      {abaAtiva === 'VEICULOS' && (
+        <GestaoVeiculos
+          veiculos={veiculos}
+          onSaveVeiculo={onSalvarVeiculo}
+          onDeleteVeiculo={onExcluirVeiculo}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: EQUIPE / COLABORADORES                                              */}
+      {/* ========================================================================= */}
+      {abaAtiva === 'COLABORADORES' && (
+        <GestaoColaboradores
+          colaboradores={colaboradores}
+          usuarios={usuarios}
+          onSaveColaborador={onSalvarColaborador}
+          onDeleteColaborador={onExcluirColaborador}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: JORNADAS & RASTREIO DE ENTREGADORES                                  */}
+      {/* ========================================================================= */}
+      {abaAtiva === 'HISTORICO_JORNADAS' && (
+        <AbaHistoricoJornadas turnos={turnos} />
       )}
 
       {/* ========================================================================= */}
