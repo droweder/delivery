@@ -22,14 +22,18 @@ import {
   Loader2,
 } from 'lucide-react';
 
+import { TopBarActions } from './TopBarPortal';
+
 interface Props {
   veiculos: Veiculo[];
+  buscaExterno?: string;
   onSaveVeiculo: (veiculo: Partial<Veiculo>) => Promise<void>;
   onDeleteVeiculo: (id: string) => Promise<void>;
 }
 
 export const GestaoVeiculos: React.FC<Props> = ({
   veiculos,
+  buscaExterno,
   onSaveVeiculo,
   onDeleteVeiculo,
 }) => {
@@ -189,7 +193,7 @@ export const GestaoVeiculos: React.FC<Props> = ({
   };
 
   const veiculosFiltrados = veiculos.filter((v) => {
-    const termo = busca.toLowerCase();
+    const termo = (buscaExterno !== undefined ? buscaExterno : busca).toLowerCase();
     const matchBusca =
       v.placa.toLowerCase().includes(termo) ||
       v.modelo.toLowerCase().includes(termo) ||
@@ -242,7 +246,7 @@ export const GestaoVeiculos: React.FC<Props> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 animate-fade-in">
       {/* Hidden File Input for OCR */}
       <input
         type="file"
@@ -252,77 +256,53 @@ export const GestaoVeiculos: React.FC<Props> = ({
         className="hidden"
       />
 
-      {/* Top Bar / Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Car className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            Cadastro e Frota de Veículos
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Gerencie as motos, furgões e veículos da empresa para controle de quilometragem e atribuição aos entregadores.
-          </p>
-        </div>
+      {/* Ações Contextuais no TopBar */}
+      <TopBarActions>
+        <button
+          type="button"
+          disabled={ocrLoading}
+          onClick={() => fileInputRef.current?.click()}
+          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0 cursor-pointer disabled:opacity-50"
+          title="Importação automática de CRLV via inteligência visual"
+        >
+          {ocrLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5" />
+          )}
+          <span className="hidden sm:inline">{ocrLoading ? 'Lendo...' : 'Importar CRLV'}</span>
+        </button>
 
-        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
-          <button
-            type="button"
-            disabled={ocrLoading}
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95 disabled:opacity-50"
-          >
-            {ocrLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4" />
-            )}
-            {ocrLoading ? 'Lendo Documento...' : 'Importar Doc (CRLV)'}
-          </button>
+        <button
+          onClick={abrirModalNovo}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0 cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Novo Veículo</span>
+        </button>
+      </TopBarActions>
 
-          <button
-            onClick={abrirModalNovo}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-sm hover:shadow transition-all duration-200 active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            Cadastrar Veículo
-          </button>
-        </div>
-      </div>
-
-      {/* Filters Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="md:col-span-6 relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por placa, modelo ou cor..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <div className="md:col-span-3 flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+      {/* Filtros Secundários Rápidos */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs">
+        <div className="flex items-center gap-2">
+          <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <select
             value={filtroTipo}
             onChange={(e) => setFiltroTipo(e.target.value)}
-            className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="py-1 px-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none"
           >
-            <option value="TODOS">Todos os Tipos</option>
+            <option value="TODOS">Todos os Tipos ({veiculos.length})</option>
             <option value="MOTO">Motos</option>
             <option value="CARRO">Carros / Furgões</option>
             <option value="TRICICLO">Triciclos</option>
             <option value="CAMINHAO">Caminhões</option>
             <option value="OUTRO">Outros</option>
           </select>
-        </div>
 
-        <div className="md:col-span-3">
           <select
             value={filtroStatus}
             onChange={(e) => setFiltroStatus(e.target.value)}
-            className="w-full py-2 px-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="py-1 px-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none"
           >
             <option value="TODOS">Todos os Status</option>
             <option value="DISPONIVEL">Disponíveis</option>
@@ -330,113 +310,133 @@ export const GestaoVeiculos: React.FC<Props> = ({
             <option value="MANUTENCAO">Em Manutenção</option>
           </select>
         </div>
+
+        {ocrSuccessMsg && (
+          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" /> {ocrSuccessMsg}
+          </span>
+        )}
+        {ocrErrorMsg && (
+          <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5" /> {ocrErrorMsg}
+          </span>
+        )}
       </div>
 
       {/* Grid of Vehicles */}
       {veiculosFiltrados.length === 0 ? (
-        <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
           <Car className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-          <p className="text-base font-medium text-slate-700 dark:text-slate-300">Nenhum veículo encontrado</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {busca || filtroTipo !== 'TODOS' || filtroStatus !== 'TODOS'
-              ? 'Tente ajustar seus filtros de pesquisa.'
-              : 'Clique em "Cadastrar Veículo" para adicionar seu primeiro veículo.'}
+          <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum veículo encontrado</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Ajuste os filtros de pesquisa ou cadastre um novo veículo para a frota.
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {veiculosFiltrados.map((v) => (
-            <div
-              key={v.id}
-              className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md transition-shadow duration-200 relative flex flex-col justify-between"
-            >
-              <div>
-                {/* Header card */}
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-slate-100 dark:bg-slate-700/60 rounded-xl">
-                      {getTipoIcon(v.tipo)}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug">
-                        {v.modelo}
-                      </h3>
-                      <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600">
+        <div className="bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                  <th className="py-2 px-3">Veículo / Modelo</th>
+                  <th className="py-2 px-3">Placa</th>
+                  <th className="py-2 px-3">Tipo</th>
+                  <th className="py-2 px-3 text-center">Status</th>
+                  <th className="py-2 px-3 text-right">Odômetro Atual</th>
+                  <th className="py-2 px-3 text-right">Última Revisão</th>
+                  <th className="py-2 px-3">Ano / Cor</th>
+                  <th className="py-2 px-3 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                {veiculosFiltrados.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                  >
+                    <td className="py-1.5 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300 shrink-0">
+                          {getTipoIcon(v.tipo)}
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900 dark:text-white text-xs block">
+                            {v.modelo}
+                          </span>
+                          {v.observacoes && (
+                            <span className="text-[10px] text-slate-400 italic block truncate max-w-xs">
+                              {v.observacoes}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-1.5 px-3">
+                      <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700">
                         {v.placa}
                       </span>
-                    </div>
-                  </div>
-                  <div>{getStatusBadge(v.status)}</div>
-                </div>
-
-                {/* Details list */}
-                <div className="space-y-2 my-4 text-sm text-slate-600 dark:text-slate-300 border-t border-b border-slate-100 dark:border-slate-700/60 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 text-xs">
-                      <Gauge className="w-3.5 h-3.5 text-blue-500" />
-                      Odômetro Atual:
-                    </span>
-                    <span className="font-semibold text-slate-900 dark:text-white">
-                      {v.kmAtual.toLocaleString('pt-BR')} km
-                    </span>
-                  </div>
-
-                  {v.kmUltimaRevisao !== undefined && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 text-xs">
-                        <Wrench className="w-3.5 h-3.5 text-amber-500" />
-                        Última Revisão:
+                    </td>
+                    <td className="py-1.5 px-3">
+                      <span className="text-slate-600 dark:text-slate-300 font-semibold">{v.tipo}</span>
+                    </td>
+                    <td className="py-1.5 px-3 text-center">
+                      {getStatusBadge(v.status)}
+                    </td>
+                    <td className="py-1.5 px-3 text-right">
+                      <span className="font-black text-slate-900 dark:text-white text-xs">
+                        {v.kmAtual.toLocaleString('pt-BR')} km
                       </span>
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                        {v.kmUltimaRevisao.toLocaleString('pt-BR')} km
+                    </td>
+                    <td className="py-1.5 px-3 text-right">
+                      {v.kmUltimaRevisao !== undefined ? (
+                        <span className="text-slate-600 dark:text-slate-300 text-xs">
+                          {v.kmUltimaRevisao.toLocaleString('pt-BR')} km
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">—</span>
+                      )}
+                    </td>
+                    <td className="py-1.5 px-3">
+                      <span className="text-slate-600 dark:text-slate-300 text-xs">
+                        {v.ano || 'N/I'} • {v.cor || 'N/I'}
                       </span>
-                    </div>
-                  )}
+                    </td>
+                    <td className="py-1.5 px-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => abrirModalEdicao(v)}
+                          title="Editar veículo"
+                          className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleExcluir(v)}
+                          title="Excluir veículo"
+                          className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 text-xs">
-                      <Tag className="w-3.5 h-3.5 text-slate-400" />
-                      Ano / Cor:
-                    </span>
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      {v.ano || 'N/I'} • {v.cor || 'Não informada'}
-                    </span>
-                  </div>
-
-                  {v.observacoes && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 italic bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg mt-2">
-                      "{v.observacoes}"
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions Footer */}
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => abrirModalEdicao(v)}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                  Editar
-                </button>
-                <button
-                  onClick={() => handleExcluir(v)}
-                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Excluir
-                </button>
-              </div>
-            </div>
-          ))}
+          <div className="py-2 px-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
+            <span>
+              Mostrando <strong>{veiculosFiltrados.length}</strong> de <strong>{veiculos.length}</strong> veículos cadastrados
+            </span>
+          </div>
         </div>
       )}
 
       {/* Modal Cadastrar / Editar Veículo */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+          <div className="bg-[#eaecf0] dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Car className="w-5 h-5 text-blue-600" />

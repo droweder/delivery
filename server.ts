@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
@@ -387,13 +388,38 @@ function registrarMovimentacaoEstoque(dados: {
   try {
     const supabase = getSupabase();
     if (supabase) {
-      Promise.resolve(supabase.from('movimentacoes_estoque').insert([mov])).catch(() => {});
+      const movDb = {
+        id: mov.id,
+        empresa_id: prod.empresaId || 'emp1',
+        produto_id: prod.id,
+        produto_nome: prod.nome,
+        tipo_vasilhame: prod.tipoVasilhame,
+        tipo_movimentacao: dados.tipoMovimentacao,
+        quantidade: Math.abs(dados.deltaCheio) || Math.abs(dados.deltaVazio),
+        quantidade_cheio: Math.abs(dados.deltaCheio),
+        quantidade_vazio: Math.abs(dados.deltaVazio),
+        estoque_anterior: estoqueCheioAnterior,
+        estoque_atual: prod.estoqueCheio,
+        estoque_cheio_anterior: estoqueCheioAnterior,
+        estoque_cheio_atual: prod.estoqueCheio,
+        estoque_vazio_anterior: estoqueVazioAnterior,
+        estoque_vazio_atual: prod.estoqueVazio,
+        pedido_id: dados.pedidoId,
+        pedido_codigo: dados.pedidoCodigo,
+        entregador_id: dados.entregadorId,
+        entregador_nome: dados.entregadorNome,
+        usuario_responsavel: dados.usuarioResponsavel || 'Sistema',
+        motivo: dados.motivo,
+        timestamp: mov.timestamp,
+      };
+      Promise.resolve(supabase.from('movimentacoes_estoque').insert([movDb])).catch(() => {});
       Promise.resolve(
         supabase
           .from('produtos')
           .update({
             estoque_cheio: prod.estoqueCheio,
             estoque_vazio: prod.estoqueVazio,
+            estoque_atual: prod.estoqueCheio,
             atualizado_em: new Date().toISOString(),
           })
           .eq('id', prod.id)
@@ -518,7 +544,57 @@ function mapEntregadorFromDb(r: any): Entregador {
     bateriaNivel: Number(r.bateria ?? r.bateriaNivel ?? 100),
     ultimaSincronizacao: r.ultima_localizacao || r.ultimaSincronizacao || new Date().toISOString(),
     totalEntregasHoje: Number(r.total_entregas_hoje ?? r.totalEntregasHoje ?? 0),
+    cpf: r.cpf,
+    rg: r.rg,
+    cnh: r.cnh,
+    categoriaCnh: r.categoria_cnh || r.categoriaCnh,
+    validadeCnh: r.validade_cnh || r.validadeCnh,
+    colaboradorId: r.colaborador_id || r.colaboradorId,
+    usuarioIdVinculado: r.usuario_id_vinculado || r.usuarioIdVinculado,
+    veiculoIdAtual: r.veiculo_id_atual || r.veiculoIdAtual,
+    trocoInicialAtual: r.troco_inicial_atual ? Number(r.troco_inicial_atual) : undefined,
+    kmInicialAtual: r.km_inicial_atual ? Number(r.km_inicial_atual) : undefined,
+    turnoAtivoId: r.turno_ativo_id || r.turnoAtivoId,
+    latAtual: r.lat_atual !== undefined ? Number(r.lat_atual) : (r.lat !== undefined ? Number(r.lat) : undefined),
+    lngAtual: r.lng_atual !== undefined ? Number(r.lng_atual) : (r.lng !== undefined ? Number(r.lng) : undefined),
+    ultimaAtualizacaoGps: r.ultima_atualizacao_gps || r.ultimaAtualizacaoGps,
   };
+}
+
+function mapEntregadorToDb(e: Partial<Entregador>) {
+  const obj: any = {};
+  if (e.id !== undefined) obj.id = e.id;
+  if (e.empresaId !== undefined) obj.empresa_id = e.empresaId;
+  if (e.nome !== undefined) obj.nome = e.nome;
+  if (e.telefone !== undefined) obj.telefone = e.telefone;
+  if (e.veiculo !== undefined) obj.veiculo = e.veiculo;
+  if (e.placa !== undefined) obj.placa = e.placa;
+  if (e.status !== undefined) obj.status = e.status;
+  if (e.pedidosAtivosCount !== undefined) obj.pedidos_ativos_count = e.pedidosAtivosCount;
+  if (e.bateriaNivel !== undefined) obj.bateria = e.bateriaNivel;
+  if (e.ultimaSincronizacao !== undefined) obj.ultima_localizacao = e.ultimaSincronizacao;
+  if (e.totalEntregasHoje !== undefined) obj.total_entregas_hoje = e.totalEntregasHoje;
+  if (e.cpf !== undefined) obj.cpf = e.cpf;
+  if (e.rg !== undefined) obj.rg = e.rg;
+  if (e.cnh !== undefined) obj.cnh = e.cnh;
+  if (e.categoriaCnh !== undefined) obj.categoria_cnh = e.categoriaCnh;
+  if (e.validadeCnh !== undefined) obj.validade_cnh = e.validadeCnh;
+  if (e.colaboradorId !== undefined) obj.colaborador_id = e.colaboradorId;
+  if (e.usuarioIdVinculado !== undefined) obj.usuario_id_vinculado = e.usuarioIdVinculado;
+  if (e.veiculoIdAtual !== undefined) obj.veiculo_id_atual = e.veiculoIdAtual;
+  if (e.trocoInicialAtual !== undefined) obj.troco_inicial_atual = e.trocoInicialAtual;
+  if (e.kmInicialAtual !== undefined) obj.km_inicial_atual = e.kmInicialAtual;
+  if (e.turnoAtivoId !== undefined) obj.turno_ativo_id = e.turnoAtivoId;
+  if (e.latAtual !== undefined) {
+    obj.lat_atual = e.latAtual;
+    obj.lat = e.latAtual;
+  }
+  if (e.lngAtual !== undefined) {
+    obj.lng_atual = e.lngAtual;
+    obj.lng = e.lngAtual;
+  }
+  if (e.ultimaAtualizacaoGps !== undefined) obj.ultima_atualizacao_gps = e.ultimaAtualizacaoGps;
+  return obj;
 }
 
 function mapPedidoFromDb(r: any): Pedido {
@@ -628,6 +704,178 @@ function mapUsuarioFromDb(r: any): Usuario {
   };
 }
 
+function mapVeiculoFromDb(r: any): Veiculo {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    placa: r.placa || '',
+    modelo: r.modelo || '',
+    tipo: r.tipo || 'MOTO',
+    ano: r.ano ? Number(r.ano) : undefined,
+    cor: r.cor,
+    kmAtual: Number(r.km_atual ?? r.kmAtual ?? 0),
+    kmUltimaRevisao: r.km_ultima_revisao ? Number(r.km_ultima_revisao) : undefined,
+    status: r.status || 'DISPONIVEL',
+    observacoes: r.observacoes,
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+  };
+}
+
+function mapColaboradorFromDb(r: any): Colaborador {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    nome: r.nome || '',
+    cpf: r.cpf,
+    rg: r.rg,
+    cnh: r.cnh,
+    categoriaCnh: r.categoria_cnh || r.categoriaCnh,
+    validadeCnh: r.validade_cnh || r.validadeCnh,
+    telefone: r.telefone || '',
+    email: r.email,
+    endereco: r.endereco,
+    bairro: r.bairro,
+    cidade: r.cidade,
+    dataNascimento: r.data_nascimento || r.dataNascimento,
+    dataAdmissao: r.data_admissao || r.dataAdmissao,
+    cargo: r.cargo || 'Entregador de Rota',
+    usuarioIdVinculado: r.usuario_id_vinculado || r.usuarioIdVinculado,
+    veiculoIdAtual: r.veiculo_id_atual || r.veiculoIdAtual,
+    status: r.status || 'ATIVO',
+    observacoes: r.observacoes,
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+  };
+}
+
+function mapTurnoFromDb(r: any): TurnoEntregador {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    entregadorId: r.entregador_id || r.entregadorId,
+    entregadorNome: r.entregador_nome || r.entregadorNome,
+    colaboradorId: r.colaborador_id || r.colaboradorId,
+    usuarioId: r.usuario_id || r.usuarioId,
+    veiculoId: r.veiculo_id || r.veiculoId,
+    veiculoPlaca: r.veiculo_placa || r.veiculoPlaca,
+    veiculoModelo: r.veiculo_modelo || r.veiculoModelo,
+    dataHoraAbertura: r.data_hora_abertura || r.dataHoraAbertura || new Date().toISOString(),
+    trocoInicial: Number(r.troco_inicial ?? r.trocoInicial ?? 0),
+    kmInicial: Number(r.km_inicial ?? r.kmInicial ?? 0),
+    dataHoraFechamento: r.data_hora_fechamento || r.dataHoraFechamento,
+    kmFinal: r.km_final ? Number(r.km_final) : undefined,
+    kmRodados: r.km_rodados ? Number(r.km_rodados) : undefined,
+    totalEntregasRealizadas: r.total_entregas_realizadas ? Number(r.total_entregas_realizadas) : undefined,
+    totalDinheiroVendas: r.total_dinheiro_vendas ? Number(r.total_dinheiro_vendas) : undefined,
+    totalPixVendas: r.total_pix_vendas ? Number(r.total_pix_vendas) : undefined,
+    totalCartaoVendas: r.total_cartao_vendas ? Number(r.total_cartao_vendas) : undefined,
+    totalPrazoVendas: r.total_prazo_vendas ? Number(r.total_prazo_vendas) : undefined,
+    totalDinheiroEsperadoComTroco: r.total_dinheiro_esperado_com_troco ? Number(r.total_dinheiro_esperado_com_troco) : undefined,
+    totalDinheiroInformado: r.total_dinheiro_informado ? Number(r.total_dinheiro_informado) : undefined,
+    diferencaDinheiro: r.diferenca_dinheiro ? Number(r.diferenca_dinheiro) : undefined,
+    cascosP13Recolhidos: r.cascos_p13_recolhidos ? Number(r.cascos_p13_recolhidos) : undefined,
+    cascosP20LRecolhidos: r.cascos_p20l_recolhidos ? Number(r.cascos_p20l_recolhidos) : undefined,
+    status: r.status || 'EM_ANDAMENTO',
+    observacoes: r.observacoes,
+    fechamentoCaixaId: r.fechamento_caixa_id || r.fechamentoCaixaId,
+  };
+}
+
+function mapFechamentoFromDb(r: any): FechamentoCaixaEntregador {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    entregadorId: r.entregador_id || r.entregadorId,
+    entregadorNome: r.entregador_nome || r.entregadorNome || 'Entregador',
+    data: r.data_inicio || r.criado_em || r.data || new Date().toISOString(),
+    pedidosIds: Array.isArray(r.pedidos_ids) ? r.pedidos_ids : [],
+    totalDinheiroEsperado: Number(r.total_dinheiro_esperado ?? r.totalDinheiroEsperado ?? 0),
+    totalDinheiroInformado: Number(r.total_dinheiro_informado ?? r.totalDinheiroInformado ?? 0),
+    totalPix: Number(r.total_pix ?? r.totalPix ?? 0),
+    totalCartao: Number(r.total_cartao ?? r.totalCartao ?? 0),
+    diferenca: Number(r.diferenca_dinheiro ?? r.diferenca ?? 0),
+    cascosP13Recolhidos: Number(r.cascos_p13_recolhidos ?? r.cascosP13Recolhidos ?? 0),
+    cascosP20LRecolhidos: Number(r.cascos_p20l_recolhidos ?? r.cascosP20LRecolhidos ?? 0),
+    cascosP13Pendentes: Number(r.cascos_p13_pendentes ?? r.cascosP13Pendentes ?? 0),
+    cascosP20LPendentes: Number(r.cascos_p20l_pendentes ?? r.cascosP20LPendentes ?? 0),
+    status: r.status || 'CONCLUIDO',
+    observacoes: r.observacoes,
+  };
+}
+
+function mapVeiculoToDb(v: Partial<Veiculo>) {
+  const obj: any = {};
+  if (v.id !== undefined) obj.id = v.id;
+  if (v.empresaId !== undefined) obj.empresa_id = v.empresaId;
+  if (v.placa !== undefined) obj.placa = v.placa;
+  if (v.modelo !== undefined) obj.modelo = v.modelo;
+  if (v.tipo !== undefined) obj.tipo = v.tipo;
+  if (v.ano !== undefined) obj.ano = v.ano;
+  if (v.cor !== undefined) obj.cor = v.cor;
+  if (v.kmAtual !== undefined) obj.km_atual = v.kmAtual;
+  if (v.kmUltimaRevisao !== undefined) obj.km_ultima_revisao = v.kmUltimaRevisao;
+  if (v.status !== undefined) obj.status = v.status;
+  if (v.observacoes !== undefined) obj.observacoes = v.observacoes;
+  return obj;
+}
+
+function mapColaboradorToDb(c: Partial<Colaborador>) {
+  const obj: any = {};
+  if (c.id !== undefined) obj.id = c.id;
+  if (c.empresaId !== undefined) obj.empresa_id = c.empresaId;
+  if (c.nome !== undefined) obj.nome = c.nome;
+  if (c.cpf !== undefined) obj.cpf = c.cpf;
+  if (c.rg !== undefined) obj.rg = c.rg;
+  if (c.cnh !== undefined) obj.cnh = c.cnh;
+  if (c.categoriaCnh !== undefined) obj.categoria_cnh = c.categoriaCnh;
+  if (c.validadeCnh !== undefined) obj.validade_cnh = c.validadeCnh;
+  if (c.telefone !== undefined) obj.telefone = c.telefone;
+  if (c.email !== undefined) obj.email = c.email;
+  if (c.endereco !== undefined) obj.endereco = c.endereco;
+  if (c.bairro !== undefined) obj.bairro = c.bairro;
+  if (c.cidade !== undefined) obj.cidade = c.cidade;
+  if (c.dataNascimento !== undefined) obj.data_nascimento = c.dataNascimento;
+  if (c.dataAdmissao !== undefined) obj.data_admissao = c.dataAdmissao;
+  if (c.cargo !== undefined) obj.cargo = c.cargo;
+  if (c.usuarioIdVinculado !== undefined) obj.usuario_id_vinculado = c.usuarioIdVinculado;
+  if (c.veiculoIdAtual !== undefined) obj.veiculo_id_atual = c.veiculoIdAtual;
+  if (c.status !== undefined) obj.status = c.status;
+  if (c.observacoes !== undefined) obj.observacoes = c.observacoes;
+  return obj;
+}
+
+function mapTurnoToDb(t: Partial<TurnoEntregador>) {
+  const obj: any = {};
+  if (t.id !== undefined) obj.id = t.id;
+  if (t.empresaId !== undefined) obj.empresa_id = t.empresaId;
+  if (t.entregadorId !== undefined) obj.entregador_id = t.entregadorId;
+  if (t.entregadorNome !== undefined) obj.entregador_nome = t.entregadorNome;
+  if (t.colaboradorId !== undefined) obj.colaborador_id = t.colaboradorId;
+  if (t.usuarioId !== undefined) obj.usuario_id = t.usuarioId;
+  if (t.veiculoId !== undefined) obj.veiculo_id = t.veiculoId;
+  if (t.veiculoPlaca !== undefined) obj.veiculo_placa = t.veiculoPlaca;
+  if (t.veiculoModelo !== undefined) obj.veiculo_modelo = t.veiculoModelo;
+  if (t.dataHoraAbertura !== undefined) obj.data_hora_abertura = t.dataHoraAbertura;
+  if (t.trocoInicial !== undefined) obj.troco_inicial = t.trocoInicial;
+  if (t.kmInicial !== undefined) obj.km_inicial = t.kmInicial;
+  if (t.dataHoraFechamento !== undefined) obj.data_hora_fechamento = t.dataHoraFechamento;
+  if (t.kmFinal !== undefined) obj.km_final = t.kmFinal;
+  if (t.kmRodados !== undefined) obj.km_rodados = t.kmRodados;
+  if (t.totalEntregasRealizadas !== undefined) obj.total_entregas_realizadas = t.totalEntregasRealizadas;
+  if (t.totalDinheiroVendas !== undefined) obj.total_dinheiro_vendas = t.totalDinheiroVendas;
+  if (t.totalPixVendas !== undefined) obj.total_pix_vendas = t.totalPixVendas;
+  if (t.totalCartaoVendas !== undefined) obj.total_cartao_vendas = t.totalCartaoVendas;
+  if (t.totalPrazoVendas !== undefined) obj.total_prazo_vendas = t.totalPrazoVendas;
+  if (t.totalDinheiroEsperadoComTroco !== undefined) obj.total_dinheiro_esperado_com_troco = t.totalDinheiroEsperadoComTroco;
+  if (t.totalDinheiroInformado !== undefined) obj.total_dinheiro_informado = t.totalDinheiroInformado;
+  if (t.diferencaDinheiro !== undefined) obj.diferenca_dinheiro = t.diferencaDinheiro;
+  if (t.cascosP13Recolhidos !== undefined) obj.cascos_p13_recolhidos = t.cascosP13Recolhidos;
+  if (t.cascosP20LRecolhidos !== undefined) obj.cascos_p20l_recolhidos = t.cascosP20LRecolhidos;
+  if (t.status !== undefined) obj.status = t.status;
+  if (t.observacoes !== undefined) obj.observacoes = t.observacoes;
+  if (t.fechamentoCaixaId !== undefined) obj.fechamento_caixa_id = t.fechamentoCaixaId;
+  return obj;
+}
+
 async function syncFromSupabase() {
   const supabase = getSupabase();
   if (!supabase) return { success: false, error: 'Supabase não configurado ou chaves ausentes' };
@@ -641,7 +889,10 @@ async function syncFromSupabase() {
       { name: 'entregadores', ref: entregadores, mapper: mapEntregadorFromDb },
       { name: 'pedidos', ref: pedidos, mapper: mapPedidoFromDb },
       { name: 'usuarios', ref: usuarios, mapper: mapUsuarioFromDb },
-      { name: 'fechamentos_caixa', ref: fechamentos, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) },
+      { name: 'veiculos', ref: veiculos, mapper: mapVeiculoFromDb },
+      { name: 'colaboradores', ref: colaboradores, mapper: mapColaboradorFromDb },
+      { name: 'turnos_entregador', ref: turnos, mapper: mapTurnoFromDb },
+      { name: 'fechamentos_caixa', ref: fechamentos, mapper: mapFechamentoFromDb },
       { name: 'movimentacoes_estoque', ref: movimentacoesEstoque, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) }
     ];
     const details: Record<string, any> = {};
@@ -654,7 +905,6 @@ async function syncFromSupabase() {
         const { data, error } = await supabase.from(t.name).select('*');
         if (error) {
           details[t.name] = { status: 'erro', message: error.message, code: error.code };
-          // Don't break entire sync if optional auxiliary tables fail
           if (['bairros_taxas', 'produtos', 'clientes', 'pedidos'].includes(t.name)) {
             hasError = true;
             errorMessage = error.message;
@@ -687,8 +937,8 @@ async function syncFromSupabase() {
 
 function getSupabase() {
   if (!supabaseClient) {
-    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://phofwpyxbeulodrzfdjq.supabase.co';
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
     if (!url || !key) {
       return null;
     }
@@ -783,6 +1033,48 @@ async function getFreshUsuarios(): Promise<Usuario[]> {
   return usuarios;
 }
 
+async function getFreshVeiculos(): Promise<Veiculo[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('veiculos').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapVeiculoFromDb);
+        veiculos.splice(0, veiculos.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return veiculos;
+}
+
+async function getFreshColaboradores(): Promise<Colaborador[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('colaboradores').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapColaboradorFromDb);
+        colaboradores.splice(0, colaboradores.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return colaboradores;
+}
+
+async function getFreshTurnos(): Promise<TurnoEntregador[]> {
+  const sb = getSupabase();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('turnos_entregador').select('*');
+      if (!error && data && data.length > 0) {
+        const mapped = data.map(mapTurnoFromDb);
+        turnos.splice(0, turnos.length, ...mapped);
+      }
+    } catch (e) {}
+  }
+  return turnos;
+}
+
 async function getFreshPedidos(): Promise<Pedido[]> {
   const sb = getSupabase();
   if (sb) {
@@ -790,7 +1082,28 @@ async function getFreshPedidos(): Promise<Pedido[]> {
       const { data, error } = await sb.from('pedidos').select('*, itens_pedido(*)').order('criado_em', { ascending: false });
       if (!error && data && data.length > 0) {
         const mapped = data.map(mapPedidoFromDb);
-        pedidos.splice(0, pedidos.length, ...mapped);
+        // Preserva pedidos criados localmente que ainda não foram gravados no Supabase
+        const idsDb = new Set(mapped.map((p) => p.id));
+        const pedidosLocaisNaoNoDb = pedidos.filter((p) => !idsDb.has(p.id));
+        
+        // Para pedidos em ambos, preserva o estado local se tiver status mais avançado ou versão maior
+        const merged = mapped.map((dbPed) => {
+          const localPed = pedidos.find((lp) => lp.id === dbPed.id);
+          if (localPed) {
+            if (localPed.status === 'ENTREGUE' && dbPed.status !== 'ENTREGUE' && dbPed.status !== 'CONCLUIDO') {
+              return localPed;
+            }
+            if (localPed.status === 'EM_ROTA' && dbPed.status === 'PENDENTE') {
+              return localPed;
+            }
+            if (localPed.versao >= dbPed.versao) {
+              return localPed;
+            }
+          }
+          return dbPed;
+        });
+
+        pedidos.splice(0, pedidos.length, ...pedidosLocaisNaoNoDb, ...merged);
       }
     } catch (e) {}
   }
@@ -902,7 +1215,26 @@ async function dispararNotificacaoPush(
   try {
     const supabase = getSupabase();
     if (supabase) {
-      Promise.resolve(supabase.from('notificacoes_push').insert([notificacao])).catch(() => {});
+      const notifDb = {
+        id: notificacao.id,
+        empresa_id: 'emp1',
+        entregador_id: notificacao.entregadorId,
+        pedido_id: notificacao.pedidoId,
+        pedido_codigo: notificacao.pedidoCodigo,
+        titulo: notificacao.titulo,
+        corpo: notificacao.corpo,
+        tipo: notificacao.tipo,
+        prioridade: notificacao.prioridade,
+        canal: notificacao.canal,
+        valor_total: notificacao.valorTotal,
+        bairro_nome: notificacao.bairroNome,
+        endereco: notificacao.endereco,
+        itens_resumo: notificacao.itensResumo,
+        lida: notificacao.lida,
+        payload_json: notificacao.acoes,
+        timestamp: notificacao.timestamp,
+      };
+      Promise.resolve(supabase.from('notificacoes_push').insert([notifDb])).catch(() => {});
     }
   } catch (e) {
     // Modo fallback
@@ -3264,13 +3596,14 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
   // ==========================================
   // 5.1 CADASTRO DE VEÍCULOS
   // ==========================================
-  app.get('/api/veiculos', (req, res) => {
+  app.get('/api/veiculos', async (req, res) => {
+    await getFreshVeiculos();
     const empId = getTargetEmpresaId(req);
     const lista = empId ? veiculos.filter((v) => (v.empresaId || 'emp1') === empId) : veiculos;
     res.json(lista);
   });
 
-  app.post('/api/veiculos', (req, res) => {
+  app.post('/api/veiculos', async (req, res) => {
     const dados = req.body;
     if (!dados.placa || !dados.modelo) {
       return res.status(400).json({ error: 'Placa e Modelo são obrigatórios' });
@@ -3293,10 +3626,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     };
 
     veiculos.push(novoVeiculo);
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('veiculos').upsert(mapVeiculoToDb(novoVeiculo));
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao salvar veiculo:', err.message);
+    }
     res.status(201).json(novoVeiculo);
   });
 
-  app.put('/api/veiculos/:id', (req, res) => {
+  app.put('/api/veiculos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const vec = veiculos.find((v) => v.id === id);
@@ -3316,10 +3657,19 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     if (dados.status !== undefined) vec.status = dados.status;
     if (dados.observacoes !== undefined) vec.observacoes = dados.observacoes;
 
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('veiculos').update(mapVeiculoToDb(vec)).eq('id', id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao atualizar veiculo:', err.message);
+    }
+
     res.json(vec);
   });
 
-  app.delete('/api/veiculos/:id', (req, res) => {
+  app.delete('/api/veiculos/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = veiculos.findIndex((v) => v.id === id);
@@ -3329,19 +3679,28 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     }
 
     const [removido] = veiculos.splice(index, 1);
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('veiculos').delete().eq('id', id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao deletar veiculo:', err.message);
+    }
     res.json({ sucesso: true, veiculo: removido });
   });
 
   // ==========================================
   // 5.2 CADASTRO DE COLABORADORES
   // ==========================================
-  app.get('/api/colaboradores', (req, res) => {
+  app.get('/api/colaboradores', async (req, res) => {
+    await getFreshColaboradores();
     const empId = getTargetEmpresaId(req);
     const lista = empId ? colaboradores.filter((c) => (c.empresaId || 'emp1') === empId) : colaboradores;
     res.json(lista);
   });
 
-  app.post('/api/colaboradores', (req, res) => {
+  app.post('/api/colaboradores', async (req, res) => {
     const dados = req.body;
     if (!dados.nome) {
       return res.status(400).json({ error: 'Nome do colaborador é obrigatório' });
@@ -3373,6 +3732,15 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
 
     colaboradores.push(novoColab);
 
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('colaboradores').upsert(mapColaboradorToDb(novoColab));
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao salvar colaborador:', err.message);
+    }
+
     // Se o colaborador for Entregador/Motorista e não existir na lista de entregadores, sincroniza
     const ehEntregador = novoColab.cargo.toLowerCase().includes('entregador') || novoColab.cargo.toLowerCase().includes('motorista');
     if (ehEntregador) {
@@ -3399,13 +3767,21 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
           usuarioIdVinculado: novoColab.usuarioIdVinculado,
         };
         entregadores.push(ent);
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('entregadores').upsert(mapEntregadorToDb(ent));
+          }
+        } catch (err: any) {
+          console.warn('[Supabase] Erro ao sincronizar entregador do colaborador:', err.message);
+        }
       }
     }
 
     res.status(201).json(novoColab);
   });
 
-  app.put('/api/colaboradores/:id', (req, res) => {
+  app.put('/api/colaboradores/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const colab = colaboradores.find((c) => c.id === id);
@@ -3433,6 +3809,15 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     if (dados.status !== undefined) colab.status = dados.status;
     if (dados.observacoes !== undefined) colab.observacoes = dados.observacoes;
 
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('colaboradores').update(mapColaboradorToDb(colab)).eq('id', id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao atualizar colaborador:', err.message);
+    }
+
     // Atualiza também no perfil do entregador vinculado se existir
     const ent = entregadores.find((e) => e.colaboradorId === colab.id);
     if (ent) {
@@ -3443,12 +3828,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       ent.categoriaCnh = colab.categoriaCnh;
       ent.validadeCnh = colab.validadeCnh;
       ent.usuarioIdVinculado = colab.usuarioIdVinculado;
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          await supabase.from('entregadores').update(mapEntregadorToDb(ent)).eq('id', ent.id);
+        }
+      } catch (err: any) {}
     }
 
     res.json(colab);
   });
 
-  app.delete('/api/colaboradores/:id', (req, res) => {
+  app.delete('/api/colaboradores/:id', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const index = colaboradores.findIndex((c) => c.id === id);
@@ -3458,19 +3849,29 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     }
 
     const [removido] = colaboradores.splice(index, 1);
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('colaboradores').delete().eq('id', id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao deletar colaborador:', err.message);
+    }
     res.json({ sucesso: true, colaborador: removido });
   });
 
   // ==========================================
   // 5.3 ROTINA DE ABERTURA E FECHAMENTO DE TURNO / TROCO / KM DE ENTREGADOR
   // ==========================================
-  app.get(['/api/turnos', '/api/turnos/historico'], (req, res) => {
+  app.get(['/api/turnos', '/api/turnos/historico'], async (req, res) => {
+    await getFreshTurnos();
     const empId = getTargetEmpresaId(req);
     const lista = empId ? turnos.filter((t) => (t.empresaId || 'emp1') === empId) : turnos;
     res.json(lista.sort((a, b) => new Date(b.dataHoraAbertura).getTime() - new Date(a.dataHoraAbertura).getTime()));
   });
 
-  app.get('/api/turnos/ativo', (req, res) => {
+  app.get('/api/turnos/ativo', async (req, res) => {
+    await getFreshTurnos();
     const empId = getTargetEmpresaId(req);
     const { entregadorId } = req.query;
     if (!entregadorId) return res.status(400).json({ error: 'entregadorId é obrigatório' });
@@ -3485,7 +3886,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     res.json(turnoAtivo || null);
   });
 
-  app.post('/api/turnos/abrir', (req, res) => {
+  app.post('/api/turnos/abrir', async (req, res) => {
     const { entregadorId, veiculoId, trocoInicial, kmInicial, observacoes } = req.body;
     const empId = getTargetEmpresaId(req) || 'emp1';
 
@@ -3544,6 +3945,17 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     ent.turnoAtivoId = novoTurno.id;
     ent.status = 'DISPONIVEL';
 
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('turnos_entregador').upsert(mapTurnoToDb(novoTurno));
+        await supabase.from('veiculos').update(mapVeiculoToDb(vec)).eq('id', vec.id);
+        await supabase.from('entregadores').update(mapEntregadorToDb(ent)).eq('id', ent.id);
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao sincronizar abertura de turno:', err.message);
+    }
+
     res.status(201).json({
       sucesso: true,
       mensagem: `Turno de ${ent.nome} iniciado com sucesso com o veículo ${vec.placa} e troco inicial de R$ ${trocoNum.toFixed(2)}`,
@@ -3551,7 +3963,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     });
   });
 
-  app.post('/api/turnos/fechar', (req, res) => {
+  app.post('/api/turnos/fechar', async (req, res) => {
     const { turnoId, entregadorId, kmFinal, totalDinheiroInformado, cascosP13Recolhidos, cascosP20LRecolhidos, observacoes } = req.body;
     const empId = getTargetEmpresaId(req) || 'emp1';
 
@@ -3625,6 +4037,21 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       ent.kmInicialAtual = undefined;
       ent.turnoAtivoId = undefined;
       ent.veiculoIdAtual = undefined;
+    }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('turnos_entregador').update(mapTurnoToDb(turno)).eq('id', turno.id);
+        if (vec) {
+          await supabase.from('veiculos').update(mapVeiculoToDb(vec)).eq('id', vec.id);
+        }
+        if (ent) {
+          await supabase.from('entregadores').update(mapEntregadorToDb(ent)).eq('id', ent.id);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Erro ao sincronizar fechamento de turno:', err.message);
     }
 
     res.json({
@@ -4225,7 +4652,11 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
               vasilhames_recolhidos_esperados: it.vasilhamesRecolhidosEsperados,
               vasilhames_recolhidos_reais: it.vasilhamesRecolhidosReais
             }));
-            await supabase.from('itens_pedido').upsert(rowsItens).catch((e: any) => console.warn('[Supabase Sync] Erro itens_pedido:', e));
+            try {
+              await supabase.from('itens_pedido').upsert(rowsItens);
+            } catch (e: any) {
+              console.warn('[Supabase Sync] Erro itens_pedido:', e);
+            }
           }
         }
       } catch (err: any) {
@@ -5254,7 +5685,29 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     try {
       const supabase = getSupabase();
       if (supabase) {
-        await supabase.from('fechamentos_caixa').insert([fechamento]);
+        const fechamentoDb = {
+          id: fechamento.id,
+          empresa_id: fechamento.empresaId,
+          entregador_id: fechamento.entregadorId,
+          entregador_nome: fechamento.entregadorNome,
+          data_inicio: fechamento.data,
+          data_fim: fechamento.data,
+          pedidos_ids: fechamento.pedidosIds,
+          total_entregas: pedidosIds.length,
+          total_dinheiro_esperado: fechamento.totalDinheiroEsperado,
+          total_dinheiro_informado: fechamento.totalDinheiroInformado,
+          total_pix: fechamento.totalPix,
+          total_cartao: fechamento.totalCartao,
+          diferenca_dinheiro: fechamento.diferenca,
+          cascos_p13_recolhidos: fechamento.cascosP13Recolhidos,
+          cascos_p20l_recolhidos: fechamento.cascosP20LRecolhidos,
+          cascos_p13_pendentes: 0,
+          cascos_p20l_pendentes: 0,
+          status: fechamento.status,
+          observacoes: fechamento.observacoes,
+          criado_em: fechamento.data,
+        };
+        await supabase.from('fechamentos_caixa').insert([fechamentoDb]);
 
         // Atualiza todos os pedidos para CONCLUIDO no Supabase
         for (const p of pedidosFechamento) {

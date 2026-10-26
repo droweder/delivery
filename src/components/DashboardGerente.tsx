@@ -54,6 +54,8 @@ import {
 import { ModalEditarPedido } from './ModalEditarPedido';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 
 interface Props {
   pedidos: Pedido[];
@@ -493,151 +495,75 @@ export const DashboardGerente: React.FC<Props> = ({
     document.body.removeChild(link);
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Top Header do Módulo Gerencial com Botão de Menus Integrado */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="6"
-        moduloCor="bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300"
-        titulo="Painel do Gerente & Gestão de Vendas"
-        subtitulo="Auditoria de pedidos, correção de vendas, relatórios financeiros e BI em tempo real"
-      >
-        {/* Seletor de Período Rápido e Ações */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200">
-            <button
-              type="button"
-              onClick={() => setPeriodo('hoje')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'hoje' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Hoje
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodo('ontem')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'ontem' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Ontem
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodo('7dias')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === '7dias' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              7 Dias
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodo('mes')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'mes' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Mês
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodo('todos')}
-              className={`px-2.5 py-1 rounded-lg transition-all ${
-                periodo === 'todos' ? 'bg-[#eaecf0] dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-xs' : 'hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Todos
-            </button>
-          </div>
+  const tabsGerente: TabItem<TabGerente>[] = [
+    { id: 'dashboard', label: 'Dashboard & Indicadores', icon: TrendingUp },
+    { id: 'pedidos', label: 'Gestão de Pedidos', badge: pedidosFiltradosPeriodo.length, icon: ShoppingBag },
+    { id: 'entregadores', label: 'Produtividade Entregadores', icon: Truck },
+    { id: 'financeiro', label: 'DRE & Fechamento', icon: DollarSign },
+  ];
 
+  return (
+    <div className="space-y-4 animate-fade-in">
+      {/* Controles do Gerente Montados na Barra Superior */}
+      <TopBarActions>
+        {/* Seletor de Período Rápido */}
+        <div className="inline-flex bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-300 shrink-0">
+          {(['hoje', 'ontem', '7dias', 'mes', 'todos'] as PeriodoFiltro[]).map((p) => {
+            const labels: Record<PeriodoFiltro, string> = {
+              hoje: 'Hoje',
+              ontem: 'Ontem',
+              '7dias': '7D',
+              mes: 'Mês',
+              todos: 'Todos',
+            };
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPeriodo(p)}
+                className={`px-2 py-1 rounded-lg text-xs transition-all ${
+                  periodo === p
+                    ? 'bg-blue-600 text-white shadow-xs font-black'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+                }`}
+              >
+                {labels[p]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Botão Exportar CSV */}
+        <button
+          type="button"
+          onClick={exportarCSV}
+          title="Exportar todos os pedidos filtrados em arquivo Excel/CSV"
+          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">CSV</span>
+        </button>
+
+        {/* Botão Novo Pedido */}
+        {onNovoPedidoClick && (
           <button
             type="button"
-            onClick={exportarCSV}
-            title="Exportar todos os pedidos filtrados em arquivo Excel/CSV"
-            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-2xs"
+            onClick={onNovoPedidoClick}
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 shrink-0"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden sm:inline">Exportar CSV</span>
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Novo Pedido</span>
           </button>
+        )}
+      </TopBarActions>
 
-          {onNovoPedidoClick && (
-            <button
-              type="button"
-              onClick={onNovoPedidoClick}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Novo Pedido</span>
-            </button>
-          )}
-        </div>
-      </ModuloHeader>
-
-      {/* Sub-Navegação Interna da Gerência */}
-      <div className="bg-[#eaecf0] dark:bg-slate-900 rounded-xl p-2 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-2 text-xs font-bold overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setGerenteSubTab('dashboard')}
-          className={`px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-            gerenteSubTab === 'dashboard'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>Dashboard & Indicadores</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setGerenteSubTab('pedidos')}
-          className={`px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-            gerenteSubTab === 'pedidos'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Gestão & Correção de Pedidos</span>
-          <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-[10px]">
-            {pedidosFiltradosPeriodo.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setGerenteSubTab('entregadores')}
-          className={`px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-            gerenteSubTab === 'entregadores'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <Truck className="w-3.5 h-3.5" />
-          <span>Produtividade dos Entregadores</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setGerenteSubTab('financeiro')}
-          className={`px-3.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
-            gerenteSubTab === 'financeiro'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-          }`}
-        >
-          <DollarSign className="w-3.5 h-3.5" />
-          <span>DRE & Fechamento de Caixa</span>
-        </button>
+      {/* Sub-Navegação Oficial em Pílulas (SegmentedTabs) */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+        <SegmentedTabs
+          tabs={tabsGerente}
+          activeTab={gerenteSubTab}
+          onChange={(tab) => setGerenteSubTab(tab)}
+        />
       </div>
 
       {/* KPI CARDS (Executivo) */}
@@ -961,20 +887,20 @@ export const DashboardGerente: React.FC<Props> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-900 text-white font-bold">
                 <tr>
-                  <th className="p-2.5">Código / Data</th>
-                  <th className="p-2.5">Cliente & Bairro</th>
-                  <th className="p-2.5">Itens do Pedido</th>
-                  <th className="p-2.5">Status</th>
-                  <th className="p-2.5">Entregador</th>
-                  <th className="p-2.5">Pagamento</th>
-                  <th className="p-2.5 text-right">Total (R$)</th>
-                  <th className="p-2.5 text-center w-32">Ações Gerente</th>
+                  <th className="py-2 px-3">Código / Data</th>
+                  <th className="py-2 px-3">Cliente & Bairro</th>
+                  <th className="py-2 px-3">Itens do Pedido</th>
+                  <th className="py-2 px-3">Status</th>
+                  <th className="py-2 px-3">Entregador</th>
+                  <th className="py-2 px-3">Pagamento</th>
+                  <th className="py-2 px-3 text-right">Total (R$)</th>
+                  <th className="py-2 px-3 text-center w-32">Ações Gerente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-[#eaecf0]">
                 {pedidosTabela.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-500 font-medium">
+                    <td colSpan={8} className="py-6 px-3 text-center text-slate-500 font-medium">
                       Nenhum pedido encontrado para os filtros selecionados.
                     </td>
                   </tr>
@@ -986,13 +912,13 @@ export const DashboardGerente: React.FC<Props> = ({
                     return (
                       <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                         {/* Código / Data */}
-                        <td className="p-2.5 whitespace-nowrap">
+                        <td className="py-1.5 px-3 whitespace-nowrap">
                           <div className="font-black text-slate-900">{p.codigo}</div>
                           <span className="text-[10px] text-slate-500 font-semibold">{horaFormatada} • v#{p.versao}</span>
                         </td>
 
                         {/* Cliente & Bairro */}
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="font-bold text-slate-900">{p.cliente?.nome}</div>
                           <div className="text-[11px] text-slate-600 truncate max-w-[200px]">
                             {p.cliente?.endereco}, {p.cliente?.numero} ({p.cliente?.bairroNome})
@@ -1000,7 +926,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Itens */}
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="text-[11px] text-slate-800 font-medium line-clamp-2 max-w-[220px]">
                             {p.itens.map((it) => `${it.quantidade}x ${it.nomeProduto}`).join(', ')}
                           </div>
@@ -1012,7 +938,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Status */}
-                        <td className="p-2.5 whitespace-nowrap">
+                        <td className="py-1.5 px-3 whitespace-nowrap">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
                               p.status === 'CONCLUIDO'
@@ -1031,7 +957,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Entregador */}
-                        <td className="p-2.5 whitespace-nowrap">
+                        <td className="py-1.5 px-3 whitespace-nowrap">
                           {p.entregadorNome ? (
                             <span className="font-bold text-slate-800 text-[11px] flex items-center gap-1">
                               <Truck className="w-3 h-3 text-blue-600" />
@@ -1043,7 +969,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Pagamento */}
-                        <td className="p-2.5 whitespace-nowrap">
+                        <td className="py-1.5 px-3 whitespace-nowrap">
                           <span className="font-bold text-slate-900 text-[11px]">
                             {forma === 'PIX'
                               ? '⚡ PIX'
@@ -1063,7 +989,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Total */}
-                        <td className="p-2.5 text-right whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-right whitespace-nowrap">
                           <strong className="text-slate-950 text-sm font-black">
                             R$ {p.total.toFixed(2)}
                           </strong>
@@ -1075,7 +1001,7 @@ export const DashboardGerente: React.FC<Props> = ({
                         </td>
 
                         {/* Ações do Gerente */}
-                        <td className="p-2.5 text-center whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1">
                             {/* Botão Editar / Corrigir */}
                             <button

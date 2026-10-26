@@ -67,6 +67,7 @@ import {
 import { ModalDevolverPedido } from './ModalDevolverPedido';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 
 interface Props {
   entregadores: Entregador[];
@@ -731,30 +732,17 @@ export const AppEntregador: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Tab Navigation in Mobile App */}
-          <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-xl mb-3">
-            <button
-              type="button"
-              onClick={() => setAbaMobile('ROTA')}
-              className={`flex-1 text-center py-1.5 rounded-lg font-black text-xs transition-all ${
-                abaMobile === 'ROTA'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Rota Ativa ({pedidosPendentesNaRota.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setAbaMobile('CONCLUIDAS')}
-              className={`flex-1 text-center py-1.5 rounded-lg font-black text-xs transition-all ${
-                abaMobile === 'CONCLUIDAS'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Concluídas ({pedidosHistoricoEntregues.length})
-            </button>
+          {/* Tab Navigation in Mobile App padronizada */}
+          <div className="mb-3">
+            <SegmentedTabs<'ROTA' | 'CONCLUIDAS'>
+              className="w-full justify-center"
+              tabs={[
+                { id: 'ROTA', label: 'Rota Ativa', badge: pedidosPendentesNaRota.length },
+                { id: 'CONCLUIDAS', label: 'Concluídas', badge: pedidosHistoricoEntregues.length },
+              ]}
+              activeTab={abaMobile}
+              onChange={(tab) => setAbaMobile(tab)}
+            />
           </div>
 
           {/* Deliveries List */}

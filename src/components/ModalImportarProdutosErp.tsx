@@ -455,15 +455,15 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-900 text-white font-bold sticky top-0">
                     <tr>
-                      <th className="p-2.5">Código</th>
-                      <th className="p-2.5">Nome do Produto</th>
-                      <th className="p-2.5">Marca</th>
-                      <th className="p-2.5">Preço Unit.</th>
-                      <th className="p-2.5">Unidade Medida</th>
-                      <th className="p-2.5">Categoria</th>
-                      <th className="p-2.5">Vasilhame</th>
-                      <th className="p-2.5 text-center">Destaque</th>
-                      <th className="p-2.5 text-center">Status</th>
+                      <th className="py-2 px-3">Código</th>
+                      <th className="py-2 px-3">Nome do Produto</th>
+                      <th className="py-2 px-3">Marca</th>
+                      <th className="py-2 px-3">Preço Unit.</th>
+                      <th className="py-2 px-3">Unidade Medida</th>
+                      <th className="py-2 px-3">Categoria</th>
+                      <th className="py-2 px-3">Vasilhame</th>
+                      <th className="py-2 px-3 text-center">Destaque</th>
+                      <th className="py-2 px-3 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 bg-[#eaecf0]">
@@ -474,18 +474,18 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                           !item.valido ? 'bg-rose-50/70 text-rose-900' : ''
                         }`}
                       >
-                        <td className="p-2 font-mono font-bold text-slate-700">{item.codigo || '-'}</td>
-                        <td className="p-2 font-bold text-slate-900">{item.nome}</td>
-                        <td className="p-2 text-slate-600">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold">
+                        <td className="py-1.5 px-3 font-mono font-bold text-slate-700">{item.codigo || '-'}</td>
+                        <td className="py-1.5 px-3 font-bold text-slate-900">{item.nome}</td>
+                        <td className="py-1.5 px-3 text-slate-600">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold text-[10px]">
                             {item.marca || 'Conveniência'}
                           </span>
                         </td>
-                        <td className="p-2 font-black text-emerald-700 whitespace-nowrap">
+                        <td className="py-1.5 px-3 font-black text-emerald-700 whitespace-nowrap">
                           {formatarMoeda(item.preco)}
                         </td>
-                        <td className="p-2 text-slate-600 font-semibold">{item.unidadeMedida || 'UN'}</td>
-                        <td className="p-2">
+                        <td className="py-1.5 px-3 text-slate-600 font-semibold">{item.unidadeMedida || 'UN'}</td>
+                        <td className="py-1.5 px-3">
                           <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
                               item.categoria === 'GAS'
@@ -500,16 +500,16 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                             {item.categoria}
                           </span>
                         </td>
-                        <td className="p-2">
+                        <td className="py-1.5 px-3">
                           {item.tipoVasilhame && item.tipoVasilhame !== 'NENHUM' ? (
-                            <span className="inline-flex items-center gap-1 font-bold text-amber-700">
+                            <span className="inline-flex items-center gap-1 font-bold text-amber-700 text-xs">
                               <Layers className="w-3 h-3" /> {item.tipoVasilhame}
                             </span>
                           ) : (
                             <span className="text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="py-1.5 px-3 text-center">
                           {marcarTodosComoMaisUtilizados || item.maisUtilizado ? (
                             <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-black text-[10px]">
                               ⭐ SIM
@@ -518,14 +518,14 @@ export const ModalImportarProdutosErp: React.FC<Props> = ({
                             <span className="text-slate-400 text-[10px]">Não</span>
                           )}
                         </td>
-                        <td className="p-2 text-center whitespace-nowrap">
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
                           {item.valido ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                            <span className="inline-flex items-center gap-1 text-emerald-700 font-bold text-xs">
                               <CheckCircle2 className="w-3.5 h-3.5" /> Válido
                             </span>
                           ) : (
                             <span
-                              className="inline-flex items-center gap-1 text-rose-700 font-bold"
+                              className="inline-flex items-center gap-1 text-rose-700 font-bold text-xs"
                               title={item.erro}
                             >
                               <AlertTriangle className="w-3.5 h-3.5" /> {item.erro}

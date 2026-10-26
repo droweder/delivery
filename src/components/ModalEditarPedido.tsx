@@ -724,12 +724,12 @@ export const ModalEditarPedido: React.FC<Props> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                   <tr>
-                    <th className="p-2">Produto</th>
-                    <th className="p-2 w-32">Modalidade</th>
-                    <th className="p-2 w-24 text-center">Qtd</th>
-                    <th className="p-2 w-28 text-right">Preço Unit (R$)</th>
-                    <th className="p-2 w-28 text-right">Subtotal (R$)</th>
-                    <th className="p-2 w-12 text-center">Ação</th>
+                    <th className="py-1.5 px-2.5">Produto</th>
+                    <th className="py-1.5 px-2.5 w-32">Modalidade</th>
+                    <th className="py-1.5 px-2.5 w-24 text-center">Qtd</th>
+                    <th className="py-1.5 px-2.5 w-28 text-right">Preço Unit (R$)</th>
+                    <th className="py-1.5 px-2.5 w-28 text-right">Subtotal (R$)</th>
+                    <th className="py-1.5 px-2.5 w-12 text-center">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -737,7 +737,7 @@ export const ModalEditarPedido: React.FC<Props> = ({
                     const prod = produtos.find((p) => p.id === item.produtoId);
                     return (
                       <tr key={item.id || idx} className="hover:bg-slate-50">
-                        <td className="p-2">
+                        <td className="py-1 px-2.5">
                           <div className="font-bold text-slate-900">{item.nomeProduto}</div>
                           {item.tipoVasilhame !== 'NENHUM' && (
                             <span className="text-[10px] text-amber-700 font-semibold">
@@ -745,12 +745,12 @@ export const ModalEditarPedido: React.FC<Props> = ({
                             </span>
                           )}
                         </td>
-                        <td className="p-2">
+                        <td className="py-1 px-2.5">
                           {prod?.permiteVendaCasco ? (
                             <select
                               value={item.tipoVenda}
                               onChange={(e) => handleAlterarTipoVenda(idx, e.target.value as TipoVendaItem)}
-                              className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-1 font-semibold text-slate-800"
+                              className="w-full text-[11px] border border-slate-300 rounded px-1.5 py-0.5 font-semibold text-slate-800"
                             >
                               <option value="RECARGA">Recarga (Gás/Água)</option>
                               <option value="COMPLETO">Completo (Com Casco)</option>
@@ -759,47 +759,47 @@ export const ModalEditarPedido: React.FC<Props> = ({
                             <span className="text-[11px] font-semibold text-slate-600">Unitário / Venda</span>
                           )}
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="py-1 px-2.5 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button
                               type="button"
                               onClick={() => handleAlterarQtdItem(idx, item.quantidade - 1)}
                               disabled={item.quantidade <= 1}
-                              className="w-6 h-6 rounded bg-slate-200 text-slate-800 font-bold hover:bg-slate-300 disabled:opacity-40"
+                              className="w-5 h-5 rounded bg-slate-200 text-slate-800 font-bold hover:bg-slate-300 disabled:opacity-40 text-xs"
                             >
                               -
                             </button>
-                            <span className="w-6 font-bold text-slate-900">{item.quantidade}</span>
+                            <span className="w-5 font-bold text-slate-900 text-xs">{item.quantidade}</span>
                             <button
                               type="button"
                               onClick={() => handleAlterarQtdItem(idx, item.quantidade + 1)}
-                              className="w-6 h-6 rounded bg-slate-200 text-slate-800 font-bold hover:bg-slate-300"
+                              className="w-5 h-5 rounded bg-slate-200 text-slate-800 font-bold hover:bg-slate-300 text-xs"
                             >
                               +
                             </button>
                           </div>
                         </td>
-                        <td className="p-2 text-right">
+                        <td className="py-1 px-2.5 text-right">
                           <input
                             type="number"
                             step="0.5"
                             min="0"
                             value={item.precoUnitario}
                             onChange={(e) => handleAlterarPrecoItem(idx, Number(e.target.value))}
-                            className="w-20 text-right border border-slate-300 rounded px-1.5 py-0.5 text-slate-900 font-semibold"
+                            className="w-20 text-right border border-slate-300 rounded px-1 py-0.5 text-slate-900 font-semibold text-xs"
                           />
                         </td>
-                        <td className="p-2 text-right font-bold text-slate-900">
+                        <td className="py-1 px-2.5 text-right font-bold text-slate-900 text-xs">
                           R$ {(item.precoUnitario * item.quantidade).toFixed(2)}
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="py-1 px-2.5 text-center">
                           <button
                             type="button"
                             onClick={() => handleRemoverItem(idx)}
                             className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700"
                             title="Remover Item"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </td>
                       </tr>

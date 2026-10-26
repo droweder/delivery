@@ -14,6 +14,7 @@ import {
   TrendingUp,
   FolderKanban,
   Users,
+  History,
   ChevronDown,
   Menu,
   X,
@@ -34,6 +35,7 @@ export type MainTab =
   | 'acerto'
   | 'vasilhames'
   | 'gerencia'
+  | 'jornadas'
   | 'cadastros'
   | 'usuarios'
   | 'entregador';
@@ -141,8 +143,20 @@ export const Navbar: React.FC<Props> = ({
         Boolean(usuarioLogado?.permissoes?.verDashboardGerencial),
     },
     {
+      id: 'jornadas',
+      label: '6. Jornadas & Rastreio',
+      shortLabel: 'Jornadas',
+      icon: History,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        usuarioLogado?.perfil === 'GERENTE' ||
+        Boolean(usuarioLogado?.permissoes?.verDashboardGerencial) ||
+        Boolean(usuarioLogado?.permissoes?.acessarCadastros),
+    },
+    {
       id: 'cadastros',
-      label: '6. Central de Cadastros',
+      label: '7. Central de Cadastros',
       shortLabel: 'Cadastros',
       icon: FolderKanban,
       permitido:
@@ -152,7 +166,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'usuarios',
-      label: '7. Gestão de Usuários & Permissões',
+      label: '8. Gestão de Usuários & Permissões',
       shortLabel: 'Usuários & Permissões',
       icon: Users,
       permitido:

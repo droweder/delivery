@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 
 interface Props {
   usuarios: Usuario[];
@@ -158,6 +160,76 @@ const LISTA_PERMISSOES_DETALHADAS: Array<{
   },
 ];
 
+export type AbaUsuarios = 'TODOS' | 'ADMIN' | 'GERENTE' | 'ATENDENTE_PDV' | 'ENTREGADOR' | 'MATRIZ_PERMISSOES';
+
+const PERMISSOES_PADRAO_PERFIL: Record<PerfilUsuario, Partial<Record<keyof PermissoesUsuario, boolean>>> = {
+  SUPER_ADMIN: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: true,
+    importarErp: true,
+  },
+  ADMIN: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: true,
+    importarErp: true,
+  },
+  GERENTE: {
+    emitirPedidos: true,
+    despacharPedidos: true,
+    cancelarPedidos: true,
+    editarPedidos: true,
+    devolverPedidos: true,
+    realizarAcertoCaixa: true,
+    ajustarEstoque: true,
+    verDashboardGerencial: true,
+    acessarCadastros: true,
+    gerenciarUsuarios: false,
+    importarErp: true,
+  },
+  ATENDENTE_PDV: {
+    emitirPedidos: true,
+    despacharPedidos: false,
+    cancelarPedidos: false,
+    editarPedidos: true,
+    devolverPedidos: false,
+    realizarAcertoCaixa: false,
+    ajustarEstoque: false,
+    verDashboardGerencial: false,
+    acessarCadastros: true,
+    gerenciarUsuarios: false,
+    importarErp: false,
+  },
+  ENTREGADOR: {
+    emitirPedidos: false,
+    despacharPedidos: true,
+    cancelarPedidos: false,
+    editarPedidos: false,
+    devolverPedidos: true,
+    realizarAcertoCaixa: false,
+    ajustarEstoque: false,
+    verDashboardGerencial: false,
+    acessarCadastros: false,
+    gerenciarUsuarios: false,
+    importarErp: false,
+  },
+};
+
 export const GestaoUsuarios: React.FC<Props> = ({
   usuarios,
   entregadores,
@@ -174,7 +246,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
   onTrocarUsuarioAtivo,
 }) => {
   const [busca, setBusca] = useState('');
-  const [filtroPerfil, setFiltroPerfil] = useState<string>('TODOS');
+  const [abaAtiva, setAbaAtiva] = useState<AbaUsuarios>('TODOS');
   const [usuarioModal, setUsuarioModal] = useState<Partial<Usuario> | null>(null);
   const [isEditando, setIsEditando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -185,10 +257,19 @@ export const GestaoUsuarios: React.FC<Props> = ({
     const matchBusca =
       u.nome.toLowerCase().includes(busca.toLowerCase()) ||
       u.login.toLowerCase().includes(busca.toLowerCase()) ||
-      (u.cargo && u.cargo.toLowerCase().includes(busca.toLowerCase()));
-    const matchPerfil = filtroPerfil === 'TODOS' || u.perfil === filtroPerfil;
+      (u.cargo && u.cargo.toLowerCase().includes(busca.toLowerCase())) ||
+      (u.email && u.email.toLowerCase().includes(busca.toLowerCase())) ||
+      (u.telefone && u.telefone.includes(busca));
+    const matchPerfil = abaAtiva === 'TODOS' || u.perfil === abaAtiva;
     return matchBusca && matchPerfil;
   });
+
+  const permissoesFiltradas = LISTA_PERMISSOES_DETALHADAS.filter(
+    (p) =>
+      p.titulo.toLowerCase().includes(busca.toLowerCase()) ||
+      p.descricao.toLowerCase().includes(busca.toLowerCase()) ||
+      p.categoria.toLowerCase().includes(busca.toLowerCase())
+  );
 
   const abrirModalNovo = () => {
     setUsuarioModal({
@@ -354,278 +435,440 @@ export const GestaoUsuarios: React.FC<Props> = ({
     }
   };
 
+  const tabsUsuarios: TabItem<AbaUsuarios>[] = [
+    { id: 'TODOS', label: 'Todos os Usuários', badge: usuarios.length, icon: Users },
+    { id: 'ADMIN', label: 'Admins', badge: usuarios.filter((u) => u.perfil === 'ADMIN').length, icon: Shield },
+    { id: 'GERENTE', label: 'Gerentes', badge: usuarios.filter((u) => u.perfil === 'GERENTE').length, icon: Sliders },
+    { id: 'ATENDENTE_PDV', label: 'Atendentes PDV', badge: usuarios.filter((u) => u.perfil === 'ATENDENTE_PDV').length, icon: ShoppingBag },
+    { id: 'ENTREGADOR', label: 'Entregadores', badge: usuarios.filter((u) => u.perfil === 'ENTREGADOR').length, icon: Truck },
+    { id: 'MATRIZ_PERMISSOES', label: 'Matriz de Permissões', icon: KeyRound },
+  ];
+
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Top Header Card com Botão de Menus Integrado */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="7"
-        moduloCor="bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300"
-        titulo="Gestão de Usuários & Permissões"
-        subtitulo="Controle de acesso dos colaboradores, emissão de pedidos por atendente, entregas por motorista e trilha de auditoria completa em cada etapa do pedido."
-      >
-        <div className="flex items-center gap-2">
-          <button
-            onClick={abrirModalNovo}
-            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Colaborador</span>
-          </button>
+      {/* Ações e Pesquisa Contextuais Montadas Diretamente na Barra Superior */}
+      <TopBarActions>
+        {/* Barra de Busca de Usuários na TopBar */}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder={
+              abaAtiva === 'MATRIZ_PERMISSOES'
+                ? 'Buscar permissão...'
+                : 'Buscar por nome, login, cargo...'
+            }
+            className="w-36 sm:w-56 pl-8 pr-7 py-1.5 text-xs rounded-xl bg-slate-800 border border-slate-700 focus:border-blue-500 text-white placeholder-slate-400 focus:outline-none transition-all shadow-inner"
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs cursor-pointer"
+            >
+              ×
+            </button>
+          )}
         </div>
-      </ModuloHeader>
 
-      {/* Audit & Role Flow Highlights */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
-        <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
-          Trilha de Auditoria e Responsabilidades no Sistema
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-xs">
-              <ShoppingBag className="w-4 h-4" />
-              <span>Quem Emitiu o Pedido</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Vinculado ao atendente/caixa logado no momento da venda.
-            </p>
-          </div>
+        {/* Botão Novo Colaborador */}
+        <button
+          onClick={abrirModalNovo}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0 cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Novo Colaborador</span>
+        </button>
+      </TopBarActions>
 
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs">
-              <Sliders className="w-4 h-4" />
-              <span>Quem Despachou</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Registrado na atribuição da rota no Kanban pelo gerente.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
-              <Truck className="w-4 h-4" />
-              <span>Quem Entregou</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Registrado na baixa de entrega com GPS e cascos recolhidos.
-            </p>
-          </div>
-
-          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
-              <RotateCcw className="w-4 h-4" />
-              <span>Devolução p/ Correção</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Permite ao entregador devolver pedidos com motivo para o emitente.
-            </p>
-          </div>
-        </div>
+      {/* Sub-Navegação Oficial em Pílulas (SegmentedTabs) por Perfil e Matriz */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+        <SegmentedTabs
+          tabs={tabsUsuarios}
+          activeTab={abaAtiva}
+          onChange={(tab) => {
+            setAbaAtiva(tab);
+            setBusca('');
+          }}
+        />
       </div>
 
       {mensagemSucesso && (
-        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs sm:text-sm font-semibold flex items-center gap-2 animate-fade-in">
+        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs sm:text-sm font-semibold flex items-center gap-2 animate-fade-in shadow-xs">
           <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
           <span>{mensagemSucesso}</span>
         </div>
       )}
 
-      {/* Filters Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por nome, login ou cargo..."
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-blue-500 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden transition-colors"
-          />
-        </div>
+      {/* ========================================================================= */}
+      {/* ABA: TABELA DE USUÁRIOS (TODOS OU FILTRADO POR PERFIL)                    */}
+      {/* ========================================================================= */}
+      {abaAtiva !== 'MATRIZ_PERMISSOES' && (
+        usuariosFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+            <Users className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-base font-bold text-slate-700 dark:text-slate-200">
+              Nenhum colaborador encontrado
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Ajuste os filtros de pesquisa ou cadastre um novo colaborador.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3">Colaborador / Acesso</th>
+                    <th className="py-2 px-3">Perfil / Nível</th>
+                    <th className="py-2 px-3">Cargo / Função</th>
+                    <th className="py-2 px-3">Contato</th>
+                    <th className="py-2 px-3 text-center">PIN Acesso</th>
+                    <th className="py-2 px-3 text-center">Permissões</th>
+                    <th className="py-2 px-3 text-center">Status</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {usuariosFiltrados.map((u) => {
+                    const perfilInfo = PERFIS_INFO[u.perfil] || PERFIS_INFO.ATENDENTE_PDV;
+                    const PerfilIcon = perfilInfo.icon;
+                    const isCurrentUser = usuarioLogado?.id === u.id;
+                    const totalPermissoesAtivas = Object.values(u.permissoes || {}).filter(Boolean).length;
 
-        <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          {(['TODOS', 'ADMIN', 'GERENTE', 'ATENDENTE_PDV', 'ENTREGADOR'] as const).map((perfil) => (
-            <button
-              key={perfil}
-              onClick={() => setFiltroPerfil(perfil)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                filtroPerfil === perfil
-                  ? 'bg-slate-900 text-white dark:bg-blue-600 shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
-              }`}
-            >
-              {perfil === 'TODOS'
-                ? 'Todos os Perfis'
-                : perfil === 'ADMIN'
-                ? 'Admins'
-                : perfil === 'GERENTE'
-                ? 'Gerentes'
-                : perfil === 'ATENDENTE_PDV'
-                ? 'Atendentes'
-                : 'Entregadores'}
-            </button>
-          ))}
-        </div>
-      </div>
+                    return (
+                      <tr
+                        key={u.id}
+                        className={`hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group ${
+                          isCurrentUser ? 'bg-blue-50/20 dark:bg-blue-950/20' : ''
+                        }`}
+                      >
+                        {/* Colaborador / Acesso */}
+                        <td className="py-1.5 px-3">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-black text-[11px] text-white shadow-xs shrink-0 ${
+                                u.perfil === 'SUPER_ADMIN'
+                                  ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-slate-950'
+                                  : u.perfil === 'ADMIN'
+                                  ? 'bg-gradient-to-br from-purple-600 to-indigo-700'
+                                  : u.perfil === 'GERENTE'
+                                  ? 'bg-gradient-to-br from-blue-600 to-cyan-700'
+                                  : u.perfil === 'ENTREGADOR'
+                                  ? 'bg-gradient-to-br from-amber-500 to-orange-600'
+                                  : 'bg-gradient-to-br from-emerald-500 to-teal-700'
+                              }`}
+                            >
+                              {u.nome
+                                .split(' ')
+                                .map((n) => n[0])
+                                .slice(0, 2)
+                                .join('')
+                                .toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900 dark:text-white truncate">
+                                  {u.nome}
+                                </span>
+                                {isCurrentUser && (
+                                  <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-[9px] font-black shrink-0">
+                                    VOCÊ
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                @{u.login}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
 
-      {/* Users Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {usuariosFiltrados.map((u) => {
-          const perfilInfo = PERFIS_INFO[u.perfil] || PERFIS_INFO.ATENDENTE_PDV;
-          const PerfilIcon = perfilInfo.icon;
-          const isCurrentUser = usuarioLogado?.id === u.id;
-
-          const totalPermissoesAtivas = Object.values(u.permissoes || {}).filter(Boolean).length;
-
-          return (
-            <div
-              key={u.id}
-              className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between ${
-                isCurrentUser
-                  ? 'border-blue-500 ring-2 ring-blue-500/20'
-                  : u.ativo
-                  ? 'border-slate-200 dark:border-slate-800'
-                  : 'border-rose-200 dark:border-rose-900/50 opacity-70 bg-rose-50/20'
-              }`}
-            >
-              <div className="space-y-3">
-                {/* User Top Row */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-sm text-white shadow-xs ${
-                        u.perfil === 'SUPER_ADMIN'
-                          ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-slate-950'
-                          : u.perfil === 'ADMIN'
-                          ? 'bg-gradient-to-br from-purple-600 to-indigo-700'
-                          : u.perfil === 'GERENTE'
-                          ? 'bg-gradient-to-br from-blue-600 to-cyan-700'
-                          : u.perfil === 'ENTREGADOR'
-                          ? 'bg-gradient-to-br from-amber-500 to-orange-600'
-                          : 'bg-gradient-to-br from-emerald-500 to-teal-700'
-                      }`}
-                    >
-                      {u.nome
-                        .split(' ')
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join('')
-                        .toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="font-black text-sm text-slate-900 dark:text-white">{u.nome}</h4>
-                        {isCurrentUser && (
-                          <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-[10px] font-black">
-                            VOCÊ
+                        {/* Perfil / Nível */}
+                        <td className="py-1.5 px-3 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${perfilInfo.badgeClass}`}
+                          >
+                            <PerfilIcon className="w-3 h-3 shrink-0" />
+                            <span>{perfilInfo.label}</span>
                           </span>
+                        </td>
+
+                        {/* Cargo / Função */}
+                        <td className="py-1.5 px-3 text-slate-700 dark:text-slate-300">
+                          <span className="font-semibold text-xs">{u.cargo || 'Não especificado'}</span>
+                        </td>
+
+                        {/* Contato */}
+                        <td className="py-1.5 px-3 whitespace-nowrap">
+                          {u.telefone || u.email ? (
+                            <div className="space-y-0.5 text-[11px]">
+                              {u.telefone && (
+                                <div className="flex items-center gap-1 text-slate-700 dark:text-slate-300">
+                                  <Phone className="w-3 h-3 text-slate-400" />
+                                  <span>{u.telefone}</span>
+                                </div>
+                              )}
+                              {u.email && (
+                                <div className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                                  <Mail className="w-3 h-3 text-slate-400" />
+                                  <span className="truncate max-w-[150px]">{u.email}</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </td>
+
+                        {/* PIN Acesso */}
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold">
+                            <KeyRound className="w-3 h-3 text-slate-400" />
+                            <span>•••• ({u.pinAcesso || '1234'})</span>
+                          </span>
+                        </td>
+
+                        {/* Permissões */}
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black ${
+                              totalPermissoesAtivas >= 10
+                                ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                                : totalPermissoesAtivas >= 6
+                                ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <Shield className="w-3 h-3 shrink-0" />
+                            <span>{totalPermissoesAtivas} de {LISTA_PERMISSOES_DETALHADAS.length}</span>
+                          </span>
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-1.5 px-3 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => onToggleAtivo(u.id)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all active:scale-95 ${
+                              u.ativo
+                                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : 'bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            }`}
+                            title={u.ativo ? 'Clique para desativar acesso' : 'Clique para ativar acesso'}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${u.ativo ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                            <span>{u.ativo ? 'Ativo' : 'Inativo'}</span>
+                          </button>
+                        </td>
+
+                        {/* Ações */}
+                        <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1">
+                            {onTrocarUsuarioAtivo && !isCurrentUser && u.ativo && (
+                              <button
+                                type="button"
+                                onClick={() => onTrocarUsuarioAtivo(u)}
+                                className="px-1.5 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold transition-colors cursor-pointer"
+                                title="Assumir sessão deste usuário para testes"
+                              >
+                                Assumir
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => abrirModalEditar(u)}
+                              className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="Editar usuário e permissões"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            {usuarios.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Deseja realmente excluir o colaborador "${u.nome}"?`)) {
+                                    onExcluirUsuario(u.id);
+                                  }
+                                }}
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="Excluir colaborador"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer */}
+            <div className="py-3 px-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 dark:text-slate-400 gap-2">
+              <span>
+                Mostrando <strong>{usuariosFiltrados.length}</strong> de <strong>{usuarios.length}</strong> colaboradores cadastrados
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Dica: Clique no Status do usuário para ativar ou bloquear o acesso imediatamente.
+              </span>
+            </div>
+          </div>
+        )
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: MATRIZ DE PERMISSÕES & AUDITORIA                                     */}
+      {/* ========================================================================= */}
+      {abaAtiva === 'MATRIZ_PERMISSOES' && (
+        <div className="space-y-4">
+          {/* Matriz Comparativa Table */}
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-800/40">
+              <div>
+                <h3 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-blue-500" />
+                  <span>Matriz de Acessos e Perfis do Sistema</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Comparativo de regras padrão e permissões operacionais configuráveis por perfil.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 self-start sm:self-auto">
+                {permissoesFiltradas.length} permissões auditáveis
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3">Funcionalidade / Regra</th>
+                    <th className="py-2 px-3">Categoria</th>
+                    <th className="py-2 px-3 text-center">Super Admin</th>
+                    <th className="py-2 px-3 text-center">Admin</th>
+                    <th className="py-2 px-3 text-center">Gerente</th>
+                    <th className="py-2 px-3 text-center">Atendente PDV</th>
+                    <th className="py-2 px-3 text-center">Entregador</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {permissoesFiltradas.map((perm) => (
+                    <tr
+                      key={perm.chave}
+                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      <td className="py-1.5 px-3">
+                        <div className="font-bold text-slate-900 dark:text-white text-xs">{perm.titulo}</div>
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">{perm.descricao}</div>
+                      </td>
+                      <td className="py-1.5 px-3 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          {perm.categoria}
+                        </span>
+                      </td>
+
+                      {/* Super Admin */}
+                      <td className="py-1.5 px-3 text-center">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" />
+                      </td>
+
+                      {/* Admin */}
+                      <td className="py-1.5 px-3 text-center">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" />
+                      </td>
+
+                      {/* Gerente */}
+                      <td className="py-1.5 px-3 text-center">
+                        {PERMISSOES_PADRAO_PERFIL.GERENTE[perm.chave] ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 mx-auto" />
                         )}
-                      </div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">@{u.login}</p>
-                    </div>
-                  </div>
+                      </td>
 
-                  <span
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${perfilInfo.badgeClass}`}
-                  >
-                    {perfilInfo.label}
-                  </span>
+                      {/* Atendente PDV */}
+                      <td className="py-1.5 px-3 text-center">
+                        {PERMISSOES_PADRAO_PERFIL.ATENDENTE_PDV[perm.chave] ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 mx-auto" />
+                        )}
+                      </td>
+
+                      {/* Entregador */}
+                      <td className="py-1.5 px-3 text-center">
+                        {PERMISSOES_PADRAO_PERFIL.ENTREGADOR[perm.chave] ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mx-auto" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-slate-300 dark:text-slate-600 mx-auto" />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Audit & Role Flow Highlights */}
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
+              Trilha de Auditoria e Responsabilidades no Sistema
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold text-xs">
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Quem Emitiu o Pedido</span>
                 </div>
-
-                {/* Info Pills */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-semibold">Cargo / Função</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">
-                      {u.cargo || 'Não especificado'}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-semibold">PIN de Acesso</span>
-                    <span className="font-mono font-black text-slate-800 dark:text-slate-200">
-                      •••• ({u.pinAcesso || '1234'})
-                    </span>
-                  </div>
-                </div>
-
-                {/* Permissions summary */}
-                <div className="p-2.5 rounded-xl bg-blue-50/50 dark:bg-slate-800/40 border border-blue-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                    <Shield className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Permissões Habilitadas:</span>
-                  </div>
-                  <span className="font-black text-blue-600 dark:text-blue-400">
-                    {totalPermissoesAtivas} de {LISTA_PERMISSOES_DETALHADAS.length}
-                  </span>
-                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  Vinculado ao atendente/caixa logado no momento da venda.
+                </p>
               </div>
 
-              {/* Action Buttons */}
-              <div className="pt-4 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => onToggleAtivo(u.id)}
-                    title={u.ativo ? 'Desativar usuário' : 'Ativar usuário'}
-                    className={`p-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-                      u.ativo
-                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
-                        : 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
-                    }`}
-                  >
-                    {u.ativo ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
-                    <span className="text-[11px]">{u.ativo ? 'Ativo' : 'Inativo'}</span>
-                  </button>
-
-                  {onTrocarUsuarioAtivo && !isCurrentUser && u.ativo && (
-                    <button
-                      onClick={() => onTrocarUsuarioAtivo(u)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold transition-colors"
-                      title="Entrar como este usuário para teste"
-                    >
-                      Assumir Sessão
-                    </button>
-                  )}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                  <Sliders className="w-4 h-4" />
+                  <span>Quem Despachou</span>
                 </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  Registrado na atribuição da rota no Kanban pelo gerente.
+                </p>
+              </div>
 
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => abrirModalEditar(u)}
-                    className="p-2 rounded-xl text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors"
-                    title="Editar dados e permissões"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  {usuarios.length > 1 && (
-                    <button
-                      onClick={() => {
-                        if (confirm(`Deseja realmente excluir o usuário "${u.nome}"?`)) {
-                          onExcluirUsuario(u.id);
-                        }
-                      }}
-                      className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
-                      title="Excluir usuário"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                  <Truck className="w-4 h-4" />
+                  <span>Quem Entregou</span>
                 </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  Registrado na baixa de entrega com GPS e cascos recolhidos.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Devolução p/ Correção</span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                  Permite ao entregador devolver pedidos com motivo para o emitente.
+                </p>
               </div>
             </div>
-          );
-        })}
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Criação / Edição de Usuário */}
       {usuarioModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
             {/* Modal Header */}
             <div className="bg-slate-50 dark:bg-slate-800/80 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -675,7 +918,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                       value={usuarioModal.nome || ''}
                       onChange={(e) => setUsuarioModal({ ...usuarioModal, nome: e.target.value })}
                       placeholder="Ex: João da Silva"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
                     />
                   </div>
 
@@ -693,7 +936,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                         setUsuarioModal({ ...usuarioModal, email: val, login: val });
                       }}
                       placeholder="Ex: joao@empresa.com.br"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 font-mono text-xs"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500 font-mono text-xs"
                     />
                   </div>
 
@@ -706,7 +949,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                       value={usuarioModal.cargo || ''}
                       onChange={(e) => setUsuarioModal({ ...usuarioModal, cargo: e.target.value })}
                       placeholder="Ex: Caixa / Atendente PDV"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
                     />
                   </div>
 
@@ -721,7 +964,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                       value={usuarioModal.pinAcesso || ''}
                       onChange={(e) => setUsuarioModal({ ...usuarioModal, pinAcesso: e.target.value })}
                       placeholder="1234"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-hidden focus:border-blue-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-hidden focus:border-blue-500"
                     />
                   </div>
 
@@ -734,7 +977,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                       value={usuarioModal.telefone || ''}
                       onChange={(e) => setUsuarioModal({ ...usuarioModal, telefone: e.target.value })}
                       placeholder="(11) 98888-7777"
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
                     />
                   </div>
 
@@ -747,7 +990,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
                       onChange={(e) =>
                         setUsuarioModal({ ...usuarioModal, entregadorIdVinculado: e.target.value || undefined })
                       }
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-hidden focus:border-blue-500"
                     >
                       <option value="">Nenhum vínculo (Não é motorista)</option>
                       {entregadores.map((ent) => (

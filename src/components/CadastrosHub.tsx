@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LocationPickerMap } from './LocationPickerMap';
-import { BairroTaxa, Cliente, Colaborador, Entregador, Produto, TipoVasilhame, TurnoEntregador, Usuario, Veiculo } from '../types';
+import { BairroTaxa, Cliente, Colaborador, Entregador, Produto, TipoVasilhame, Usuario, Veiculo } from '../types';
 import { GestaoVeiculos } from './GestaoVeiculos';
 import { GestaoColaboradores } from './GestaoColaboradores';
-import { AbaHistoricoJornadas } from './AbaHistoricoJornadas';
 import { formatarMoeda } from '../lib/thermalPrinter';
 import {
   FolderKanban,
@@ -42,6 +41,8 @@ import {
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 import {
   apenasDigitos,
   consultarCep,
@@ -62,7 +63,6 @@ interface Props {
   bairros: BairroTaxa[];
   veiculos?: Veiculo[];
   colaboradores?: Colaborador[];
-  turnos?: TurnoEntregador[];
   usuarios?: Usuario[];
   usuarioLogado?: Usuario | null;
   activeTab?: MainTab;
@@ -86,7 +86,7 @@ interface Props {
   onImportarProdutosErp?: (produtosImportados: any[]) => Promise<void>;
 }
 
-type AbaCadastro = 'PRODUTOS' | 'CLIENTES' | 'ENTREGADORES' | 'VEICULOS' | 'COLABORADORES' | 'HISTORICO_JORNADAS' | 'BAIRROS';
+type AbaCadastro = 'PRODUTOS' | 'CLIENTES' | 'ENTREGADORES' | 'VEICULOS' | 'COLABORADORES' | 'BAIRROS';
 
 export const CadastrosHub: React.FC<Props> = ({
   produtos,
@@ -95,7 +95,6 @@ export const CadastrosHub: React.FC<Props> = ({
   bairros,
   veiculos = [],
   colaboradores = [],
-  turnos = [],
   usuarios = [],
   usuarioLogado,
   activeTab = 'cadastros',
@@ -431,208 +430,157 @@ export const CadastrosHub: React.FC<Props> = ({
 
   const bairrosFiltrados = bairros.filter((b) => b.nome.toLowerCase().includes(busca.toLowerCase()));
 
+  const tabsCadastros: TabItem<AbaCadastro>[] = [
+    { id: 'PRODUTOS', label: 'Produtos & Estoque', badge: produtos.length, icon: Package },
+    { id: 'CLIENTES', label: 'Clientes & Fiados', badge: clientes.length, icon: Users },
+    { id: 'ENTREGADORES', label: 'Entregadores', badge: entregadores.length, icon: Truck },
+    { id: 'COLABORADORES', label: 'Equipe / Colaboradores', badge: colaboradores.length, icon: UserCheck },
+    { id: 'VEICULOS', label: 'Frota de Veículos', badge: veiculos.length, icon: Car },
+    { id: 'BAIRROS', label: 'Bairros & Taxas', badge: bairros.length, icon: MapPin },
+  ];
+
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Top Header com Botão de Menus Integrado */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="5"
-        moduloCor="bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300"
-        titulo="Central de Cadastros"
-        subtitulo="Gerencie o catálogo de produtos da conveniência, base de clientes, frota de entregadores e taxas de entrega por bairro."
-      >
-        {/* Quick Actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          {abaAtiva === 'PRODUTOS' && (
-            <button
-              type="button"
-              onClick={() => setModalErpAberto(true)}
-              className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Importar ERP</span>
-            </button>
-          )}
-
-          {abaAtiva === 'PRODUTOS' && (
-            <button
-              onClick={() =>
-                setProdutoModal({
-                  nome: '',
-                  marca: 'Ultragaz',
-                  categoria: 'GAS_P13',
-                  tipoVasilhame: 'P13',
-                  unidadeMedida: 'UN',
-                  precoRecarga: 115.0,
-                  precoCompleto: 295.0,
-                  estoqueCheio: 20,
-                  estoqueVazio: 10,
-                  estoqueMinimo: 5,
-                  permiteVendaCasco: true,
-                  maisUtilizado: false,
-                })
-              }
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo Produto</span>
-            </button>
-          )}
-
-          {abaAtiva === 'CLIENTES' && (
-            <button
-              onClick={() =>
-                setClienteModal({
-                  nome: '',
-                  telefone: '',
-                  endereco: '',
-                  numero: '',
-                  complemento: '',
-                  referencia: '',
-                  bairroId: bairros[0]?.id || 'b1',
-                  saldoDevedor: 0,
-                  vasilhamesPendentes: { P13: 0, P20L: 0 },
-                })
-              }
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo Cliente</span>
-            </button>
-          )}
-
-          {abaAtiva === 'ENTREGADORES' && (
-            <button
-              onClick={() =>
-                setEntregadorModal({
-                  nome: '',
-                  telefone: '',
-                  veiculo: 'Moto (Padrão)',
-                  placa: '',
-                  status: 'DISPONIVEL',
-                  bateriaNivel: 100,
-                })
-              }
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo Entregador</span>
-            </button>
-          )}
-
-          {abaAtiva === 'BAIRROS' && (
-            <button
-              onClick={() =>
-                setBairroModal({
-                  nome: '',
-                  taxaEntrega: 5.0,
-                  tempoMedioMin: 25,
-                  ativo: true,
-                })
-              }
-              className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Novo Bairro</span>
-            </button>
-          )}
-        </div>
-      </ModuloHeader>
-
-      {/* Container Principal dos Cadastros com Sub-Abas */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xs">
-        {/* Section Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-100 dark:border-slate-800">
-          <button
-            onClick={() => setAbaAtiva('PRODUTOS')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
+      {/* Ações e Pesquisa Contextuais Montadas Diretamente na Barra Superior */}
+      <TopBarActions>
+        {/* Barra de Busca Compacta na TopBar */}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder={
               abaAtiva === 'PRODUTOS'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Package className="w-4 h-4" />
-            <span>Produtos & Estoque ({produtos.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('CLIENTES')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'CLIENTES'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Clientes & Fiados ({clientes.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('ENTREGADORES')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'ENTREGADORES'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            <span>Entregadores ({entregadores.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('COLABORADORES')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'COLABORADORES'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <UserCheck className="w-4 h-4" />
-            <span>Equipe / Colaboradores ({colaboradores.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('VEICULOS')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'VEICULOS'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Car className="w-4 h-4" />
-            <span>Frota de Veículos ({veiculos.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('HISTORICO_JORNADAS')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'HISTORICO_JORNADAS'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Jornadas & Rastreio ({turnos.length})</span>
-          </button>
-
-          <button
-            onClick={() => setAbaAtiva('BAIRROS')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-black transition-all flex items-center gap-2 border-b-2 whitespace-nowrap ${
-              abaAtiva === 'BAIRROS'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <MapPin className="w-4 h-4" />
-            <span>Bairros & Taxas ({bairros.length})</span>
-          </button>
+                ? 'Buscar produto, marca, ref...'
+                : abaAtiva === 'CLIENTES'
+                ? 'Buscar cliente, tel, endereço...'
+                : abaAtiva === 'ENTREGADORES'
+                ? 'Buscar entregador, placa...'
+                : abaAtiva === 'COLABORADORES'
+                ? 'Buscar colaborador, CPF, cargo...'
+                : abaAtiva === 'VEICULOS'
+                ? 'Buscar veículo por placa, modelo...'
+                : 'Buscar bairro atendido...'
+            }
+            className="w-36 sm:w-56 pl-8 pr-7 py-1.5 text-xs rounded-xl bg-slate-800 border border-slate-700 focus:border-blue-500 text-white placeholder-slate-400 focus:outline-none transition-all shadow-inner"
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+            >
+              ×
+            </button>
+          )}
         </div>
+
+        {/* Botões de Ação na Barra Superior */}
+        {abaAtiva === 'PRODUTOS' && (
+          <button
+            type="button"
+            onClick={() => setModalErpAberto(true)}
+            className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Importar ERP</span>
+          </button>
+        )}
+
+        {abaAtiva === 'PRODUTOS' && (
+          <button
+            onClick={() =>
+              setProdutoModal({
+                nome: '',
+                marca: 'Ultragaz',
+                categoria: 'GAS_P13',
+                tipoVasilhame: 'P13',
+                unidadeMedida: 'UN',
+                precoRecarga: 115.0,
+                precoCompleto: 295.0,
+                estoqueCheio: 20,
+                estoqueVazio: 10,
+                estoqueMinimo: 5,
+                permiteVendaCasco: true,
+                maisUtilizado: false,
+              })
+            }
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Novo Produto</span>
+          </button>
+        )}
+
+        {abaAtiva === 'CLIENTES' && (
+          <button
+            onClick={() =>
+              setClienteModal({
+                nome: '',
+                telefone: '',
+                endereco: '',
+                numero: '',
+                complemento: '',
+                referencia: '',
+                bairroId: bairros[0]?.id || 'b1',
+                saldoDevedor: 0,
+                vasilhamesPendentes: { P13: 0, P20L: 0 },
+              })
+            }
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Novo Cliente</span>
+          </button>
+        )}
+
+        {abaAtiva === 'ENTREGADORES' && (
+          <button
+            onClick={() =>
+              setEntregadorModal({
+                nome: '',
+                telefone: '',
+                veiculo: 'Moto (Padrão)',
+                placa: '',
+                status: 'DISPONIVEL',
+                bateriaNivel: 100,
+              })
+            }
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Novo Entregador</span>
+          </button>
+        )}
+
+        {abaAtiva === 'BAIRROS' && (
+          <button
+            onClick={() =>
+              setBairroModal({
+                nome: '',
+                taxaEntrega: 5.0,
+                tempoMedioMin: 25,
+                ativo: true,
+              })
+            }
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Novo Bairro</span>
+          </button>
+        )}
+      </TopBarActions>
+
+      {/* Sub-Navegação Oficial em Pílulas (SegmentedTabs) */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+        <SegmentedTabs
+          tabs={tabsCadastros}
+          activeTab={abaAtiva}
+          onChange={(tab) => {
+            setAbaAtiva(tab);
+            setBusca('');
+          }}
+        />
       </div>
 
       {notificacao && (
@@ -656,378 +604,445 @@ export const CadastrosHub: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Search Bar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-xs flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder={
-              abaAtiva === 'PRODUTOS'
-                ? 'Buscar por nome, marca ou código...'
-                : abaAtiva === 'CLIENTES'
-                ? 'Buscar cliente por nome, telefone, rua ou bairro...'
-                : abaAtiva === 'ENTREGADORES'
-                ? 'Buscar entregador por nome, veículo ou placa...'
-                : 'Buscar bairro atendido...'
-            }
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-blue-500 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-hidden transition-colors"
-          />
-        </div>
-      </div>
-
       {/* ========================================================================= */}
       {/* ABA 1: PRODUTOS & ESTOQUE                                                */}
       {/* ========================================================================= */}
       {abaAtiva === 'PRODUTOS' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {produtosFiltrados.map((prod) => (
-            <div
-              key={prod.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-mono text-slate-500">
-                        {prod.codigo}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[9px]">
-                        {prod.marca}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[9px]">
-                        {prod.unidadeMedida}
-                      </span>
-                    </div>
-                    <h4 className="font-black text-sm text-slate-900 dark:text-white mt-1">
-                      {prod.nome}
-                    </h4>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMaisUtilizado(prod)}
-                    className={`p-1.5 rounded-lg transition-colors ${
-                      prod.maisUtilizado
-                        ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/40'
-                        : 'text-slate-300 hover:text-slate-400'
-                    }`}
-                    title={prod.maisUtilizado ? 'Item Mais Utilizado' : 'Marcar como Mais Utilizado'}
-                  >
-                    <Star className={`w-4 h-4 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
-                  </button>
-                </div>
-
-                {/* Prices */}
-                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold">
-                      {prod.permiteVendaCasco ? 'Preço Recarga / Troca' : 'Preço Venda'}
-                    </span>
-                    <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatarMoeda(prod.precoRecarga)}
-                    </span>
-                  </div>
-                  {prod.permiteVendaCasco && (
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-semibold">
-                        Preço Completo (+Casco)
-                      </span>
-                      <span className="font-black text-blue-600 dark:text-blue-400 text-sm">
-                        {formatarMoeda(prod.precoCompleto)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Stocks */}
-                <div className="grid grid-cols-3 gap-1.5 text-center text-xs">
-                  <div className="p-2 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block font-bold">Cheios</span>
-                    <span className="font-black text-emerald-700 dark:text-emerald-300">{prod.estoqueCheio}</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40">
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 block font-bold">Vazios</span>
-                    <span className="font-black text-amber-700 dark:text-amber-300">{prod.estoqueVazio}</span>
-                  </div>
-                  <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-bold">Mínimo</span>
-                    <span className="font-black text-slate-700 dark:text-slate-300">{prod.estoqueMinimo}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-semibold">
-                  Vendas: {prod.vendasCount || 0} unid.
-                </span>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setProdutoModal({ ...prod })}
-                    className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`Excluir produto "${prod.nome}"?`)) onExcluirProduto(prod.id);
-                    }}
-                    className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+        produtosFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+            <Package className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum produto encontrado</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ajuste os filtros de pesquisa ou cadastre um novo produto.</p>
+          </div>
+        ) : (
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3 text-center w-10">★</th>
+                    <th className="py-2 px-3">Cód / Ref</th>
+                    <th className="py-2 px-3">Produto & Marca</th>
+                    <th className="py-2 px-3">Unidade / Casco</th>
+                    <th className="py-2 px-3 text-center">Cheios</th>
+                    <th className="py-2 px-3 text-center">Vazios</th>
+                    <th className="py-2 px-3 text-center">Mín.</th>
+                    <th className="py-2 px-3 text-right">Preço Recarga / Venda</th>
+                    <th className="py-2 px-3 text-right">Completo (+Casco)</th>
+                    <th className="py-2 px-3 text-center">Vendas</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {produtosFiltrados.map((prod) => (
+                    <tr
+                      key={prod.id}
+                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                    >
+                      <td className="py-1.5 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleMaisUtilizado(prod)}
+                          className={`p-1 rounded-md transition-colors ${
+                            prod.maisUtilizado
+                              ? 'text-amber-500 hover:text-amber-600'
+                              : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
+                          }`}
+                          title={prod.maisUtilizado ? 'Item Mais Utilizado (Clique para desmarcar)' : 'Marcar como Mais Utilizado'}
+                        >
+                          <Star className={`w-3.5 h-3.5 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
+                        </button>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold">
+                          {prod.codigo}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <div>
+                          <span className="font-bold text-slate-900 dark:text-white text-xs block">
+                            {prod.nome}
+                          </span>
+                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                            {prod.marca}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-slate-700 dark:text-slate-300 font-semibold">{prod.unidadeMedida}</span>
+                          {prod.tipoVasilhame && (
+                            <span className="text-[10px] text-slate-400">Casco: {prod.tipoVasilhame}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-black text-xs">
+                          {prod.estoqueCheio}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-black text-xs">
+                          {prod.estoqueVazio}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400">
+                          {prod.estoqueMinimo}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                          {formatarMoeda(prod.precoRecarga)}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        {prod.permiteVendaCasco ? (
+                          <span className="font-black text-blue-600 dark:text-blue-400 text-xs">
+                            {formatarMoeda(prod.precoCompleto)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">—</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                          {prod.vendasCount || 0}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setProdutoModal({ ...prod })}
+                            title="Editar produto"
+                            className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Excluir produto "${prod.nome}"?`)) onExcluirProduto(prod.id);
+                            }}
+                            title="Excluir produto"
+                            className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* ABA 2: CLIENTES & FIADOS                                                 */}
       {/* ========================================================================= */}
       {abaAtiva === 'CLIENTES' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {clientesFiltrados.map((cli) => (
-            <div
-              key={cli.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div className="space-y-2.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                      <span>{cli.nome}</span>
-                      {cli.cpfCnpj && (
-                        <span className="px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-[10px] font-bold">
-                          {cli.cpfCnpj}
+        clientesFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+            <Users className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum cliente encontrado</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ajuste os filtros ou cadastre um novo cliente.</p>
+          </div>
+        ) : (
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3">Cliente / Razão</th>
+                    <th className="py-2 px-3">Telefone / WhatsApp</th>
+                    <th className="py-2 px-3">Endereço & Bairro</th>
+                    <th className="py-2 px-3 text-center">Cascos Pendentes</th>
+                    <th className="py-2 px-3 text-right">Saldo Devedor (Fiado)</th>
+                    <th className="py-2 px-3 text-center">Pedidos</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {clientesFiltrados.map((cli) => (
+                    <tr
+                      key={cli.id}
+                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                    >
+                      <td className="py-1.5 px-3">
+                        <div>
+                          <span className="font-bold text-slate-900 dark:text-white text-xs block">
+                            {cli.nome}
+                          </span>
+                          {cli.cpfCnpj && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-mono text-[10px]">
+                              {cli.cpfCnpj}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span className="text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5 shrink-0" />
+                          <span>{cli.telefone}</span>
                         </span>
-                      )}
-                    </h4>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1 mt-0.5">
-                      <Phone className="w-3 h-3" />
-                      <span>{cli.telefone}</span>
-                    </p>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
-                    {cli.bairroNome}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs space-y-1">
-                  <div className="flex items-start gap-1.5 text-slate-700 dark:text-slate-300">
-                    <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
-                    <span>
-                      {cli.endereco}, {cli.numero}
-                      {cli.complemento ? ` (${cli.complemento})` : ''}
-                      {cli.cidade ? ` • ${cli.cidade}/${cli.estado || 'SP'}` : ''}
-                    </span>
-                  </div>
-                  {cli.cep && (
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 pl-5 font-mono">
-                      CEP: {cli.cep}
-                    </p>
-                  )}
-                  {cli.referencia && (
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-5">
-                      Ref: {cli.referencia}
-                    </p>
-                  )}
-                </div>
-
-                {/* Balance & Pending Bottles */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40">
-                    <span className="text-[10px] text-rose-600 dark:text-rose-400 block font-bold">Saldo Devedor</span>
-                    <span className="font-black text-rose-700 dark:text-rose-300 text-sm">
-                      {formatarMoeda(cli.saldoDevedor || 0)}
-                    </span>
-                  </div>
-
-                  <div className="p-2 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40">
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 block font-bold">Cascos Pendentes</span>
-                    <span className="font-black text-amber-700 dark:text-amber-300 text-xs">
-                      P13: {cli.vasilhamesPendentes?.P13 || 0} | P20L: {cli.vasilhamesPendentes?.P20L || 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-semibold">
-                  Total Pedidos: {cli.totalPedidos || 0}
-                </span>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setStatusCnpjInfo(null);
-                      setClienteModal({ ...cli });
-                    }}
-                    className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`Excluir cliente "${cli.nome}"?`)) onExcluirCliente(cli.id);
-                    }}
-                    className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+                      </td>
+                      <td className="py-1.5 px-3 max-w-xs">
+                        <div>
+                          <span className="text-slate-800 dark:text-slate-200 block truncate">
+                            {cli.endereco}, {cli.numero}
+                            {cli.complemento ? ` (${cli.complemento})` : ''}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block font-semibold">
+                            {cli.bairroNome}
+                            {cli.cidade ? ` • ${cli.cidade}/${cli.estado || 'SP'}` : ''}
+                            {cli.referencia ? ` (Ref: ${cli.referencia})` : ''}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                          <span>P13: {cli.vasilhamesPendentes?.P13 || 0}</span>
+                          <span className="text-amber-400">•</span>
+                          <span>P20L: {cli.vasilhamesPendentes?.P20L || 0}</span>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        {(cli.saldoDevedor || 0) > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-black text-xs">
+                            {formatarMoeda(cli.saldoDevedor || 0)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-medium text-xs">R$ 0,00</span>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="text-slate-500 dark:text-slate-400 font-semibold text-xs">
+                          {cli.totalPedidos || 0}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setStatusCnpjInfo(null);
+                              setClienteModal({ ...cli });
+                            }}
+                            title="Editar cliente"
+                            className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Excluir cliente "${cli.nome}"?`)) onExcluirCliente(cli.id);
+                            }}
+                            title="Excluir cliente"
+                            className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* ABA 3: ENTREGADORES & FROTA                                              */}
       {/* ========================================================================= */}
       {abaAtiva === 'ENTREGADORES' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {entregadoresFiltrados.map((ent) => (
-            <div
-              key={ent.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black">
-                      <Truck className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="font-black text-sm text-slate-900 dark:text-white">{ent.nome}</h4>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{ent.telefone}</p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-black border ${
-                      ent.status === 'EM_ROTA'
-                        ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300'
-                        : 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300'
-                    }`}
-                  >
-                    {ent.status === 'EM_ROTA' ? 'EM ROTA' : 'DISPONÍVEL'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold">Veículo / Placa</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
-                      {ent.veiculo} ({ent.placa})
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-semibold">Entregas Hoje</span>
-                    <span className="font-black text-blue-600 dark:text-blue-400 text-sm">
-                      {ent.totalEntregasHoje || 0} finalizadas
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
-                  <Battery className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Bateria: {ent.bateriaNivel || 100}%</span>
-                </span>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setEntregadorModal({ ...ent })}
-                    className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`Excluir colaborador "${ent.nome}"?`)) onExcluirEntregador(ent.id);
-                    }}
-                    className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+        entregadoresFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+            <Truck className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum entregador encontrado</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ajuste os filtros ou cadastre um novo entregador.</p>
+          </div>
+        ) : (
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3">Entregador</th>
+                    <th className="py-2 px-3">Telefone</th>
+                    <th className="py-2 px-3">Status Operacional</th>
+                    <th className="py-2 px-3">Veículo & Placa</th>
+                    <th className="py-2 px-3 text-center">Entregas Hoje</th>
+                    <th className="py-2 px-3 text-center">Bateria / Conexão</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {entregadoresFiltrados.map((ent) => (
+                    <tr
+                      key={ent.id}
+                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                    >
+                      <td className="py-1.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                            <Truck className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white text-xs block">
+                              {ent.nome}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">{ent.telefone}</span>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                            ent.status === 'EM_ROTA'
+                              ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          }`}
+                        >
+                          {ent.status === 'EM_ROTA' ? 'EM ROTA' : 'DISPONÍVEL'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span className="text-slate-800 dark:text-slate-200 font-bold block">
+                          {ent.veiculo}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-400">{ent.placa}</span>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="inline-block px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/40 text-blue-700 dark:text-blue-300 font-black text-xs">
+                          {ent.totalEntregasHoje || 0} finalizadas
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300 text-xs">
+                          <Battery className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>{ent.bateriaNivel || 100}%</span>
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setEntregadorModal({ ...ent })}
+                            title="Editar entregador"
+                            className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Excluir colaborador "${ent.nome}"?`)) onExcluirEntregador(ent.id);
+                            }}
+                            title="Excluir entregador"
+                            className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </div>
+        )
       )}
 
       {/* ========================================================================= */}
       {/* ABA 4: BAIRROS & TAXAS                                                   */}
       {/* ========================================================================= */}
       {abaAtiva === 'BAIRROS' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {bairrosFiltrados.map((b) => (
-            <div
-              key={b.id}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div className="space-y-2">
-                <div className="flex items-start justify-between">
-                  <h4 className="font-black text-sm text-slate-900 dark:text-white">{b.nome}</h4>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${
-                      b.ativo !== false
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-slate-100 text-slate-500'
-                    }`}
-                  >
-                    {b.ativo !== false ? 'Ativo' : 'Inativo'}
-                  </span>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-medium">Taxa Entrega:</span>
-                    <span className="font-black text-emerald-600 dark:text-emerald-400">
-                      {formatarMoeda(b.taxaEntrega)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-medium">Tempo Médio:</span>
-                    <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      {b.tempoMedioMin} min
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="pt-3 mt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-1">
-                <button
-                  onClick={() => setBairroModal({ ...b })}
-                  className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
-                >
-                  <Edit className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Excluir bairro "${b.nome}"?`)) onExcluirBairro(b.id);
-                  }}
-                  className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+        bairrosFiltrados.length === 0 ? (
+          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+            <MapPin className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum bairro cadastrado</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Cadastre as regiões e taxas de entrega atendidas.</p>
+          </div>
+        ) : (
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                    <th className="py-2 px-3">Bairro Atendido</th>
+                    <th className="py-2 px-3 text-center">Tempo Médio</th>
+                    <th className="py-2 px-3 text-center">Status</th>
+                    <th className="py-2 px-3 text-right">Taxa de Entrega</th>
+                    <th className="py-2 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                  {bairrosFiltrados.map((b) => (
+                    <tr
+                      key={b.id}
+                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                    >
+                      <td className="py-1.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span className="font-bold text-slate-900 dark:text-white text-xs">
+                            {b.nome}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300 text-xs">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{b.tempoMedioMin} min</span>
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-center">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            b.ativo !== false
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          {b.ativo !== false ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                          {formatarMoeda(b.taxaEntrega)}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => setBairroModal({ ...b })}
+                            title="Editar bairro"
+                            className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Excluir bairro "${b.nome}"?`)) onExcluirBairro(b.id);
+                            }}
+                            title="Excluir bairro"
+                            className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </div>
+        )
       )}
 
       {/* ========================================================================= */}
@@ -1036,6 +1051,7 @@ export const CadastrosHub: React.FC<Props> = ({
       {abaAtiva === 'VEICULOS' && (
         <GestaoVeiculos
           veiculos={veiculos}
+          buscaExterno={busca}
           onSaveVeiculo={onSalvarVeiculo}
           onDeleteVeiculo={onExcluirVeiculo}
         />
@@ -1048,16 +1064,10 @@ export const CadastrosHub: React.FC<Props> = ({
         <GestaoColaboradores
           colaboradores={colaboradores}
           usuarios={usuarios}
+          buscaExterno={busca}
           onSaveColaborador={onSalvarColaborador}
           onDeleteColaborador={onExcluirColaborador}
         />
-      )}
-
-      {/* ========================================================================= */}
-      {/* ABA: JORNADAS & RASTREIO DE ENTREGADORES                                  */}
-      {/* ========================================================================= */}
-      {abaAtiva === 'HISTORICO_JORNADAS' && (
-        <AbaHistoricoJornadas turnos={turnos} />
       )}
 
       {/* ========================================================================= */}
@@ -1065,7 +1075,7 @@ export const CadastrosHub: React.FC<Props> = ({
       {/* ========================================================================= */}
       {produtoModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             <div className="bg-slate-50 dark:bg-slate-800/80 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
                 {produtoModal.id ? `Editar: ${produtoModal.nome}` : 'Cadastrar Novo Produto'}
@@ -1087,7 +1097,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     value={produtoModal.nome || ''}
                     onChange={(e) => setProdutoModal({ ...produtoModal, nome: e.target.value.toUpperCase() })}
                     placeholder="Ex: Gás de Cozinha P13"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1098,7 +1108,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     value={produtoModal.marca || ''}
                     onChange={(e) => setProdutoModal({ ...produtoModal, marca: e.target.value })}
                     placeholder="Ex: Ultragaz, Liquigás, Lindoya"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1109,7 +1119,7 @@ export const CadastrosHub: React.FC<Props> = ({
                   <select
                     value={produtoModal.unidadeMedida || 'UN'}
                     onChange={(e) => setProdutoModal({ ...produtoModal, unidadeMedida: e.target.value })}
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
                     <option value="UN">UN (Unidade)</option>
                     <option value="GL">GL (Galão)</option>
@@ -1132,7 +1142,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setProdutoModal({ ...produtoModal, precoRecarga: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
                   />
                 </div>
 
@@ -1147,7 +1157,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setProdutoModal({ ...produtoModal, precoCompleto: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
                   />
                 </div>
 
@@ -1161,7 +1171,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setProdutoModal({ ...produtoModal, estoqueCheio: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1175,7 +1185,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setProdutoModal({ ...produtoModal, estoqueVazio: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
@@ -1220,7 +1230,7 @@ export const CadastrosHub: React.FC<Props> = ({
       {/* ========================================================================= */}
       {clienteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col">
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col">
             <div className="bg-slate-50 dark:bg-slate-800/80 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
@@ -1270,7 +1280,7 @@ export const CadastrosHub: React.FC<Props> = ({
                             }
                           }}
                           placeholder="CPF ou CNPJ"
-                          className="w-full p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs focus:ring-2 focus:ring-blue-500"
+                          className="w-full p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs focus:ring-2 focus:ring-blue-500"
                         />
                         {consultandoCnpj && (
                           <div className="absolute right-2 top-7 flex items-center gap-1 text-blue-600">
@@ -1287,7 +1297,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           value={clienteModal.nome || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, nome: e.target.value.toUpperCase() })}
                           placeholder="Ex: Maria Aparecida"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         />
                       </div>
 
@@ -1299,7 +1309,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           value={clienteModal.telefone || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, telefone: formatarTelefone(e.target.value) })}
                           placeholder="(11) 98765-4321"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         />
                       </div>
                       
@@ -1310,7 +1320,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           value={clienteModal.email || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, email: e.target.value.toUpperCase() })}
                           placeholder="cliente@empresa.com.br"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                       </div>
 
@@ -1319,7 +1329,7 @@ export const CadastrosHub: React.FC<Props> = ({
                         <select
                           value={clienteModal.status || 'ATIVO'}
                           onChange={(e) => setClienteModal({ ...clienteModal, status: e.target.value as 'ATIVO' | 'INATIVO' })}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-black"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-black"
                         >
                           <option value="ATIVO">✅ ATIVO</option>
                           <option value="INATIVO">❌ INATIVO</option>
@@ -1350,7 +1360,7 @@ export const CadastrosHub: React.FC<Props> = ({
                               }
                             }}
                             placeholder="01001-000"
-                            className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs"
+                            className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold text-xs"
                           />
                           <button
                             type="button"
@@ -1372,7 +1382,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
                           onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
                           placeholder="Rua das Palmeiras"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         />
                         {buscandoSugestoes && (
                           <div className="absolute right-3 top-10">
@@ -1380,7 +1390,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           </div>
                         )}
                         {mostrarSugestoes && (
-                          <ul className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 text-xs">
+                          <ul className="absolute z-50 mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 text-xs">
                             {sugestoesEndereco.map((sug, i) => (
                               <li 
                                 key={i}
@@ -1404,7 +1414,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           required
                           value={clienteModal.numero || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, numero: e.target.value.toUpperCase() })}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
                         />
                       </div>
                       <div className="col-span-8 sm:col-span-5">
@@ -1415,7 +1425,7 @@ export const CadastrosHub: React.FC<Props> = ({
                             const b = bairros.find((bx) => bx.id === e.target.value);
                             setClienteModal({ ...clienteModal, bairroId: e.target.value, bairroNome: b?.nome || '' });
                           }}
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         >
                           {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                         </select>
@@ -1427,14 +1437,14 @@ export const CadastrosHub: React.FC<Props> = ({
                             type="text"
                             value={clienteModal.cidade || 'São Paulo'}
                             onChange={(e) => setClienteModal({ ...clienteModal, cidade: e.target.value.toUpperCase() })}
-                            className="w-full px-2 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium min-w-0"
+                            className="w-full px-2 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium min-w-0"
                           />
                           <input
                             type="text"
                             maxLength={2}
                             value={clienteModal.estado || 'SP'}
                             onChange={(e) => setClienteModal({ ...clienteModal, estado: e.target.value.toUpperCase() })}
-                            className="w-10 px-1 py-2.5 text-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white uppercase font-bold shrink-0"
+                            className="w-10 px-1 py-2.5 text-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white uppercase font-bold shrink-0"
                           />
                         </div>
                       </div>
@@ -1448,7 +1458,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           value={clienteModal.complemento || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, complemento: e.target.value.toUpperCase() })}
                           placeholder="APTO 42"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                       </div>
                       <div className="col-span-12 sm:col-span-7">
@@ -1458,7 +1468,7 @@ export const CadastrosHub: React.FC<Props> = ({
                           value={clienteModal.referencia || ''}
                           onChange={(e) => setClienteModal({ ...clienteModal, referencia: e.target.value.toUpperCase() })}
                           placeholder="Ex: Em frente ao mercado..."
-                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                         />
                       </div>
                     </div>
@@ -1534,7 +1544,7 @@ export const CadastrosHub: React.FC<Props> = ({
       {/* ========================================================================= */}
       {entregadorModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
             <div className="bg-slate-50 dark:bg-slate-800/80 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
                 {entregadorModal.id ? `Editar: ${entregadorModal.nome}` : 'Novo Colaborador / Entregador'}
@@ -1553,7 +1563,7 @@ export const CadastrosHub: React.FC<Props> = ({
                   value={entregadorModal.nome || ''}
                   onChange={(e) => setEntregadorModal({ ...entregadorModal, nome: e.target.value.toUpperCase() })}
                   placeholder="Ex: Carlos Oliveira"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1564,7 +1574,7 @@ export const CadastrosHub: React.FC<Props> = ({
                   value={entregadorModal.telefone || ''}
                   onChange={(e) => setEntregadorModal({ ...entregadorModal, telefone: e.target.value })}
                   placeholder="(11) 98888-1111"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1576,7 +1586,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     value={entregadorModal.veiculo || ''}
                     onChange={(e) => setEntregadorModal({ ...entregadorModal, veiculo: e.target.value.toUpperCase() })}
                     placeholder="Ex: Moto Honda 160"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1587,7 +1597,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     value={entregadorModal.placa || ''}
                     onChange={(e) => setEntregadorModal({ ...entregadorModal, placa: e.target.value.toUpperCase() })}
                     placeholder="BRA2E19"
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white uppercase font-mono"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white uppercase font-mono"
                   />
                 </div>
               </div>
@@ -1619,7 +1629,7 @@ export const CadastrosHub: React.FC<Props> = ({
       {/* ========================================================================= */}
       {bairroModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
+          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
             <div className="bg-slate-50 dark:bg-slate-800/80 p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div>
                 <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white">
@@ -1647,7 +1657,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     value={cepBairroBusca}
                     onChange={(e) => setCepBairroBusca(formatarCep(e.target.value))}
                     placeholder="Ex: 01001-000"
-                    className="flex-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
+                    className="flex-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono"
                   />
                   <button
                     type="button"
@@ -1675,7 +1685,7 @@ export const CadastrosHub: React.FC<Props> = ({
                   value={bairroModal.nome || ''}
                   onChange={(e) => setBairroModal({ ...bairroModal, nome: e.target.value.toUpperCase() })}
                   placeholder="Ex: Jardim das Flores"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                 />
               </div>
 
@@ -1692,7 +1702,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setBairroModal({ ...bairroModal, taxaEntrega: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
                   />
                 </div>
 
@@ -1706,7 +1716,7 @@ export const CadastrosHub: React.FC<Props> = ({
                     onChange={(e) =>
                       setBairroModal({ ...bairroModal, tempoMedioMin: parseInt(e.target.value) || 20 })
                     }
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>

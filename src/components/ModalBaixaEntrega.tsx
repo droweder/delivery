@@ -24,7 +24,9 @@ import {
   ArrowRight,
   Sparkles,
   Info,
+  MessageCircle,
 } from 'lucide-react';
+import { abrirWhatsApp, gerarMensagemWhatsApp } from '../utils/whatsapp';
 
 interface Props {
   pedido: Pedido | null;
@@ -150,6 +152,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
   const [valorRecebido, setValorRecebido] = useState<number>(pedido.trocoPara || pedido.total);
   const [obsEntrega, setObsEntrega] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [enviarWhatsApp, setEnviarWhatsApp] = useState(false);
 
   // Estados de Dinâmica de Cascos
   const [cascosLista, setCascosLista] = useState<CascoItemRecolhimento[]>([]);
@@ -378,6 +381,10 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
         totalAjustado: totalFinalPedido,
       });
 
+      if (enviarWhatsApp && pedido.cliente?.telefone) {
+        abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONCLUIDO'));
+      }
+
       onClose();
     } catch (err: any) {
       alert('Erro ao confirmar baixa: ' + (err.message || err));
@@ -396,7 +403,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs overflow-y-auto animate-fade-in">
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+      <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
         {/* Modal Header */}
         <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 shrink-0">
           <div className="flex items-center gap-2">
@@ -501,7 +508,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                   return (
                     <div
                       key={casco.id || idx}
-                      className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs space-y-2.5"
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs space-y-2.5"
                     >
                       {/* Casco Header */}
                       <div className="flex items-start justify-between gap-2">
@@ -562,7 +569,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                             onChange={(e) =>
                               alterarQtdRecolhida(idx, parseInt(e.target.value) || 0)
                             }
-                            className="w-12 h-7 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-center font-black text-slate-900 dark:text-white text-xs"
+                            className="w-12 h-7 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-center font-black text-slate-900 dark:text-white text-xs"
                           />
                           <button
                             type="button"
@@ -613,7 +620,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                               className={`p-2 rounded-lg border text-left transition-all ${
                                 !casco.valorCascoCobrado
                                   ? 'bg-amber-100 dark:bg-amber-900/60 border-amber-500 text-amber-950 dark:text-amber-100 font-bold shadow-2xs'
-                                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                  : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
                               }`}
                             >
                               <div className="font-extrabold text-[11px]">📋 Gerar Vale-Casco</div>
@@ -629,7 +636,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                               className={`p-2 rounded-lg border text-left transition-all ${
                                 (casco.valorCascoCobrado || 0) > 0
                                   ? 'bg-emerald-100 dark:bg-emerald-950 border-emerald-500 text-emerald-950 dark:text-emerald-100 font-bold shadow-2xs'
-                                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                  : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
                               }`}
                             >
                               <div className="font-extrabold text-[11px]">
@@ -650,7 +657,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                               <select
                                 value={casco.motivoPendente || 'Cliente devolverá na base'}
                                 onChange={(e) => alterarMotivoPendente(idx, e.target.value)}
-                                className="w-full px-2 py-1 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 font-bold text-slate-800 dark:text-slate-200 text-xs"
+                                className="w-full px-2 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-amber-300 dark:border-amber-700 font-bold text-slate-800 dark:text-slate-200 text-xs"
                               >
                                 <option value="Cliente devolverá na base">
                                   Cliente prometeu levar o casco na base
@@ -714,7 +721,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                                   className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
                                     casco.marcaCasco === marca
                                       ? 'bg-blue-600 text-white border-blue-600'
-                                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100'
+                                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100'
                                   }`}
                                 >
                                   {marca}
@@ -755,7 +762,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
                   modoMultiploBaixa
                     ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100'
                 }`}
               >
                 <Split className="w-3 h-3" />
@@ -764,7 +771,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
             </div>
 
             {/* Total a cobrar com cascos extras se houver */}
-            <div className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold">
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold">
               <span className="text-slate-700 dark:text-slate-300">Total Final a Cobrar:</span>
               <div className="text-right">
                 <span className="font-black text-emerald-600 dark:text-emerald-400 text-base font-mono">
@@ -803,7 +810,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                         formaPagtoRealizada === tipo
                           ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                       }`}
                     >
                       {label}
@@ -823,7 +830,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                           type="number"
                           value={valorRecebido || ''}
                           onChange={(e) => setValorRecebido(Number(e.target.value))}
-                          className="w-24 px-2 py-1 rounded bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 font-black text-right text-slate-900 dark:text-white text-xs"
+                          className="w-24 px-2 py-1 rounded bg-slate-50 dark:bg-slate-800 border border-amber-300 dark:border-amber-700 font-black text-right text-slate-900 dark:text-white text-xs"
                         />
                       </div>
                     </div>
@@ -848,7 +855,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                   {pagamentosBaixa.map((item, idx) => (
                     <div
                       key={item.id || idx}
-                      className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800/50 shadow-2xs space-y-1.5"
+                      className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-purple-200 dark:border-purple-800/50 shadow-2xs space-y-1.5"
                     >
                       <div className="flex items-center gap-1.5">
                         <select
@@ -882,7 +889,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                               )
                             }
                             placeholder="0,00"
-                            className="w-full pl-7 pr-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs font-mono font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                            className="w-full pl-7 pr-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs font-mono font-bold bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white"
                           />
                         </div>
 
@@ -923,7 +930,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
                                 )
                               }
                               placeholder="0,00"
-                              className="w-16 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-[10px] font-bold bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                              className="w-16 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-[10px] font-bold bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white"
                             />
                           </div>
                         </div>
@@ -980,7 +987,7 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
               placeholder="Ex: Entregue na portaria, deixado com dona Maria..."
               value={obsEntrega}
               onChange={(e) => setObsEntrega(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
             />
           </div>
         </div>
@@ -1007,7 +1014,20 @@ export const ModalBaixaEntrega: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={enviarWhatsApp}
+                onChange={(e) => setEnviarWhatsApp(e.target.checked)}
+                className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+              />
+              <span className="flex items-center gap-1">
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Avisar no WhatsApp</span>
+              </span>
+            </label>
+
             <button
               type="button"
               onClick={onClose}

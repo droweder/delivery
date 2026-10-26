@@ -23,6 +23,8 @@ import { AppEntregador } from './components/AppEntregador';
 import { AcertoCaixa } from './components/AcertoCaixa';
 import { EstoqueVasilhames } from './components/EstoqueVasilhames';
 import { DashboardGerente } from './components/DashboardGerente';
+import { AbaHistoricoJornadas } from './components/AbaHistoricoJornadas';
+import { AberturaTurnoModal } from './components/AberturaTurnoModal';
 import { CadastrosHub } from './components/CadastrosHub';
 import { GestaoUsuarios } from './components/GestaoUsuarios';
 import { ThermalReceiptModal } from './components/ThermalReceiptModal';
@@ -46,6 +48,12 @@ const isAbaPermitida = (tab: MainTab, usuario: Usuario | null, isSuperAdmin: boo
       return Boolean(usuario.permissoes?.ajustarEstoque);
     case 'gerencia':
       return Boolean(usuario.permissoes?.verDashboardGerencial);
+    case 'jornadas':
+      return (
+        usuario.perfil === 'GERENTE' ||
+        Boolean(usuario.permissoes?.verDashboardGerencial) ||
+        Boolean(usuario.permissoes?.acessarCadastros)
+      );
     case 'cadastros':
       return Boolean(usuario.permissoes?.acessarCadastros);
     case 'usuarios':
@@ -127,6 +135,7 @@ export default function App() {
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoComandaModal, setPedidoComandaModal] = useState<Pedido | null>(null);
+  const [modalAberturaTurnoApp, setModalAberturaTurnoApp] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [syncFeedback, setSyncFeedback] = useState<{ tipo: 'sucesso' | 'erro' | 'info'; mensagem: string } | null>(null);
   const [sincronizandoAgora, setSincronizandoAgora] = useState(false);
@@ -160,6 +169,13 @@ export default function App() {
       window.removeEventListener('offline', handleNetworkChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (syncFeedback?.tipo === 'sucesso') {
+      const timer = setTimeout(() => setSyncFeedback(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncFeedback]);
 
   // Helper para requisições autenticadas com contexto de Tenant
   const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -763,6 +779,11 @@ export default function App() {
                   onNovoCliente={handleNovoCliente}
                   onSalvarCliente={handleSalvarCliente}
                   onProdutosAtualizados={carregarDadosServidor}
+                  pedidos={pedidos}
+                  entregadores={entregadores}
+                  onDespacharPedidos={handleDespacharPedidos}
+                  onVisualizarComanda={(p) => setPedidoComandaModal(p)}
+                  onPedidoAtualizado={carregarDadosServidor}
                 />
               )}
 
@@ -836,6 +857,25 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'jornadas' && (
+                <>
+                  <AbaHistoricoJornadas
+                    turnos={turnos}
+                    onAbrirTurno={() => setModalAberturaTurnoApp(true)}
+                  />
+                  <AberturaTurnoModal
+                    isOpen={modalAberturaTurnoApp}
+                    onClose={() => setModalAberturaTurnoApp(false)}
+                    entregadores={entregadores}
+                    veiculos={veiculos}
+                    onTurnoIniciado={() => {
+                      carregarDadosServidor();
+                      setModalAberturaTurnoApp(false);
+                    }}
+                  />
+                </>
+              )}
+
               {activeTab === 'cadastros' && (
                 <CadastrosHub
                   produtos={produtos}
@@ -844,7 +884,6 @@ export default function App() {
                   bairros={bairros}
                   veiculos={veiculos}
                   colaboradores={colaboradores}
-                  turnos={turnos}
                   usuarios={usuarios}
                   usuarioLogado={usuarioLogado}
                   activeTab={activeTab}

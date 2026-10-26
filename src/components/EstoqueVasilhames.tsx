@@ -29,6 +29,8 @@ import {
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 
 interface Props {
   produtos: Produto[];
@@ -255,55 +257,66 @@ export const EstoqueVasilhames: React.FC<Props> = ({
     return true;
   });
 
+  const tabsVasilhames: TabItem<'catalogo' | 'historico' | 'pendencias'>[] = [
+    { id: 'catalogo', label: 'Catálogo & Estoque Físico', icon: Package },
+    { id: 'historico', label: 'Livro-Razão & Movimentações', badge: movimentacoes.length, icon: History },
+    { id: 'pendencias', label: 'Vales-Casco & Pendências', badge: pendenciasClientes.length, icon: ClipboardList },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="4"
-        moduloCor="bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
-        titulo="Controle de Vasilhames & Estoque Físico"
-        subtitulo={
-          <>
-            Rastreamento contínuo da separação <strong>Líquido vs Casco</strong> e catálogo geral sincronizado com o ERP.
-          </>
-        }
-      >
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setModalAjusteAberto(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-xs font-bold text-white transition-colors shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Nova Entrada / Ajuste</span>
-          </button>
-
-          <button
-            onClick={() => setModalImportar(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-xs font-bold text-white transition-colors shadow-xs"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Importar do ERP</span>
-          </button>
-
-          <button
-            onClick={() => {
-              carregarBalanco();
-              carregarMovimentacoes();
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${carregando || carregandoMovs ? 'animate-spin' : ''}`} />
-            <span>Atualizar</span>
-          </button>
+    <div className="space-y-4 animate-fade-in">
+      {/* Controles de Estoque e Vasilhames Montados na Barra Superior */}
+      <TopBarActions>
+        {/* Barra de Busca de Estoque na TopBar */}
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={buscaEstoque}
+            onChange={(e) => setBuscaEstoque(e.target.value)}
+            placeholder="Buscar produto, código..."
+            className="w-36 sm:w-52 pl-8 pr-7 py-1.5 text-xs rounded-xl bg-slate-800 border border-slate-700 focus:border-blue-500 text-white placeholder-slate-400 focus:outline-none transition-all shadow-inner"
+          />
+          {buscaEstoque && (
+            <button
+              onClick={() => setBuscaEstoque('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+            >
+              ×
+            </button>
+          )}
         </div>
-      </ModuloHeader>
+
+        {/* Botão Nova Entrada / Ajuste */}
+        <button
+          onClick={() => setModalAjusteAberto(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition-all shadow-xs active:scale-95 shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Ajuste / Entrada</span>
+        </button>
+
+        {/* Botão Importar ERP */}
+        <button
+          onClick={() => setModalImportar(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition-all shadow-xs active:scale-95 shrink-0"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Importar ERP</span>
+        </button>
+
+        {/* Botão Atualizar */}
+        <button
+          onClick={() => {
+            carregarBalanco();
+            carregarMovimentacoes();
+          }}
+          title="Recarregar dados do estoque"
+          className="p-1.5 rounded-xl border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors shadow-2xs shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${carregando || carregandoMovs ? 'animate-spin' : ''}`} />
+        </button>
+      </TopBarActions>
 
       {/* Overview Balance Cards (P13 & Água 20L) */}
       {balanco && (
@@ -412,43 +425,13 @@ export const EstoqueVasilhames: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Sub-Tabs: Catálogo vs Livro-Razão */}
-      <div className="flex items-center gap-2 border-b border-slate-200">
-        <button
-          onClick={() => setSubTab('catalogo')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 transition-all ${
-            subTab === 'catalogo'
-              ? 'border-amber-600 text-amber-800 dark:text-amber-400 bg-amber-50/50'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Package className="w-3.5 h-3.5" />
-          <span>Catálogo & Estoque Físico</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('historico')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 transition-all ${
-            subTab === 'historico'
-              ? 'border-amber-600 text-amber-800 dark:text-amber-400 bg-amber-50/50'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>Livro-Razão & Movimentações ({movimentacoes.length})</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('pendencias')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold border-b-2 transition-all ${
-            subTab === 'pendencias'
-              ? 'border-amber-600 text-amber-800 dark:text-amber-400 bg-amber-50/50'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <ClipboardList className="w-3.5 h-3.5" />
-          <span>Vales-Casco & Pendências ({pendenciasClientes.length})</span>
-        </button>
+      {/* Sub-Navegação Oficial em Pílulas (SegmentedTabs) */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+        <SegmentedTabs
+          tabs={tabsVasilhames}
+          activeTab={subTab}
+          onChange={(tab) => setSubTab(tab)}
+        />
       </div>
 
       {/* VIEW 1: Catálogo Geral de Produtos & Estoque */}
@@ -534,21 +517,21 @@ export const EstoqueVasilhames: React.FC<Props> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
-                  <th className="p-2.5">Destaque PDV</th>
-                  <th className="p-2.5">Código / Produto</th>
-                  <th className="p-2.5">Marca</th>
-                  <th className="p-2.5">Unidade Medida</th>
-                  <th className="p-2.5">Tipo Casco</th>
-                  <th className="p-2.5 text-right">Preço Recarga</th>
-                  <th className="p-2.5 text-right">Preço Completo</th>
-                  <th className="p-2.5 text-center">Estoque Cheio (Base)</th>
-                  <th className="p-2.5 text-center">Estoque Vazio (Base)</th>
+                  <th className="py-2 px-3 text-center">Destaque PDV</th>
+                  <th className="py-2 px-3">Código / Produto</th>
+                  <th className="py-2 px-3">Marca</th>
+                  <th className="py-2 px-3">Unidade Medida</th>
+                  <th className="py-2 px-3">Tipo Casco</th>
+                  <th className="py-2 px-3 text-right">Preço Recarga</th>
+                  <th className="py-2 px-3 text-right">Preço Completo</th>
+                  <th className="py-2 px-3 text-center">Estoque Cheio (Base)</th>
+                  <th className="py-2 px-3 text-center">Estoque Vazio (Base)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
                 {produtosFiltrados.map((prod) => (
                   <tr key={prod.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="p-2.5 text-center">
+                    <td className="py-1.5 px-3 text-center">
                       <button
                         onClick={() => handleToggleFavorito(prod.id)}
                         className={`p-1 rounded-md transition-colors ${
@@ -558,24 +541,24 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                         }`}
                         title={prod.maisUtilizado ? 'Mais Utilizado no PDV (Clique para desmarcar)' : 'Marcar como Mais Utilizado'}
                       >
-                        <Star className={`w-4 h-4 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
+                        <Star className={`w-3.5 h-3.5 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
                       </button>
                     </td>
-                    <td className="p-2.5">
+                    <td className="py-1.5 px-3">
                       <div className="font-bold text-slate-900 text-xs">{prod.nome}</div>
                       <div className="text-[10px] text-slate-400 font-mono">{prod.codigo}</div>
                     </td>
-                    <td className="p-2.5">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold text-slate-700 text-[11px]">
+                    <td className="py-1.5 px-3">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-semibold text-slate-700 text-[10px]">
                         {prod.marca || 'Conveniência'}
                       </span>
                     </td>
-                    <td className="p-2.5">
-                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[11px]">
+                    <td className="py-1.5 px-3">
+                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold text-[10px]">
                         {prod.unidadeMedida || 'UN'}
                       </span>
                     </td>
-                    <td className="p-2.5">
+                    <td className="py-1.5 px-3">
                       {prod.tipoVasilhame && prod.tipoVasilhame !== 'NENHUM' ? (
                         <span className="px-1.5 py-0.5 rounded font-mono font-bold text-[10px] bg-amber-100 text-amber-800">
                           {prod.tipoVasilhame}
@@ -584,14 +567,14 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                         <span className="text-slate-400">-</span>
                       )}
                     </td>
-                    <td className="p-2.5 text-right font-black font-mono text-blue-700">
+                    <td className="py-1.5 px-3 text-right font-black font-mono text-blue-700 text-xs">
                       {formatarMoeda(prod.precoRecarga)}
                     </td>
-                    <td className="p-2.5 text-right font-black font-mono text-amber-700">
+                    <td className="py-1.5 px-3 text-right font-black font-mono text-amber-700 text-xs">
                       {prod.permiteVendaCasco ? formatarMoeda(prod.precoCompleto) : '--'}
                     </td>
                     {/* Estoque Cheio Counter */}
-                    <td className="p-2.5 text-center">
+                    <td className="py-1.5 px-3 text-center">
                       <div className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-lg">
                         <button
                           onClick={() => alterarEstoque(prod, 'cheio', -1)}
@@ -611,7 +594,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                       </div>
                     </td>
                     {/* Estoque Vazio Counter */}
-                    <td className="p-2.5 text-center">
+                    <td className="py-1.5 px-3 text-center">
                       {prod.tipoVasilhame !== 'NENHUM' ? (
                         <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-lg">
                           <button
@@ -675,12 +658,12 @@ export const EstoqueVasilhames: React.FC<Props> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
-                  <th className="p-2.5">Data / Hora</th>
-                  <th className="p-2.5">Tipo Movimentação</th>
-                  <th className="p-2.5">Produto</th>
-                  <th className="p-2.5 text-center">Cheios (Qtd / Saldo)</th>
-                  <th className="p-2.5 text-center">Vazios (Qtd / Saldo)</th>
-                  <th className="p-2.5">Responsável / Motivo</th>
+                  <th className="py-2 px-3">Data / Hora</th>
+                  <th className="py-2 px-3">Tipo Movimentação</th>
+                  <th className="py-2 px-3">Produto</th>
+                  <th className="py-2 px-3 text-center">Cheios (Qtd / Saldo)</th>
+                  <th className="py-2 px-3 text-center">Vazios (Qtd / Saldo)</th>
+                  <th className="py-2 px-3">Responsável / Motivo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
@@ -690,10 +673,10 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                     const isEntrada = mov.tipoMovimentacao === 'ENTRADA' || mov.tipoMovimentacao === 'CANCELAMENTO_ESTORNO';
                     return (
                       <tr key={mov.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="p-2.5 font-mono text-[11px] text-slate-600">
+                        <td className="py-1.5 px-3 font-mono text-[11px] text-slate-600">
                           {formatarDataHora(mov.timestamp)}
                         </td>
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <span
                             className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
                               mov.tipoMovimentacao === 'ENTRADA'
@@ -708,13 +691,13 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                             {mov.tipoMovimentacao.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="font-bold text-slate-900">{mov.produtoNome}</div>
                           {mov.tipoVasilhame && (
                             <span className="text-[10px] text-slate-400 font-mono">Casco: {mov.tipoVasilhame}</span>
                           )}
                         </td>
-                        <td className="p-2.5 text-center font-mono">
+                        <td className="py-1.5 px-3 text-center font-mono">
                           <span
                             className={`font-black ${
                               isEntrada ? 'text-emerald-700' : 'text-slate-800'
@@ -726,7 +709,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                             (Saldo: {mov.estoqueCheioAtual})
                           </span>
                         </td>
-                        <td className="p-2.5 text-center font-mono">
+                        <td className="py-1.5 px-3 text-center font-mono">
                           <span className="font-black text-amber-700">
                             {mov.quantidadeVazio > 0 ? `${mov.quantidadeVazio}` : '0'}
                           </span>
@@ -734,7 +717,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                             (Saldo: {mov.estoqueVazioAtual})
                           </span>
                         </td>
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="font-semibold text-slate-800 text-xs">
                             {mov.usuarioResponsavel || mov.entregadorNome || 'Sistema'}
                           </div>
@@ -840,12 +823,12 @@ export const EstoqueVasilhames: React.FC<Props> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
-                    <th className="p-2.5">Cliente</th>
-                    <th className="p-2.5">Tipo de Casco</th>
-                    <th className="p-2.5 text-center">Qtd. Pendente</th>
-                    <th className="p-2.5">Pedidos / Origem</th>
-                    <th className="p-2.5">Última Ocorrência</th>
-                    <th className="p-2.5 text-right">Ação</th>
+                    <th className="py-2 px-3">Cliente</th>
+                    <th className="py-2 px-3">Tipo de Casco</th>
+                    <th className="py-2 px-3 text-center">Qtd. Pendente</th>
+                    <th className="py-2 px-3">Pedidos / Origem</th>
+                    <th className="py-2 px-3">Última Ocorrência</th>
+                    <th className="py-2 px-3 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
@@ -861,7 +844,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                     })
                     .map((pend, idx) => (
                       <tr key={`${pend.clienteId}-${pend.tipoVasilhame}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="font-bold text-slate-900 text-xs">{pend.clienteNome}</div>
                           {pend.telefone && (
                             <div className="text-[10px] text-slate-500 font-mono">{pend.telefone}</div>
@@ -870,7 +853,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                             <div className="text-[10px] text-slate-400 truncate max-w-xs">{pend.endereco}</div>
                           )}
                         </td>
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-black text-[11px] ${
                               pend.tipoVasilhame === 'P13'
@@ -892,12 +875,12 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                               : `Vasilhame ${pend.tipoVasilhame}`}
                           </span>
                         </td>
-                        <td className="p-2.5 text-center">
+                        <td className="py-1.5 px-3 text-center">
                           <span className="inline-flex items-center justify-center min-w-7 px-2 py-0.5 rounded-md font-mono font-black text-xs bg-rose-100 text-rose-800 border border-rose-300">
                             {pend.quantidadePendente} un
                           </span>
                         </td>
-                        <td className="p-2.5">
+                        <td className="py-1.5 px-3">
                           <div className="flex flex-wrap gap-1 max-w-xs">
                             {pend.pedidosAfetados && pend.pedidosAfetados.length > 0 ? (
                               pend.pedidosAfetados.map((num: string, pIdx: number) => (
@@ -910,10 +893,10 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                             )}
                           </div>
                         </td>
-                        <td className="p-2.5 text-slate-500 font-mono text-[10px]">
+                        <td className="py-1.5 px-3 text-slate-500 font-mono text-[10px]">
                           {pend.dataUltimaOcorrencia ? formatarDataHora(pend.dataUltimaOcorrencia) : '-'}
                         </td>
-                        <td className="p-2.5 text-right">
+                        <td className="py-1.5 px-3 text-right">
                           <button
                             onClick={() => {
                               setPendenciaSelecionada(pend);
@@ -921,7 +904,7 @@ export const EstoqueVasilhames: React.FC<Props> = ({
                               setMotivoLiquidar(`Devolução de vale-casco na base - Cliente: ${pend.clienteNome}`);
                               setModalLiquidarAberto(true);
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-xs transition-colors"
                           >
                             <CheckCircle2 className="w-3 h-3" />
                             <span>Receber na Base</span>

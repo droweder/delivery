@@ -8,7 +8,7 @@ import {
   TrendingUp,
   FolderKanban,
   Users,
-  ChevronLeft,
+  History,
   ChevronRight,
   Menu,
   X,
@@ -74,12 +74,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRefreshAll,
   offlineMode,
   toggleOfflineSimulation,
-  collapsed,
-  setCollapsed,
+  collapsed: _collapsedProp,
+  setCollapsed: _setCollapsedProp,
   mobileOpen,
   setMobileOpen,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [isHovered, setIsHovered] = useState(false);
+
+  // Auto expande ao passar o mouse e recolhe ao sair; no mobile expande quando aberto
+  const isExpanded = mobileOpen || isHovered;
+  const collapsed = !isExpanded;
 
   const menuItems: MenuItem[] = [
     {
@@ -149,6 +154,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         Boolean(usuarioLogado?.permissoes?.verDashboardGerencial),
     },
     {
+      id: 'jornadas',
+      label: 'Jornadas & Rastreio',
+      shortLabel: 'Jornadas',
+      icon: History,
+      group: 'gestao',
+      descricao: 'Abertura de turnos, KM e auditoria de jornadas',
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        usuarioLogado?.perfil === 'GERENTE' ||
+        Boolean(usuarioLogado?.permissoes?.verDashboardGerencial) ||
+        Boolean(usuarioLogado?.permissoes?.acessarCadastros),
+    },
+    {
       id: 'cadastros',
       label: 'Central de Cadastros',
       shortLabel: 'Cadastros',
@@ -211,10 +230,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="flex flex-col h-full bg-slate-900 border-r border-slate-800 text-slate-100 select-none shadow-xl">
       {/* Sidebar Header / Logo */}
       <div
-        className={`border-b border-slate-800/80 shrink-0 bg-slate-900/90 backdrop-blur-md transition-all ${
-          collapsed
-            ? 'p-2 flex flex-col items-center gap-2.5'
-            : 'p-3 sm:p-3.5 flex items-center justify-between gap-2'
+        className={`h-14 border-b border-slate-800 shrink-0 bg-slate-900/90 backdrop-blur-md flex items-center transition-all ${
+          collapsed ? 'justify-center px-2' : 'justify-between px-3 sm:px-3.5 gap-2'
         }`}
       >
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2.5 min-w-0 flex-1'}`}>
@@ -240,17 +257,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
         </div>
-
-        {/* Toggle Collapse Button (Desktop) - located on the sidebar itself */}
-        <button
-          onClick={() => setCollapsed((prev) => !prev)}
-          title={collapsed ? 'Expandir Menu Lateral' : 'Recolher Menu Lateral'}
-          className={`hidden lg:flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-slate-700/60 cursor-pointer shadow-xs ${
-            collapsed ? 'w-8 h-7 text-slate-300 bg-slate-800/60' : 'p-1.5'
-          }`}
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
 
         {/* Close Mobile Overlay Button */}
         <button
@@ -303,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Navigation Links Grouped */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {grupos.map((grupo) => {
           const itensDoGrupo = itensFiltrados.filter((i) => i.group === grupo.key);
           if (itensDoGrupo.length === 0) return null;
@@ -455,34 +461,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
         )}
-
-        {/* Toggle Collapse Button (Desktop) - always directly on the sidebar */}
-        <div className="hidden lg:block pt-1 border-t border-slate-800/60">
-          <button
-            onClick={() => setCollapsed((prev) => !prev)}
-            title={collapsed ? 'Expandir Barra Lateral' : 'Ocultar Barra Lateral'}
-            className="w-full flex items-center justify-center gap-2 py-1.5 px-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800/80 border border-slate-800 transition-all cursor-pointer"
-          >
-            {collapsed ? (
-              <ChevronRight className="w-4 h-4 text-slate-300" />
-            ) : (
-              <>
-                <ChevronLeft className="w-4 h-4 text-slate-400" />
-                <span className="text-[11px] font-semibold">Ocultar Barra Lateral</span>
-              </>
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );
 
   return (
     <>
-      {/* Desktop Sidebar (Sticky left) */}
+      {/* Desktop Sidebar (Sticky left) - Auto expande e recolhe no hover */}
       <aside
-        className={`hidden lg:block sticky top-0 h-screen shrink-0 transition-all duration-300 z-30 ${
-          collapsed ? 'w-16' : 'w-56'
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={`hidden lg:block sticky top-0 h-screen shrink-0 transition-all duration-300 ease-in-out z-40 ${
+          isHovered ? 'w-60 shadow-2xl' : 'w-16 shadow-lg'
         }`}
       >
         {navContent}

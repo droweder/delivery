@@ -270,7 +270,130 @@ CREATE TABLE IF NOT EXISTS delivery.historico_localizacoes (
 
 CREATE INDEX IF NOT EXISTS idx_hist_loc_entregador_data ON delivery.historico_localizacoes(entregador_id, timestamp DESC);
 
+-- 2.12 WEB PUSH SUBSCRIPTIONS
+CREATE TABLE IF NOT EXISTS delivery.push_subscriptions (
+    id VARCHAR(50) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    entregador_id VARCHAR(36) REFERENCES delivery.entregadores(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT,
+    auth_key TEXT,
+    plataforma VARCHAR(20) NOT NULL DEFAULT 'WEB',
+    user_agent TEXT,
+    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.13 NOTIFICAÇÕES PUSH
+CREATE TABLE IF NOT EXISTS delivery.notificacoes_push (
+    id VARCHAR(50) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    empresa_id VARCHAR(36) REFERENCES delivery.empresas(id) ON DELETE CASCADE,
+    entregador_id VARCHAR(36) REFERENCES delivery.entregadores(id) ON DELETE CASCADE,
+    pedido_id VARCHAR(36),
+    pedido_codigo VARCHAR(50),
+    titulo VARCHAR(150) NOT NULL,
+    corpo TEXT NOT NULL,
+    tipo VARCHAR(30) NOT NULL DEFAULT 'NOVO_PEDIDO',
+    prioridade VARCHAR(20) NOT NULL DEFAULT 'ALTA',
+    canal VARCHAR(30) NOT NULL DEFAULT 'SUPABASE_REALTIME',
+    valor_total NUMERIC(10,2),
+    bairro_nome VARCHAR(100),
+    endereco VARCHAR(250),
+    itens_resumo TEXT,
+    lida BOOLEAN NOT NULL DEFAULT FALSE,
+    payload_json JSONB,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lida_em TIMESTAMPTZ
+);
+
+-- 2.14 VEÍCULOS (FROTA)
+CREATE TABLE IF NOT EXISTS delivery.veiculos (
+    id VARCHAR(36) PRIMARY KEY,
+    empresa_id VARCHAR(36) REFERENCES delivery.empresas(id) ON DELETE CASCADE,
+    placa VARCHAR(20) NOT NULL,
+    modelo VARCHAR(100) NOT NULL,
+    tipo VARCHAR(30) NOT NULL DEFAULT 'MOTO',
+    ano INT,
+    cor VARCHAR(30),
+    km_atual NUMERIC(10,2) NOT NULL DEFAULT 0,
+    km_ultima_revisao NUMERIC(10,2),
+    status VARCHAR(20) NOT NULL DEFAULT 'DISPONIVEL',
+    observacoes TEXT,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.15 COLABORADORES (RH / EQUIPE)
+CREATE TABLE IF NOT EXISTS delivery.colaboradores (
+    id VARCHAR(36) PRIMARY KEY,
+    empresa_id VARCHAR(36) REFERENCES delivery.empresas(id) ON DELETE CASCADE,
+    nome VARCHAR(150) NOT NULL,
+    cpf VARCHAR(20),
+    rg VARCHAR(20),
+    cnh VARCHAR(30),
+    categoria_cnh VARCHAR(10),
+    validade_cnh VARCHAR(20),
+    telefone VARCHAR(20),
+    email VARCHAR(150),
+    endereco TEXT,
+    bairro VARCHAR(100),
+    cidade VARCHAR(100),
+    data_nascimento VARCHAR(20),
+    data_admissao VARCHAR(20),
+    cargo VARCHAR(100) NOT NULL DEFAULT 'Entregador de Rota',
+    usuario_id_vinculado VARCHAR(36),
+    veiculo_id_atual VARCHAR(36),
+    status VARCHAR(20) NOT NULL DEFAULT 'ATIVO',
+    observacoes TEXT,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.16 TURNOS DE ENTREGADOR (JORNADAS / TROCO INICIAL / KM)
+CREATE TABLE IF NOT EXISTS delivery.turnos_entregador (
+    id VARCHAR(36) PRIMARY KEY,
+    empresa_id VARCHAR(36) REFERENCES delivery.empresas(id) ON DELETE CASCADE,
+    entregador_id VARCHAR(36) REFERENCES delivery.entregadores(id) ON DELETE CASCADE,
+    entregador_nome VARCHAR(150) NOT NULL,
+    colaborador_id VARCHAR(36),
+    usuario_id VARCHAR(36),
+    veiculo_id VARCHAR(36),
+    veiculo_placa VARCHAR(20),
+    veiculo_modelo VARCHAR(100),
+    data_hora_abertura TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    troco_inicial NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    km_inicial NUMERIC(10,2) NOT NULL DEFAULT 0,
+    data_hora_fechamento TIMESTAMPTZ,
+    km_final NUMERIC(10,2),
+    km_rodados NUMERIC(10,2),
+    total_entregas_realizadas INT DEFAULT 0,
+    total_dinheiro_vendas NUMERIC(10,2) DEFAULT 0.00,
+    total_pix_vendas NUMERIC(10,2) DEFAULT 0.00,
+    total_cartao_vendas NUMERIC(10,2) DEFAULT 0.00,
+    total_prazo_vendas NUMERIC(10,2) DEFAULT 0.00,
+    total_dinheiro_esperado_com_troco NUMERIC(10,2) DEFAULT 0.00,
+    total_dinheiro_informado NUMERIC(10,2) DEFAULT 0.00,
+    diferenca_dinheiro NUMERIC(10,2) DEFAULT 0.00,
+    cascos_p13_recolhidos INT DEFAULT 0,
+    cascos_p20l_recolhidos INT DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'EM_ANDAMENTO',
+    observacoes TEXT,
+    fechamento_caixa_id VARCHAR(36)
+);
+
+-- 2.17 FILA OFFLINE & AUDITORIA
+CREATE TABLE IF NOT EXISTS delivery.sync_queue_audit (
+    id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    idempotency_key VARCHAR(100) NOT NULL UNIQUE,
+    entregador_id VARCHAR(36) REFERENCES delivery.entregadores(id) ON DELETE SET NULL,
+    pedido_id VARCHAR(36) REFERENCES delivery.pedidos(id) ON DELETE SET NULL,
+    tipo_acao VARCHAR(50) NOT NULL,
+    payload_json JSONB NOT NULL,
+    timestamp_offline TIMESTAMPTZ NOT NULL,
+    timestamp_servidor TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status_sync VARCHAR(20) NOT NULL DEFAULT 'PROCESSADO'
+);
+
 -- 3. REAPLICAÇÃO DE GRANTS APÓS CRIAÇÃO DAS TABELAS
 GRANT ALL ON ALL TABLES IN SCHEMA delivery TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA delivery TO anon, authenticated, service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA delivery TO anon, authenticated, service_role;
+

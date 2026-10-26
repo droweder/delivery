@@ -1,5 +1,0 @@
-with open('server.ts') as f: text = f.read()
-text = text.replace('let supabaseClient: any = null;\n}', '}\nlet supabaseClient: any = null;')
-text = text.replace('}\n\n// VAPID Web Push Keys Setup', '// VAPID Web Push Keys Setup')
-text = text.replace('return supabaseClient;\n}\n// VAPID', 'return supabaseClient;\n}\n\n// VAPID')
-with open('server.ts', 'w') as f: f.write(text)

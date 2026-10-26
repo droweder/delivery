@@ -4,6 +4,7 @@ import {
   BairroTaxa,
   CategoriaProduto,
   Cliente,
+  Entregador,
   FormaPagamento,
   PagamentoItem,
   Pedido,
@@ -12,7 +13,9 @@ import {
   TipoVendaItem,
   Usuario,
 } from '../types';
-import { formatarMoeda } from '../lib/thermalPrinter';
+import {  formatarMoeda,
+  formatarDataHora,
+} from '../lib/thermalPrinter';
 import {
   Search,
   UserPlus,
@@ -48,9 +51,20 @@ import {
   Coins,
   CreditCard,
   Pencil,
+  MessageCircle,
+  ShoppingCart,
+  Truck,
+  Send,
+  Timer,
+  Columns,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
+import { abrirWhatsApp, gerarMensagemWhatsApp } from '../utils/whatsapp';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 import {
   apenasDigitos,
   consultarCep,
@@ -79,6 +93,10 @@ interface Props {
   onNovoCliente: (cliente: Cliente) => void;
   onSalvarCliente?: (cliente: Cliente) => Promise<void> | void;
   onProdutosAtualizados?: () => void;
+  pedidos?: Pedido[];
+  entregadores?: Entregador[];
+  onDespacharPedidos?: (pedidosIds: string[], entregadorId: string, imprimir?: boolean) => Promise<void>;
+  onVisualizarComanda?: (pedido: Pedido) => void;
 }
 
 interface ItemCarrinho {
@@ -102,6 +120,10 @@ export const PdvModulo: React.FC<Props> = ({
   onNovoCliente,
   onSalvarCliente,
   onProdutosAtualizados,
+  pedidos = [],
+  entregadores = [],
+  onDespacharPedidos,
+  onVisualizarComanda,
 }) => {
   // Search & Client State
   const [buscaCliente, setBuscaCliente] = useState('');
@@ -169,6 +191,68 @@ export const PdvModulo: React.FC<Props> = ({
 
   const [salvando, setSalvando] = useState(false);
   const [sucessoFeedback, setSucessoFeedback] = useState<string | null>(null);
+  const [ultimoPedidoCriado, setUltimoPedidoCriado] = useState<Pedido | null>(null);
+
+  // Estados do Kanban Integrado na mesma tela do PDV
+  const [exibirKanban, setExibirKanban] = useState(true);
+  const [pedidosSelecionadosKanban, setPedidosSelecionadosKanban] = useState<string[]>([]);
+  const [entregadorDestinoKanban, setEntregadorDestinoKanban] = useState<string>(() => entregadores[0]?.id || '');
+  const [despachandoKanban, setDespachandoKanban] = useState(false);
+
+  // Sincronizar entregador destino padrão se carregado após o mount
+  useEffect(() => {
+    if (!entregadorDestinoKanban && entregadores.length > 0) {
+      setEntregadorDestinoKanban(entregadores[0].id);
+    }
+  }, [entregadores, entregadorDestinoKanban]);
+
+  // Pedidos por status para o Kanban integrado
+  const pedidosPendentes = pedidos.filter((p) => p.status === 'PENDENTE');
+  const pedidosEmRota = pedidos.filter((p) => p.status === 'EM_ROTA');
+  const entregadoresAtivos = entregadores.filter((e) => e.ativo);
+
+  // Cálculo Dinâmico da Estimativa de Tempo de Entrega com base nas entregas pendentes
+  const calcularPrevisaoEntrega = () => {
+    const qtdPendentes = pedidosPendentes.length;
+    if (qtdPendentes === 0) {
+      return { min: 15, max: 25, status: 'LIVRE', label: 'Fila Livre • Despacho Imediato' };
+    }
+    if (qtdPendentes <= 3) {
+      return { min: 25, max: 35, status: 'NORMAL', label: 'Fluxo Normal' };
+    }
+    if (qtdPendentes <= 6) {
+      return { min: 35, max: 50, status: 'MODERADO', label: 'Fluxo Moderado' };
+    }
+    return { min: 50, max: 75, status: 'ALTO', label: 'Fila Alta (Sugerir Agendamento)' };
+  };
+
+  const previsao = calcularPrevisaoEntrega();
+
+  const handleAplicarPrevisaoObservacao = () => {
+    const textoPrevisao = `PREVISÃO ENTREGA: ~${previsao.min}-${previsao.max} MIN`;
+    if (observacoes.includes(textoPrevisao)) return;
+    setObservacoes((prev) => (prev ? `${prev} | ${textoPrevisao}` : textoPrevisao));
+  };
+
+  const toggleSelecionarPedidoKanban = (id: string) => {
+    setPedidosSelecionadosKanban((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleDespacharKanban = async (imprimir: boolean) => {
+    if (!onDespacharPedidos || pedidosSelecionadosKanban.length === 0 || !entregadorDestinoKanban) return;
+    try {
+      setDespachandoKanban(true);
+      await onDespacharPedidos(pedidosSelecionadosKanban, entregadorDestinoKanban, imprimir);
+      setPedidosSelecionadosKanban([]);
+      if (onProdutosAtualizados) onProdutosAtualizados();
+    } catch (err: any) {
+      alert('Erro ao despachar: ' + err.message);
+    } finally {
+      setDespachandoKanban(false);
+    }
+  };
 
   // Client Search Filter
   const clientesFiltrados = clientes.filter((c) => {
@@ -717,6 +801,7 @@ export const PdvModulo: React.FC<Props> = ({
       const novoPedido = await res.json();
 
       setSucessoFeedback(`Pedido ${novoPedido.codigo} criado com sucesso! Status: PENDENTE`);
+      setUltimoPedidoCriado(novoPedido);
       onPedidoCriado(novoPedido, imprimirDireto);
 
       // Limpar formulário de pedido
@@ -727,7 +812,10 @@ export const PdvModulo: React.FC<Props> = ({
       setModoMultiploPagamento(false);
       setPagamentosMultiplos([{ id: 'pg_1', forma: 'DINHEIRO', valor: 0 }]);
       setTipoEntrega('IMEDIATA');
-      setTimeout(() => setSucessoFeedback(null), 4000);
+      setTimeout(() => {
+        setSucessoFeedback(null);
+        setUltimoPedidoCriado(null);
+      }, 10000);
     } catch (err: any) {
       console.error(err);
       alert('Falha ao registrar pedido: ' + err.message);
@@ -736,24 +824,80 @@ export const PdvModulo: React.FC<Props> = ({
     }
   };
 
+  const tabsCategorias: TabItem<CategoriaProduto | 'TODOS' | 'MAIS_UTILIZADOS'>[] = [
+    { id: 'TODOS', label: 'Todos', badge: produtos.length },
+    { id: 'MAIS_UTILIZADOS', label: 'Mais Utilizados', icon: Star, badge: produtosMaisUtilizados.length },
+    { id: 'GAS', label: 'Gás', icon: Flame },
+    { id: 'AGUA', label: 'Água', icon: Droplet },
+    { id: 'BEBIDAS', label: 'Bebidas', icon: Beer },
+    { id: 'CONVENIENCIA', label: 'Conveniência', icon: Package },
+  ];
+
   return (
     <div className="space-y-4">
+      {/* Ações e Atalhos no TopBar */}
+      <TopBarActions>
+        <button
+          type="button"
+          onClick={() => setExibirKanban(!exibirKanban)}
+          className={`px-2.5 py-1.5 text-xs font-semibold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 border cursor-pointer ${
+            exibirKanban
+              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+          }`}
+          title="Exibir ou ocultar visão Kanban em tempo real na mesma tela"
+        >
+          <Columns className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{exibirKanban ? 'Kanban Integrado: ON' : 'Exibir Kanban'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setModalImportarErp(true)}
+          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0"
+          title="Importar Catálogo de Produtos ERP"
+        >
+          <Database className="w-3.5 h-3.5 text-blue-400" />
+          <span className="hidden sm:inline">Importar ERP</span>
+        </button>
+        <button
+          id="btn-open-new-client-modal"
+          onClick={handleAbrirNovoCliente}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
+        >
+          <UserPlus className="w-3.5 h-3.5" />
+          <span>Novo Cliente</span>
+        </button>
+      </TopBarActions>
+
       {/* Alerta de Sucesso / Feedback de Pedido */}
       {sucessoFeedback && (
-        <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-3.5 py-2 rounded-xl text-xs font-bold animate-fade-in shadow-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          <span>{sucessoFeedback}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 p-3 rounded-xl text-xs font-bold animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{sucessoFeedback}</span>
+          </div>
+          {ultimoPedidoCriado && ultimoPedidoCriado.cliente?.telefone && (
+            <button
+              onClick={() => abrirWhatsApp(ultimoPedidoCriado.cliente.telefone, gerarMensagemWhatsApp(ultimoPedidoCriado, 'CONFIRMACAO'))}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold shadow-sm transition-all cursor-pointer active:scale-95"
+              title="Disparar confirmação e resumo completo no WhatsApp do cliente"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>Enviar Confirmação WhatsApp</span>
+            </button>
+          )}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left Column: Client Identification & Catalog (7 cols) */}
-        <div className="lg:col-span-7 space-y-4">
+            <div className={`grid grid-cols-1 ${exibirKanban ? 'lg:grid-cols-12 gap-3.5' : 'lg:grid-cols-12 gap-4'}`}>
+        
+        {/* COLUNA 1: ATENDIMENTO / IDENTIFICAÇÃO DO CLIENTE & RESUMO DO PEDIDO */}
+        <div className={`${exibirKanban ? 'lg:col-span-4 xl:col-span-4' : 'lg:col-span-5'} space-y-3.5`}>
           {/* 1. SEÇÃO DO CLIENTE */}
-          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+          <div className="bg-[#eaecf0] p-3.5 rounded-2xl border border-slate-300/80 shadow-xs space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <div className="p-1 rounded bg-amber-100 text-amber-800">
+                <div className="p-1 rounded-lg bg-amber-100 text-amber-800">
                   <Phone className="w-3.5 h-3.5" />
                 </div>
                 <h3 className="font-bold text-slate-900 text-xs sm:text-sm">1. Identificação do Cliente</h3>
@@ -761,16 +905,16 @@ export const PdvModulo: React.FC<Props> = ({
               <button
                 id="btn-open-new-client-modal"
                 onClick={handleAbrirNovoCliente}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200 cursor-pointer"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold text-blue-700 bg-blue-100/80 hover:bg-blue-200 transition-colors border border-blue-300 cursor-pointer shadow-2xs"
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                Novo Cliente
+                <UserPlus className="w-3 h-3" />
+                Novo
               </button>
             </div>
 
             {/* Phone search input */}
             <div className="relative">
-              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
               <input
                 id="input-search-client"
                 type="text"
@@ -787,14 +931,14 @@ export const PdvModulo: React.FC<Props> = ({
                     }
                   }
                 }}
-                placeholder="Digite telefone com DDD ou nome do cliente..."
-                className="bg-white border-slate-300 text-slate-900 w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50 focus: text-slate-800 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                placeholder="Telefone ou nome do cliente..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
             </div>
 
             {/* Quick autocomplete dropdown results */}
             {buscaCliente && !clienteSelecionado && clientesFiltrados.length > 0 && (
-              <div className="border border-slate-200 rounded-lg overflow-hidden shadow-md divide-y divide-slate-100 bg-[#eaecf0] max-h-48 overflow-y-auto">
+              <div className="border border-slate-300 rounded-xl overflow-hidden shadow-lg divide-y divide-slate-200 bg-[#eaecf0] max-h-40 overflow-y-auto">
                 {clientesFiltrados.map((c) => (
                   <div
                     key={c.id}
@@ -806,17 +950,17 @@ export const PdvModulo: React.FC<Props> = ({
                         setTaxaEntrega(String(b.taxa));
                       }
                     }}
-                    className="p-2.5 hover:bg-blue-50/70 cursor-pointer transition-colors flex items-center justify-between text-xs"
+                    className="p-2 hover:bg-slate-200/80 cursor-pointer transition-colors flex items-center justify-between text-xs"
                   >
                     <div>
-                      <div className="font-bold text-slate-900">{c.nome}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {c.telefone} • {c.endereco}, {c.numero} ({c.bairroNome})
+                      <div className="font-bold text-slate-900 text-xs">{c.nome}</div>
+                      <div className="text-[10px] text-slate-600">
+                        {c.telefone} • {c.bairroNome}
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-black text-[10px]">
-                        {c.totalPedidos} pedidos
+                      <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-black text-[9px]">
+                        {c.totalPedidos} ped.
                       </span>
                     </div>
                   </div>
@@ -826,29 +970,29 @@ export const PdvModulo: React.FC<Props> = ({
 
             {/* Selected Client Card */}
             {clienteSelecionado ? (
-              <div className="p-3 rounded-lg bg-blue-50/60 border border-blue-200 space-y-1.5 text-xs">
+              <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 shadow-xs space-y-1.5 text-xs">
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-slate-900 text-xs sm:text-sm">{clienteSelecionado.nome}</span>
-                      <span className="px-1.5 py-0.2 rounded bg-blue-600 text-white font-bold text-[9px]">
+                      <span className="font-bold text-slate-900 text-xs truncate">{clienteSelecionado.nome}</span>
+                      <span className="px-1.5 py-0.2 rounded bg-blue-600 text-white font-bold text-[9px] shrink-0">
                         Identificado
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-600 flex items-center gap-1 mt-0.5">
+                    <div className="text-[10px] text-slate-600 flex items-center gap-1 mt-0.5">
                       <Phone className="w-3 h-3 text-blue-600" />
                       <span>{clienteSelecionado.telefone}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       id="btn-edit-client-pdv"
                       type="button"
                       onClick={() => handleAbrirEdicaoCliente(clienteSelecionado)}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors border border-blue-300 shadow-2xs cursor-pointer"
+                      className="flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors border border-blue-300 shadow-2xs cursor-pointer"
                       title="Editar dados cadastrais deste cliente"
                     >
-                      <Pencil className="w-3 h-3 text-blue-600" />
+                      <Pencil className="w-2.5 h-2.5 text-blue-600" />
                       <span>Editar</span>
                     </button>
                     <button
@@ -858,8 +1002,8 @@ export const PdvModulo: React.FC<Props> = ({
                         setClienteSelecionado(null);
                         setBuscaCliente('');
                       }}
-                      className="text-[11px] text-slate-400 hover:text-rose-600 font-semibold px-1 py-1 transition-colors cursor-pointer"
-                      title="Desmarcar e buscar outro cliente"
+                      className="text-[10px] text-slate-500 hover:text-rose-600 font-semibold px-1 py-0.5 transition-colors cursor-pointer"
+                      title="Desmarcar cliente"
                     >
                       Trocar
                     </button>
@@ -867,8 +1011,8 @@ export const PdvModulo: React.FC<Props> = ({
                 </div>
 
                 <div className="text-[11px] text-slate-700 pt-1 border-t border-blue-200/60 flex items-start gap-1">
-                  <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-                  <div>
+                  <MapPin className="w-3 h-3 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="leading-tight">
                     <span>
                       {clienteSelecionado.endereco}, {clienteSelecionado.numero}
                       {clienteSelecionado.complemento ? ` (${clienteSelecionado.complemento})` : ''} -{' '}
@@ -882,217 +1026,491 @@ export const PdvModulo: React.FC<Props> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] pt-1 text-slate-600">
-                  <div className="flex items-center gap-1 text-blue-700 font-bold">
-                    <MapPin className="w-3 h-3 text-blue-600" />
-                    <span>Bairro: {clienteSelecionado.bairroNome}</span>
+                {(clienteSelecionado.vasilhamesPendentes.P13 > 0 ||
+                  clienteSelecionado.vasilhamesPendentes.P20L > 0) && (
+                  <div className="text-rose-600 font-bold text-[10px] pt-0.5 border-t border-rose-200">
+                    [!] Cascos Pendentes: {clienteSelecionado.vasilhamesPendentes.P13} P13,{' '}
+                    {clienteSelecionado.vasilhamesPendentes.P20L} Água
                   </div>
-                  {(clienteSelecionado.vasilhamesPendentes.P13 > 0 ||
-                    clienteSelecionado.vasilhamesPendentes.P20L > 0) && (
-                    <div className="text-rose-600 font-bold">
-                      [!] Cascos Pendentes: {clienteSelecionado.vasilhamesPendentes.P13} P13,{' '}
-                      {clienteSelecionado.vasilhamesPendentes.P20L} Água
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             ) : (
-              <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-                <span>Digite o telefone acima para carregar o cliente ou clique em "Novo Cliente".</span>
+              <div className="p-2 bg-amber-50/80 border border-amber-200/90 rounded-xl text-[11px] text-amber-900 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                <span>Busque o cliente pelo telefone para iniciar o pedido.</span>
               </div>
             )}
           </div>
 
-          {/* 2. CATÁLOGO DE PRODUTOS */}
-          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-            {/* Catalog Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-slate-900 text-xs sm:text-sm">2. Catálogo de Produtos</h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800">
-                  {produtosFiltrados.length} disponíveis
-                </span>
+          {/* 3. RESUMO DO PEDIDO / PAGAMENTO */}
+          <div className="bg-[#eaecf0] p-3.5 rounded-2xl border border-slate-300/80 shadow-xs space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-300/60">
+              <div className="flex items-center gap-1.5">
+                <ShoppingCart className="w-4 h-4 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-xs sm:text-sm">3. Resumo do Pedido</h3>
               </div>
+              <div className="flex items-center gap-1.5">
+                <span className="px-2 py-0.2 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                  {carrinho.reduce((acc, it) => acc + it.quantidade, 0)} itens
+                </span>
+                {carrinho.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Deseja limpar todos os itens do carrinho?')) {
+                        setCarrinho([]);
+                      }
+                    }}
+                    className="text-[10px] text-slate-500 hover:text-rose-600 font-semibold transition-colors px-1 cursor-pointer"
+                    title="Limpar carrinho"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Cart Items List */}
+            {carrinho.length === 0 ? (
+              <div className="py-5 text-center text-slate-400 space-y-1 border border-dashed border-slate-300 rounded-xl bg-slate-100/60">
+                <Package className="w-5 h-5 mx-auto stroke-1" />
+                <p className="text-xs font-medium text-slate-600">Carrinho vazio.</p>
+                <p className="text-[10px] text-slate-500">Selecione produtos na coluna ao lado.</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                {carrinho.map((item, idx) => {
+                  const precoUnit =
+                    item.tipoVenda === 'COMPLETO' && item.produto.permiteVendaCasco
+                      ? item.produto.precoCompleto
+                      : item.produto.precoRecarga;
+                  const itemSubtotal = precoUnit * item.quantidade;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="p-2 rounded-xl bg-slate-100 border border-slate-300/80 flex items-center justify-between gap-1 text-xs shadow-2xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-900 truncate text-[11px]">{item.produto.nome}</div>
+                        <div className="text-[10px] text-slate-500">
+                          <span
+                            className={`font-bold ${
+                              item.tipoVenda === 'COMPLETO' ? 'text-amber-700' : 'text-blue-700'
+                            }`}
+                          >
+                            {item.tipoVenda === 'COMPLETO' ? 'COMPLETO' : 'RECARGA'}
+                          </span>{' '}
+                          • {formatarMoeda(precoUnit)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center border border-slate-300 rounded-lg bg-[#eaecf0] overflow-hidden">
+                          <button
+                            onClick={() => alterarQuantidade(idx, -1)}
+                            className="px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 transition-colors"
+                          >
+                            <Minus className="w-2.5 h-2.5" />
+                          </button>
+                          <span className="px-1.5 font-bold text-slate-900 text-xs">{item.quantidade}</span>
+                          <button
+                            onClick={() => alterarQuantidade(idx, 1)}
+                            className="px-1.5 py-0.5 text-slate-600 hover:bg-slate-200 transition-colors"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                        <span className="font-bold font-mono text-slate-900 w-12 text-right text-[11px]">
+                          {formatarMoeda(itemSubtotal)}
+                        </span>
+                        <button
+                          onClick={() => removerDoCarrinho(idx)}
+                          className="text-slate-400 hover:text-rose-600 p-0.5 transition-colors cursor-pointer"
+                          title="Remover item"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Agendamento de Entrega */}
+            <div className="space-y-1.5 pt-1.5 border-t border-slate-300/60 text-xs">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1">
+                  <CalendarClock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Entrega:</span>
+                </label>
+                <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg border border-slate-300/70">
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('IMEDIATA')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
+                      tipoEntrega === 'IMEDIATA'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-950'
+                    }`}
+                  >
+                    ⚡ Imediata
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoEntrega('AGENDADA')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
+                      tipoEntrega === 'AGENDADA'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-950'
+                    }`}
+                  >
+                    ⏰ Agendada
+                  </button>
+                </div>
+              </div>
+
+              {tipoEntrega === 'IMEDIATA' ? (
+                <div className="p-2 rounded-xl bg-blue-50/80 border border-blue-200 flex items-center justify-between text-[11px] text-blue-900 shadow-2xs">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <Clock className="w-3 h-3 text-blue-600 shrink-0" />
+                    <span>Despacho imediato</span>
+                  </div>
+                  <span className="font-bold text-[10px] bg-blue-100 border border-blue-200 px-2 py-0.2 rounded text-blue-800 font-mono">
+                    ~{previsao.min}-{previsao.max} min
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2 rounded-xl bg-amber-50/80 border border-amber-200/90 space-y-1.5 text-xs shadow-2xs">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Data:</label>
+                      <input
+                        id="input-data-entrega-agendada"
+                        type="date"
+                        value={dataEntregaAgendada}
+                        onChange={(e) => setDataEntregaAgendada(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 bg-slate-50 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Horário:</label>
+                      <input
+                        id="input-hora-entrega-agendada"
+                        type="time"
+                        value={horaEntregaAgendada}
+                        onChange={(e) => setHoraEntregaAgendada(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 bg-slate-50 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Formas de Pagamento */}
+            <div className="space-y-1.5 pt-1.5 border-t border-slate-300/60 text-xs">
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1">
+                  <Coins className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Pagamento:</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const novoModo = !modoMultiploPagamento;
+                    setModoMultiploPagamento(novoModo);
+                    if (novoModo && pagamentosMultiplos.length === 0) {
+                      setPagamentosMultiplos([
+                        { id: 'pg_1', forma: formaPagamento, valor: total, trocoPara: trocoPara ? Number(trocoPara) : undefined },
+                      ]);
+                    }
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                    modoMultiploPagamento
+                      ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  <Split className="w-2.5 h-2.5" />
+                  <span>{modoMultiploPagamento ? '✓ Dividido' : '+ Dividir'}</span>
+                </button>
+              </div>
+
+              {!modoMultiploPagamento ? (
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-3 gap-1">
+                    {(
+                      [
+                        ['DINHEIRO', 'Dinheiro'],
+                        ['PIX', 'Pix'],
+                        ['CARTAO_DEBITO', 'Débito'],
+                        ['CARTAO_CREDITO', 'Crédito'],
+                        ['A_PRAZO_FIADO', 'Fiado'],
+                      ] as const
+                    ).map(([tipo, label]) => (
+                      <button
+                        key={tipo}
+                        type="button"
+                        onClick={() => setFormaPagamento(tipo)}
+                        className={`px-1 py-1 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                          formaPagamento === tipo
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {formaPagamento === 'DINHEIRO' && (
+                    <div className="p-2 rounded-xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-between gap-1 shadow-2xs">
+                      <span className="text-emerald-900 font-bold text-[11px]">Troco p/:</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-bold text-emerald-800">R$</span>
+                        <input
+                          id="input-troco-para"
+                          type="number"
+                          value={trocoPara}
+                          onChange={(e) => setTrocoPara(e.target.value)}
+                          placeholder={total > 0 ? String(Math.ceil(total / 10) * 10) : '0'}
+                          className="w-16 px-1.5 py-0.5 rounded-lg border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5 p-2 rounded-xl bg-purple-50/70 border border-purple-200 shadow-2xs">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-purple-900">
+                    <span>Valores:</span>
+                    <span className="font-mono">{formatarMoeda(total)}</span>
+                  </div>
+                  {pagamentosMultiplos.map((item, idx) => (
+                    <div key={item.id || idx} className="p-1.5 rounded-lg bg-[#eaecf0] border border-purple-200 flex items-center gap-1">
+                      <select
+                        value={item.forma}
+                        onChange={(e) => handleAlterarPagamentoItem(idx, 'forma', e.target.value as FormaPagamento)}
+                        className="px-1 py-0.5 rounded border border-slate-300 text-[10px] font-bold bg-slate-50 text-slate-900"
+                      >
+                        <option value="DINHEIRO">Dinheiro</option>
+                        <option value="PIX">Pix</option>
+                        <option value="CARTAO_DEBITO">Débito</option>
+                        <option value="CARTAO_CREDITO">Crédito</option>
+                        <option value="A_PRAZO_FIADO">Fiado</option>
+                      </select>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.valor || ''}
+                        onChange={(e) => handleAlterarPagamentoItem(idx, 'valor', parseFloat(e.target.value) || 0)}
+                        placeholder="0,00"
+                        className="flex-1 px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-900 text-[10px] font-mono font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handlePreencherRestante(idx)}
+                        className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 text-[9px] font-bold border border-purple-300"
+                      >
+                        Resto
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => handleAddFormaPagamento('PIX')}
+                    className="text-[10px] font-bold text-purple-700 hover:text-purple-900"
+                  >
+                    + Adicionar forma
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Taxa de Entrega, Desconto e Observações */}
+            <div className="space-y-1.5 pt-1.5 border-t border-slate-300/60">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-bold text-slate-700">Taxa Entrega:</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    id="input-taxa-entrega"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    value={taxaEntrega}
+                    onChange={(e) => setTaxaEntrega(e.target.value)}
+                    className="w-16 px-1.5 py-0.5 rounded border border-slate-300 text-[11px] font-mono font-bold bg-slate-50 text-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTaxaEntrega('0')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-slate-100 text-slate-700 border-slate-300"
+                  >
+                    Grátis
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-0.5 text-[10px]">Desconto (R$):</label>
+                  <input
+                    id="input-desconto-pedido"
+                    type="number"
+                    min="0"
+                    value={desconto}
+                    onChange={(e) => setDesconto(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10px] font-mono font-bold bg-slate-50 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-0.5 text-[10px]">Obs:</label>
+                  <input
+                    id="input-observacoes-pedido"
+                    type="text"
+                    value={observacoes}
+                    onChange={(e) => setObservacoes(e.target.value.toUpperCase())}
+                    placeholder="Ex: interfone..."
+                    className="w-full px-1.5 py-0.5 rounded border border-slate-300 text-[10px] bg-slate-50 text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Totais Breakdown */}
+              <div className="p-2.5 rounded-xl bg-slate-100/90 border border-slate-300/80 space-y-1 font-mono text-xs shadow-2xs">
+                <div className="flex justify-between text-slate-600 text-[10px]">
+                  <span>Subtotal:</span>
+                  <span className="font-bold text-slate-800">{formatarMoeda(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 text-[10px]">
+                  <span>Taxa:</span>
+                  <span className={valorTaxaEntrega === 0 ? 'text-emerald-700 font-bold' : 'text-slate-900 font-bold'}>
+                    {valorTaxaEntrega === 0 ? 'Grátis' : `+ ${formatarMoeda(valorTaxaEntrega)}`}
+                  </span>
+                </div>
+                {valorDesconto > 0 && (
+                  <div className="flex justify-between text-rose-600 text-[10px] font-bold">
+                    <span>Desconto:</span>
+                    <span>- {formatarMoeda(valorDesconto)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center font-bold text-sm text-slate-900 pt-1.5 border-t border-slate-300">
+                  <span>TOTAL:</span>
+                  <span className="text-base text-blue-700 font-black">{formatarMoeda(total)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-1.5 pt-1">
+              <button
+                id="btn-finalizar-pedido"
+                disabled={salvando || !clienteSelecionado || carrinho.length === 0}
+                onClick={() => handleFinalizarPedido(false)}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs transition-all shadow-xs active:scale-98 cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{salvando ? 'Gravando...' : 'Gravar Pedido (Pendente)'}</span>
+              </button>
+
+              <button
+                id="btn-finalizar-e-imprimir"
+                disabled={salvando || !clienteSelecionado || carrinho.length === 0}
+                onClick={() => handleFinalizarPedido(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs transition-all shadow-xs active:scale-98 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Gravar e Imprimir Comanda</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* COLUNA 2: COLUNA DEDICADA DE PRODUTOS (CATÁLOGO VERTICAL) */}
+        <div className={`${exibirKanban ? 'lg:col-span-3 xl:col-span-3' : 'lg:col-span-7'} space-y-3.5`}>
+          <div className="bg-[#eaecf0] p-3.5 rounded-2xl border border-slate-300/80 shadow-xs space-y-3">
+            {/* Catalog Header */}
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-300/60">
+              <div className="flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-xs sm:text-sm">2. Coluna de Produtos</h3>
+              </div>
+              <span className="px-2 py-0.2 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                {produtosFiltrados.length} disp.
+              </span>
             </div>
 
             {/* Product Search Input Bar */}
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 id="input-busca-produto"
                 type="text"
                 value={buscaProduto}
                 onChange={(e) => setBuscaProduto(e.target.value)}
-                placeholder="Pesquisar produto por nome, marca, código, medida ou categoria..."
-                className="bg-white border-slate-300 text-slate-900 w-full pl-9 pr-8 py-2 rounded-lg border border-slate-200 bg-slate-50 focus: focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-xs text-slate-800 transition-all font-medium"
+                placeholder="Buscar produto ou código..."
+                className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all font-medium"
               />
               {buscaProduto && (
                 <button
                   type="button"
                   onClick={() => setBuscaProduto('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded-full"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600"
                   title="Limpar pesquisa"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3 h-3" />
                 </button>
               )}
             </div>
 
-            {/* Quick Access Bar for Most Used Products (1-Click Add) */}
-            {produtosMaisUtilizados.length > 0 && (
-              <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/80 space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-amber-900 flex items-center gap-1">
-                    <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
-                    Acesso Rápido • Mais Utilizados (1 Clique para Adicionar)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setCategoriaAtiva('MAIS_UTILIZADOS')}
-                    className="text-[10px] font-bold text-amber-800 hover:underline"
-                  >
-                    Ver todos ({produtosMaisUtilizados.length})
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {produtosMaisUtilizados.slice(0, 8).map((prod) => (
-                    <button
-                      key={prod.id}
-                      type="button"
-                      onClick={() => adicionarAoCarrinho(prod, 'RECARGA')}
-                      className="shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#eaecf0] hover:bg-amber-100/60 border border-amber-200 text-slate-800 hover:text-amber-950 font-semibold text-[11px] shadow-2xs transition-all"
-                      title={`Adicionar 1x ${prod.nome} (${formatarMoeda(prod.precoRecarga)})`}
-                    >
-                      <span className="text-amber-500 text-xs">⭐</span>
-                      <span className="truncate max-w-[130px] font-bold">{prod.nome?.split('(')[0].trim()}</span>
-                      <span className="text-emerald-700 font-bold">{formatarMoeda(prod.precoRecarga)}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Category Filter Pills including ⭐ Mais Utilizados */}
-            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('TODOS')}
-                className={`px-2.5 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'TODOS' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Todos ({produtos.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('MAIS_UTILIZADOS')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'MAIS_UTILIZADOS'
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-amber-800 hover:bg-amber-100/50'
-                }`}
-              >
-                <Star className="w-3 h-3 fill-current" />
-                <span>Mais Utilizados ({produtosMaisUtilizados.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('GAS')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'GAS' ? 'bg-[#eaecf0] text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Flame className="w-3 h-3 text-amber-600" /> Gás
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('AGUA')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'AGUA' ? 'bg-[#eaecf0] text-blue-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Droplet className="w-3 h-3 text-blue-600" /> Água
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('BEBIDAS')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'BEBIDAS' ? 'bg-[#eaecf0] text-indigo-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Beer className="w-3 h-3 text-indigo-600" /> Bebidas
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCategoriaAtiva('CONVENIENCIA')}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md font-bold transition-all whitespace-nowrap ${
-                  categoriaAtiva === 'CONVENIENCIA' ? 'bg-[#eaecf0] text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Package className="w-3 h-3 text-slate-600" /> Conveniência
-              </button>
+            {/* Category Filter Tabs */}
+            <div className="overflow-x-auto pb-1">
+              <SegmentedTabs
+                tabs={tabsCategorias}
+                activeTab={categoriaAtiva}
+                onChange={(tab) => setCategoriaAtiva(tab)}
+                size="sm"
+              />
             </div>
 
-            {/* Products Grid */}
+            {/* Products Vertical List */}
             {produtosFiltrados.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 space-y-2 border border-dashed border-slate-200 rounded-xl bg-slate-50">
-                <Package className="w-8 h-8 mx-auto stroke-1 text-slate-400" />
-                <p className="text-xs font-semibold text-slate-600">Nenhum produto encontrado com os filtros atuais.</p>
-                <div className="flex items-center justify-center gap-2 pt-1">
-                  {buscaProduto && (
-                    <button
-                      type="button"
-                      onClick={() => setBuscaProduto('')}
-                      className="px-2.5 py-1 rounded-md bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold"
-                    >
-                      Limpar busca
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setModalImportarErp(true)}
-                    className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold"
-                  >
-                    Importar do ERP
-                  </button>
-                </div>
+              <div className="py-8 text-center text-slate-400 space-y-1.5 border border-dashed border-slate-300 rounded-2xl bg-slate-100/60">
+                <Package className="w-6 h-6 mx-auto stroke-1 text-slate-400" />
+                <p className="text-xs font-semibold text-slate-600">Nenhum produto encontrado.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[520px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
                 {produtosFiltrados.map((prod) => {
                   const temCasco = prod.tipoVasilhame !== 'NENHUM';
 
                   return (
                     <div
                       key={prod.id}
-                      className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                      className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 shadow-2xs ${
                         prod.maisUtilizado
-                          ? 'border-amber-200 bg-amber-50/20 hover:border-amber-300'
-                          : 'border-slate-200 bg-slate-50/50 hover:border-blue-300 hover:bg-blue-50/20'
+                          ? 'border-amber-300 bg-amber-50/40 hover:border-amber-400 hover:bg-amber-50/60'
+                          : 'border-slate-300/80 bg-slate-100/90 hover:border-blue-400 hover:bg-slate-200/60'
                       }`}
                     >
                       <div>
                         {/* Header: Title, Favorite Star, Code */}
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div className="min-w-0">
-                            <div className="font-black text-slate-900 text-xs sm:text-sm leading-tight">
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-black text-slate-900 text-xs leading-tight truncate">
                               {prod.nome}
                             </div>
-                            <div className="flex items-center flex-wrap gap-1.5 mt-1 text-[10px]">
+                            <div className="flex items-center flex-wrap gap-1 mt-0.5 text-[9px]">
                               {prod.marca && (
-                                <span className="px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 font-bold">
+                                <span className="px-1 py-0.2 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300/60">
                                   {prod.marca}
                                 </span>
                               )}
                               {prod.unidadeMedida && (
-                                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
+                                <span className="px-1 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
                                   {prod.unidadeMedida}
                                 </span>
                               )}
@@ -1103,61 +1521,56 @@ export const PdvModulo: React.FC<Props> = ({
                             <button
                               type="button"
                               onClick={(e) => handleToggleFavorito(e, prod.id)}
-                              className={`p-1 rounded-md transition-colors ${
+                              className={`p-0.5 rounded transition-colors ${
                                 prod.maisUtilizado
-                                  ? 'text-amber-500 bg-amber-100/60 hover:bg-amber-200/60'
-                                  : 'text-slate-300 hover:text-amber-500 hover:bg-slate-100'
+                                  ? 'text-amber-500 bg-amber-100/80'
+                                  : 'text-slate-400 hover:text-amber-500'
                               }`}
-                              title={prod.maisUtilizado ? 'Remover dos mais utilizados' : 'Marcar como mais utilizado'}
+                              title={prod.maisUtilizado ? 'Favorito' : 'Marcar favorito'}
                             >
-                              <Star className={`w-3.5 h-3.5 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
+                              <Star className={`w-3 h-3 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
                             </button>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-200 text-slate-700">
+                            <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-slate-200 text-slate-700">
                               {prod.codigo}
                             </span>
                           </div>
                         </div>
 
-                        {/* Stock & Casco details */}
-                        <div className="text-[11px] text-slate-500 mt-1.5 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                        {/* Stock details */}
+                        <div className="text-[10px] text-slate-600 mt-1 flex items-center justify-between">
+                          <span>
+                            Cheio:{' '}
+                            <strong className={`font-bold ${prod.estoqueCheio <= (prod.estoqueMinimo || 5) ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              {prod.estoqueCheio}
+                            </strong>
+                          </span>
+                          {temCasco && (
                             <span>
-                              Cheio:{' '}
-                              <strong className={`font-bold ${prod.estoqueCheio <= (prod.estoqueMinimo || 5) ? 'text-rose-600' : 'text-emerald-700'}`}>
-                                {prod.estoqueCheio}
-                              </strong>
+                              Vazios: <strong className="text-amber-700 font-bold">{prod.estoqueVazio}</strong>
                             </span>
-                            {temCasco && (
-                              <span>
-                                Vazios: <strong className="text-amber-700 font-bold">{prod.estoqueVazio}</strong>
-                              </span>
-                            )}
-                          </div>
-                          {prod.vendasCount ? (
-                            <span className="text-[10px] text-slate-400 font-medium">{prod.vendasCount} vendas</span>
-                          ) : null}
+                          )}
                         </div>
                       </div>
 
                       {/* Action buttons (Recarga vs Completo) */}
-                      <div className="space-y-1 pt-2 border-t border-slate-200/60">
+                      <div className="pt-1.5 border-t border-slate-300/60">
                         {temCasco && prod.permiteVendaCasco ? (
-                          <div className="grid grid-cols-2 gap-1.5">
+                          <div className="grid grid-cols-2 gap-1">
                             <button
                               id={`btn-add-recarga-${prod.id}`}
                               onClick={() => adicionarAoCarrinho(prod, 'RECARGA')}
-                              className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-2xs"
+                              className="flex flex-col items-center justify-center p-1 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-[11px] transition-all shadow-2xs cursor-pointer"
                             >
-                              <span className="text-[9px] font-medium opacity-90">RECARGA (troca)</span>
+                              <span className="text-[8px] font-medium opacity-90">RECARGA</span>
                               <span className="font-mono font-black">{formatarMoeda(prod.precoRecarga)}</span>
                             </button>
 
                             <button
                               id={`btn-add-completo-${prod.id}`}
                               onClick={() => adicionarAoCarrinho(prod, 'COMPLETO')}
-                              className="flex flex-col items-center justify-center p-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors shadow-2xs"
+                              className="flex flex-col items-center justify-center p-1 rounded-lg bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-[11px] transition-all shadow-2xs cursor-pointer"
                             >
-                              <span className="text-[9px] font-medium opacity-90">COMPLETO (+casco)</span>
+                              <span className="text-[8px] font-medium opacity-90">+CASCO</span>
                               <span className="font-mono font-black">{formatarMoeda(prod.precoCompleto)}</span>
                             </button>
                           </div>
@@ -1165,9 +1578,9 @@ export const PdvModulo: React.FC<Props> = ({
                           <button
                             id={`btn-add-item-${prod.id}`}
                             onClick={() => adicionarAoCarrinho(prod, 'RECARGA')}
-                            className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-2xs"
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-[11px] transition-all shadow-2xs cursor-pointer"
                           >
-                            <span>Adicionar Item</span>
+                            <span>+ Adicionar</span>
                             <span className="font-mono font-black">{formatarMoeda(prod.precoRecarga)}</span>
                           </button>
                         )}
@@ -1180,588 +1593,275 @@ export const PdvModulo: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Right Column: Order Summary / Cart / Payment (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-[#eaecf0] p-4 rounded-xl border border-slate-200 shadow-xs space-y-4 sticky top-16">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-xs sm:text-sm">3. Resumo do Pedido</h3>
-              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-                {carrinho.reduce((acc, it) => acc + it.quantidade, 0)} itens
-              </span>
-            </div>
-
-            {/* Cart Items List */}
-            {carrinho.length === 0 ? (
-              <div className="py-6 text-center text-slate-400 space-y-1.5 border border-dashed border-slate-200 rounded-lg">
-                <Package className="w-6 h-6 mx-auto stroke-1" />
-                <p className="text-xs font-medium">Carrinho vazio.</p>
-                <p className="text-[10px] text-slate-400">Clique nos itens do catálogo para adicionar.</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                {carrinho.map((item, idx) => {
-                  const precoUnit =
-                    item.tipoVenda === 'COMPLETO' && item.produto.permiteVendaCasco
-                      ? item.produto.precoCompleto
-                      : item.produto.precoRecarga;
-                  const itemSubtotal = precoUnit * item.quantidade;
-
-                  return (
-                    <div
-                      key={idx}
-                      className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-1.5 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 truncate text-xs">{item.produto.nome}</div>
-                        <div className="text-[10px] text-slate-500">
-                          <span
-                            className={`font-bold ${
-                              item.tipoVenda === 'COMPLETO' ? 'text-amber-700' : 'text-blue-700'
-                            }`}
-                          >
-                            {item.tipoVenda === 'COMPLETO' ? 'COMPLETO' : 'RECARGA'}
-                          </span>{' '}
-                          • {formatarMoeda(precoUnit)} un
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <div className="flex items-center border border-slate-300 rounded bg-[#eaecf0] overflow-hidden">
-                          <button
-                            onClick={() => alterarQuantidade(idx, -1)}
-                            className="px-1 py-0.5 text-slate-600 hover:bg-slate-100"
-                          >
-                            <Minus className="w-2.5 h-2.5" />
-                          </button>
-                          <span className="px-1.5 font-bold text-slate-900 text-xs">{item.quantidade}</span>
-                          <button
-                            onClick={() => alterarQuantidade(idx, 1)}
-                            className="px-1 py-0.5 text-slate-600 hover:bg-slate-100"
-                          >
-                            <Plus className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                        <span className="font-bold font-mono text-slate-900 w-14 text-right text-xs">
-                          {formatarMoeda(itemSubtotal)}
-                        </span>
-                        <button
-                          onClick={() => removerDoCarrinho(idx)}
-                          className="text-slate-400 hover:text-rose-600 p-0.5"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Agendamento de Entrega (Imediata vs Agendada) */}
-            <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
+        {/* COLUNA 3: KANBAN EM TEMPO REAL & ESTIMATIVA DE TEMPO DE ENTREGA */}
+        {exibirKanban && (
+          <div className="lg:col-span-5 xl:col-span-5 space-y-3.5">
+            {/* WIDGET ESTIMATIVA DE TEMPO DE ENTREGA */}
+            <div className="p-3.5 rounded-2xl border border-amber-300 bg-amber-50/90 shadow-xs space-y-2">
               <div className="flex items-center justify-between">
-                <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
-                  <CalendarClock className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Data / Hora de Entrega:</span>
-                </label>
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setTipoEntrega('IMEDIATA')}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
-                      tipoEntrega === 'IMEDIATA'
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    ⚡ Imediata
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTipoEntrega('AGENDADA')}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all ${
-                      tipoEntrega === 'AGENDADA'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    ⏰ Agendada
-                  </button>
-                </div>
-              </div>
-
-              {tipoEntrega === 'IMEDIATA' ? (
-                <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-100 flex items-center justify-between text-[11px] text-blue-900">
-                  <div className="flex items-center gap-1.5 font-medium">
-                    <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                    <span>Despacho imediato</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="p-1 rounded-lg bg-amber-200 text-amber-900 animate-pulse">
+                    <Timer className="w-4 h-4" />
                   </div>
-                  <span className="font-bold text-[10px] bg-blue-100 px-2 py-0.5 rounded text-blue-800 font-mono">
-                    ~25-35 min
+                  <div>
+                    <h4 className="font-extrabold text-amber-950 text-xs sm:text-sm">
+                      Previsão de Entrega (Tempo Real)
+                    </h4>
+                    <span className="text-[10px] text-amber-800 font-medium">
+                      Estimativa automática calculada pela fila da base
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-sm sm:text-base font-black text-amber-950 font-mono">
+                    ~{previsao.min} a {previsao.max} min
+                  </div>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md ${
+                    previsao.status === 'LIVRE'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : previsao.status === 'NORMAL'
+                      ? 'bg-blue-100 text-blue-800'
+                      : previsao.status === 'MODERADO'
+                      ? 'bg-amber-200 text-amber-900'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {previsao.label}
                   </span>
                 </div>
-              ) : (
-                <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200/80 space-y-2 text-xs">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Data da Entrega:</label>
-                      <input
-                        id="input-data-entrega-agendada"
-                        type="date"
-                        value={dataEntregaAgendada}
-                        onChange={(e) => setDataEntregaAgendada(e.target.value)}
-                        className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Horário Previsto:</label>
-                      <input
-                        id="input-hora-entrega-agendada"
-                        type="time"
-                        value={horaEntregaAgendada}
-                        onChange={(e) => setHoraEntregaAgendada(e.target.value)}
-                        className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded border border-amber-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
+              </div>
 
-                  {/* Atalhos Rápidos de Agendamento */}
-                  <div>
-                    <span className="text-[10px] text-amber-800 font-medium block mb-1">Atalhos de horário:</span>
-                    <div className="flex flex-wrap gap-1">
-                      {[
-                        {
-                          label: '+30 min',
-                          calc: () => {
-                            const d = new Date();
-                            d.setMinutes(d.getMinutes() + 30);
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
-                          },
-                        },
-                        {
-                          label: '+1 hora',
-                          calc: () => {
-                            const d = new Date();
-                            d.setHours(d.getHours() + 1);
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
-                          },
-                        },
-                        {
-                          label: '+2 horas',
-                          calc: () => {
-                            const d = new Date();
-                            d.setHours(d.getHours() + 2);
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
-                          },
-                        },
-                        {
-                          label: 'Hoje 18:00',
-                          calc: () => {
-                            const d = new Date();
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada('18:00');
-                          },
-                        },
-                        {
-                          label: 'Amanhã 09:00',
-                          calc: () => {
-                            const d = new Date();
-                            d.setDate(d.getDate() + 1);
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada('09:00');
-                          },
-                        },
-                        {
-                          label: 'Amanhã 14:00',
-                          calc: () => {
-                            const d = new Date();
-                            d.setDate(d.getDate() + 1);
-                            setDataEntregaAgendada(d.toISOString().split('T')[0]);
-                            setHoraEntregaAgendada('14:00');
-                          },
-                        },
-                      ].map((item, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={item.calc}
-                          className="px-1.5 py-0.5 rounded bg-white hover:bg-amber-100/60 border border-amber-300 text-[10px] font-bold text-amber-900 transition-colors shadow-2xs"
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {dataEntregaAgendada && horaEntregaAgendada && (
-                    <div className="pt-1 border-t border-amber-200/60 flex items-center justify-between text-[11px] font-bold text-amber-900">
-                      <span>Entrega Programada:</span>
-                      <span className="font-mono bg-amber-200/60 px-1.5 py-0.5 rounded text-amber-950">
-                        {dataEntregaAgendada.split('-').reverse().join('/')} às {horaEntregaAgendada}
-                      </span>
-                    </div>
-                  )}
+              <div className="flex items-center justify-between pt-1.5 border-t border-amber-200/80 text-[10px] text-amber-900">
+                <div className="flex items-center gap-2">
+                  <span><strong>{pedidosPendentes.length}</strong> pendentes na base</span>
+                  <span>•</span>
+                  <span><strong>{pedidosEmRota.length}</strong> em rota</span>
+                  <span>•</span>
+                  <span><strong>{entregadoresAtivos.length}</strong> entregadores</span>
                 </div>
-              )}
+
+                <button
+                  type="button"
+                  onClick={handleAplicarPrevisaoObservacao}
+                  className="px-2 py-0.5 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[10px] border border-amber-400 transition-colors cursor-pointer"
+                  title="Inserir previsão calculada nas observações do pedido"
+                >
+                  + Inserir na Obs
+                </button>
+              </div>
             </div>
 
-            {/* Payment Method & Delivery Totals */}
-            <div className="space-y-2.5 pt-2 border-t border-slate-100 text-xs">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-bold text-slate-800 text-[11px] flex items-center gap-1.5">
-                    <Coins className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Forma de Pagamento:</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const novoModo = !modoMultiploPagamento;
-                      setModoMultiploPagamento(novoModo);
-                      if (novoModo && pagamentosMultiplos.length === 0) {
-                        setPagamentosMultiplos([
-                          { id: 'pg_1', forma: formaPagamento, valor: total, trocoPara: trocoPara ? Number(trocoPara) : undefined },
-                        ]);
-                      } else if (novoModo && pagamentosMultiplos.length === 1 && pagamentosMultiplos[0].valor === 0) {
-                        setPagamentosMultiplos([
-                          { id: 'pg_1', forma: formaPagamento, valor: total, trocoPara: trocoPara ? Number(trocoPara) : undefined },
-                        ]);
-                      }
-                    }}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors ${
-                      modoMultiploPagamento
-                        ? 'bg-purple-600 text-white border-purple-600 shadow-xs'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Split className="w-3 h-3" />
-                    <span>{modoMultiploPagamento ? '✓ Múltiplas Formas' : '+ Dividir Pagamento'}</span>
-                  </button>
+            {/* QUADROS KANBAN INTEGRADOS (Pendentes e Em Rota) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Quadro 1: Pendentes na Base */}
+              <div className="bg-slate-100/90 p-3 rounded-2xl border border-slate-300/80 space-y-2">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-300/60">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    <h4 className="font-extrabold text-slate-900 text-xs">1. Pendentes</h4>
+                  </div>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 text-[10px] font-black">
+                    {pedidosPendentes.length}
+                  </span>
                 </div>
 
-                {!modoMultiploPagamento ? (
-                  /* Modo Pagamento Único */
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-3 gap-1">
-                      {(
-                        [
-                          ['DINHEIRO', 'Dinheiro'],
-                          ['PIX', 'Pix'],
-                          ['CARTAO_DEBITO', 'Débito'],
-                          ['CARTAO_CREDITO', 'Crédito'],
-                          ['A_PRAZO_FIADO', 'Fiado'],
-                        ] as const
-                      ).map(([tipo, label]) => (
-                        <button
-                          key={tipo}
-                          type="button"
-                          onClick={() => setFormaPagamento(tipo)}
-                          className={`px-1.5 py-1.5 rounded-md text-[11px] font-bold transition-all border ${
-                            formaPagamento === tipo
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                {/* Barra de despacho rápido se houver pedidos selecionados */}
+                {onDespacharPedidos && pedidosSelecionadosKanban.length > 0 && (
+                  <div className="p-2 rounded-xl bg-blue-100/80 border border-blue-300 space-y-1.5 text-xs animate-fade-in">
+                    <div className="text-[10px] font-bold text-blue-900 flex justify-between">
+                      <span>{pedidosSelecionadosKanban.length} selecionado(s)</span>
+                      <button
+                        type="button"
+                        onClick={() => setPedidosSelecionadosKanban([])}
+                        className="text-slate-500 hover:text-slate-700"
+                      >
+                        Limpar
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={entregadorDestinoKanban}
+                        onChange={(e) => setEntregadorDestinoKanban(e.target.value)}
+                        className="flex-1 px-1.5 py-1 rounded border border-blue-300 text-[10px] font-bold bg-[#eaecf0] text-slate-800"
+                      >
+                        {entregadores.map((ent) => (
+                          <option key={ent.id} value={ent.id}>
+                            🛵 {ent.nome}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={despachandoKanban || !entregadorDestinoKanban}
+                        onClick={() => handleDespacharKanban(false)}
+                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] disabled:opacity-50"
+                      >
+                        {despachandoKanban ? '...' : 'Despachar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Lista de pedidos pendentes */}
+                <div className="space-y-1.5 max-h-[calc(100vh-340px)] overflow-y-auto pr-0.5">
+                  {pedidosPendentes.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400 text-xs">
+                      <Clock className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                      Nenhum pedido pendente.
+                    </div>
+                  ) : (
+                    pedidosPendentes.map((pedido) => {
+                      const isSelected = pedidosSelecionadosKanban.includes(pedido.id);
+
+                      return (
+                        <div
+                          key={pedido.id}
+                          className={`p-2 rounded-xl bg-[#eaecf0] border transition-all shadow-2xs space-y-1 text-xs ${
+                            isSelected
+                              ? 'border-blue-500 ring-1 ring-blue-500/20'
+                              : 'border-slate-300/80 hover:border-slate-400'
                           }`}
                         >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {formaPagamento === 'DINHEIRO' && (
-                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2">
-                        <span className="text-emerald-900 font-bold text-xs">Troco para quanto?</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs font-bold text-emerald-800">R$</span>
-                          <input
-                            id="input-troco-para"
-                            type="number"
-                            value={trocoPara}
-                            onChange={(e) => setTrocoPara(e.target.value)}
-                            placeholder={total > 0 ? String(Math.ceil(total / 10) * 10) : '0'}
-                            className="w-20 px-2 py-0.5 rounded border border-emerald-300 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-[#eaecf0]"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Modo Múltiplas Formas de Pagamento */
-                  <div className="space-y-2 p-2.5 rounded-xl bg-purple-50/70 border border-purple-200">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-purple-900">
-                      <span>Distribuição dos Valores:</span>
-                      <span className="font-mono">Total: {formatarMoeda(total)}</span>
-                    </div>
-
-                    {/* Lista de formas adicionadas */}
-                    <div className="space-y-1.5">
-                      {pagamentosMultiplos.map((item, idx) => (
-                        <div
-                          key={item.id || idx}
-                          className="p-2 rounded-lg bg-white border border-purple-200 shadow-2xs space-y-1.5"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <select
-                              value={item.forma}
-                              onChange={(e) =>
-                                handleAlterarPagamentoItem(idx, 'forma', e.target.value as FormaPagamento)
-                              }
-                              className="px-2 py-1 rounded border border-slate-300 text-xs font-bold bg-[#eaecf0] text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500 shrink-0"
-                            >
-                              <option value="DINHEIRO">Dinheiro</option>
-                              <option value="PIX">Pix</option>
-                              <option value="CARTAO_DEBITO">Cartão Débito</option>
-                              <option value="CARTAO_CREDITO">Cartão Crédito</option>
-                              <option value="A_PRAZO_FIADO">A Prazo / Fiado</option>
-                            </select>
-
-                            <div className="relative flex-1">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px]">
-                                R$
-                              </span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={item.valor || ''}
-                                onChange={(e) =>
-                                  handleAlterarPagamentoItem(
-                                    idx,
-                                    'valor',
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                placeholder="0,00"
-                                className="bg-white border-slate-300 text-slate-900 w-full pl-7 pr-2 py-1 rounded border text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
-                              />
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-1">
+                              {onDespacharPedidos && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelecionarPedidoKanban(pedido.id)}
+                                  className="w-3 h-3 rounded text-blue-600 cursor-pointer"
+                                />
+                              )}
+                              <span className="font-black text-slate-900 text-[11px]">{pedido.codigo}</span>
                             </div>
+                            <span className="text-[9px] text-slate-500 font-mono">
+                              {formatarDataHora(pedido.criadoEm).split(' ')[1] || ''}
+                            </span>
+                          </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handlePreencherRestante(idx)}
-                              title="Preencher restante do total nesta forma"
-                              className="px-2 py-1 rounded bg-purple-100 hover:bg-purple-200 text-purple-900 text-[10px] font-bold border border-purple-300 shrink-0 transition-colors"
-                            >
-                              Completar
-                            </button>
+                          <div>
+                            <div className="font-bold text-slate-900 text-[11px] truncate">{pedido.cliente?.nome}</div>
+                            <div className="text-[10px] text-slate-600 truncate flex items-center gap-0.5">
+                              <MapPin className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                              <span>{pedido.cliente?.bairroNome}</span>
+                            </div>
+                          </div>
 
-                            {pagamentosMultiplos.length > 1 && (
+                          <div className="pt-1 border-t border-slate-200/80 flex items-center justify-between text-[10px]">
+                            <span className="font-mono font-bold text-blue-700">{formatarMoeda(pedido.total)}</span>
+                            <div className="flex items-center gap-1">
+                              {pedido.cliente?.telefone && (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONFIRMACAO'))}
+                                  className="text-emerald-700 hover:text-emerald-900 font-bold"
+                                  title="WhatsApp"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                </button>
+                              )}
+                              {onVisualizarComanda && (
+                                <button
+                                  type="button"
+                                  onClick={() => onVisualizarComanda(pedido)}
+                                  className="text-slate-600 hover:text-slate-900"
+                                  title="Comanda"
+                                >
+                                  <Printer className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Quadro 2: Em Rota (Na Rua) */}
+              <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between pb-1 border-b border-blue-200">
+                  <div className="flex items-center gap-1.5">
+                    <Truck className="w-3.5 h-3.5 text-blue-600" />
+                    <h4 className="font-extrabold text-slate-900 text-xs">2. Em Rota</h4>
+                  </div>
+                  <span className="px-1.5 py-0.2 rounded bg-blue-200 text-blue-900 text-[10px] font-black">
+                    {pedidosEmRota.length}
+                  </span>
+                </div>
+
+                {/* Lista de pedidos em rota */}
+                <div className="space-y-1.5 max-h-[calc(100vh-340px)] overflow-y-auto pr-0.5">
+                  {pedidosEmRota.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400 text-xs">
+                      <Truck className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                      Nenhum pedido em rota.
+                    </div>
+                  ) : (
+                    pedidosEmRota.map((pedido) => (
+                      <div
+                        key={pedido.id}
+                        className="p-2 rounded-xl bg-[#eaecf0] border border-blue-200 transition-all shadow-2xs space-y-1 text-xs"
+                      >
+                        <div className="flex items-start justify-between">
+                          <span className="font-black text-slate-900 text-[11px]">{pedido.codigo}</span>
+                          <span className="px-1 py-0.2 rounded bg-blue-100 text-blue-800 font-bold text-[9px]">
+                            {pedido.entregadorNome?.split(' ')[0] || 'Entregador'}
+                          </span>
+                        </div>
+
+                        <div>
+                          <div className="font-bold text-slate-900 text-[11px] truncate">{pedido.cliente?.nome}</div>
+                          <div className="text-[10px] text-slate-600 truncate flex items-center gap-0.5">
+                            <MapPin className="w-2.5 h-2.5 text-blue-500 shrink-0" />
+                            <span>{pedido.cliente?.bairroNome}</span>
+                          </div>
+                        </div>
+
+                        <div className="pt-1 border-t border-slate-200/80 flex items-center justify-between text-[10px]">
+                          <span className="font-mono font-bold text-blue-700">{formatarMoeda(pedido.total)}</span>
+                          <div className="flex items-center gap-1">
+                            {pedido.cliente?.telefone && (
                               <button
                                 type="button"
-                                onClick={() => handleRemoverFormaPagamento(idx)}
-                                className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
-                                title="Remover esta forma"
+                                onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'DESPACHADO'))}
+                                className="text-emerald-700 hover:text-emerald-900 font-bold"
+                                title="Avisar cliente no WhatsApp"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <MessageCircle className="w-3 h-3" />
+                              </button>
+                            )}
+                            {onVisualizarComanda && (
+                              <button
+                                type="button"
+                                onClick={() => onVisualizarComanda(pedido)}
+                                className="text-slate-600 hover:text-slate-900"
+                                title="Comanda"
+                              >
+                                <Printer className="w-3 h-3" />
                               </button>
                             )}
                           </div>
-
-                          {item.forma === 'DINHEIRO' && (
-                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[10px]">
-                              <span className="text-slate-600 font-medium">Troco para este valor:</span>
-                              <div className="flex items-center gap-1">
-                                <span className="font-bold text-slate-500">R$</span>
-                                <input
-                                  type="number"
-                                  value={item.trocoPara || ''}
-                                  onChange={(e) =>
-                                    handleAlterarPagamentoItem(
-                                      idx,
-                                      'trocoPara',
-                                      e.target.value ? Number(e.target.value) : undefined
-                                    )
-                                  }
-                                  placeholder="0,00"
-                                  className="w-16 px-1.5 py-0.5 rounded border border-slate-300 text-[10px] font-bold bg-[#eaecf0]"
-                                />
-                              </div>
-                            </div>
-                          )}
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Botão Adicionar outra forma */}
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleAddFormaPagamento('PIX')}
-                        className="flex items-center gap-1 text-[10px] font-bold text-purple-700 hover:text-purple-900 transition-colors"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Adicionar outra forma</span>
-                      </button>
-
-                      {/* Status de Cobertura */}
-                      <div className="text-[10px] font-bold font-mono">
-                        {Math.abs(diferencaPagamento) < 0.01 ? (
-                          <span className="text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" />
-                            100% Coberto ({formatarMoeda(somaPagamentosMultiplos)})
-                          </span>
-                        ) : diferencaPagamento > 0 ? (
-                          <span className="text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
-                            Falta {formatarMoeda(diferencaPagamento)}
-                          </span>
-                        ) : (
-                          <span className="text-rose-700 bg-rose-100 px-2 py-0.5 rounded">
-                            Excesso {formatarMoeda(Math.abs(diferencaPagamento))}
-                          </span>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Taxa de Entrega Personalizável & Desconto */}
-              <div className="space-y-2 pt-1 border-t border-slate-100">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="font-bold text-slate-700 text-[11px] flex items-center gap-1">
-                      <span>Taxa de Entrega (R$):</span>
-                      <span className="text-[10px] text-slate-400 font-normal">(definida neste pedido)</span>
-                    </label>
-                    <span className="text-[11px] font-bold font-mono text-blue-700">
-                      {valorTaxaEntrega === 0 ? 'Grátis (R$ 0,00)' : formatarMoeda(valorTaxaEntrega)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="relative flex-1">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">R$</span>
-                      <input
-                        id="input-taxa-entrega"
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={taxaEntrega}
-                        onChange={(e) => setTaxaEntrega(e.target.value)}
-                        placeholder="0,00"
-                        className="bg-white border-slate-300 text-slate-900 w-full pl-8 pr-2 py-1 rounded-lg border text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setTaxaEntrega('0')}
-                        className={`px-2 py-1 rounded-md text-[10px] font-bold border transition-colors ${
-                          valorTaxaEntrega === 0
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        Grátis
-                      </button>
-                      {['3', '5', '8', '10'].map((val) => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setTaxaEntrega(val)}
-                          className={`px-1.5 py-1 rounded-md text-[10px] font-bold border transition-colors ${
-                            taxaEntrega === val
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                          }`}
-                        >
-                          R${val}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-0.5 text-[11px]">Desconto (R$):</label>
-                    <div className="relative">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-[10px]">R$</span>
-                      <input
-                        id="input-desconto-pedido"
-                        type="number"
-                        min="0"
-                        value={desconto}
-                        onChange={(e) => setDesconto(e.target.value)}
-                        placeholder="0,00"
-                        className="bg-white border-slate-300 text-slate-900 w-full pl-7 pr-2 py-1 rounded-lg border border-slate-200 text-xs font-mono font-bold bg-slate-50 focus: focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-0.5 text-[11px]">Observações:</label>
-                    <input
-                      id="input-observacoes-pedido"
-                      type="text"
-                      value={observacoes}
-                      onChange={(e) => setObservacoes(e.target.value.toUpperCase())}
-                      placeholder="Ex: interfone 204..."
-                      className="bg-white border-slate-300 text-slate-900 w-full px-2 py-1 rounded-lg border border-slate-200 text-xs bg-slate-50 focus: focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
+                    ))
+                  )}
                 </div>
               </div>
-
-              {/* Totals Breakdown */}
-              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1 font-mono text-xs">
-                <div className="flex justify-between text-slate-600 text-[11px]">
-                  <span>Subtotal Itens:</span>
-                  <span>{formatarMoeda(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-600 text-[11px]">
-                  <span>Taxa de Entrega:</span>
-                  <span className={valorTaxaEntrega === 0 ? 'text-emerald-700 font-bold' : 'text-slate-900 font-bold'}>
-                    {valorTaxaEntrega === 0 ? 'Grátis (R$ 0,00)' : `+ ${formatarMoeda(valorTaxaEntrega)}`}
-                  </span>
-                </div>
-                {valorDesconto > 0 && (
-                  <div className="flex justify-between text-rose-600 text-[11px] font-bold">
-                    <span>Desconto:</span>
-                    <span>- {formatarMoeda(valorDesconto)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-bold text-sm text-slate-900 pt-1.5 border-t border-slate-200">
-                  <span>TOTAL:</span>
-                  <span className="text-blue-700 font-black">{formatarMoeda(total)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-1.5 pt-1">
-              <button
-                id="btn-finalizar-pedido"
-                disabled={salvando || !clienteSelecionado || carrinho.length === 0}
-                onClick={() => handleFinalizarPedido(false)}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs transition-all shadow-xs active:scale-98"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{salvando ? 'Gravando...' : 'Gravar Pedido (Status: Pendente)'}</span>
-              </button>
-
-              <button
-                id="btn-finalizar-e-imprimir"
-                disabled={salvando || !clienteSelecionado || carrinho.length === 0}
-                onClick={() => handleFinalizarPedido(true)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs transition-all shadow-xs"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Gravar e Imprimir Comanda</span>
-              </button>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Modal: Cadastro Rápido / Edição de Cliente */}
+{/* Modal: Cadastro Rápido / Edição de Cliente */}
       {modalNovoCliente && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-xs"
           onClick={() => setModalNovoCliente(false)}
         >
           <div
-            className="bg-white border-slate-300 text-slate-900 w-full max-w-4xl rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col"
+            className="bg-[#eaecf0] border border-slate-300 text-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
@@ -1777,7 +1877,7 @@ export const PdvModulo: React.FC<Props> = ({
               </div>
               <button
                 onClick={() => setModalNovoCliente(false)}
-                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer text-sm"
               >
                 ✕
               </button>
@@ -1812,7 +1912,7 @@ export const PdvModulo: React.FC<Props> = ({
                             }
                           }}
                           placeholder="CPF ou CNPJ"
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-mono font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {consultandoCnpj && (
                           <div className="absolute right-2 top-6 flex items-center gap-1 text-blue-700 font-bold bg-[#eaecf0] px-1 py-0.5 rounded">
@@ -1828,7 +1928,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoTelefone}
                           onChange={(e) => setNovoTelefone(formatarTelefone(e.target.value))}
                           placeholder="(11) 99999-9999"
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="sm:col-span-2">
@@ -1839,7 +1939,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoNome}
                           onChange={(e) => setNovoNome(e.target.value.toUpperCase())}
                           placeholder="Nome do cliente ou empresa"
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
@@ -1872,13 +1972,13 @@ export const PdvModulo: React.FC<Props> = ({
                               if (novoCep && isCepValido(novoCep)) handleConsultarCepClientePdv();
                             }}
                             placeholder="01001-000"
-                            className="bg-white border-slate-300 text-slate-900 w-full px-2.5 py-2 rounded-xl border font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-mono font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                           />
                           <button
                             type="button"
                             onClick={() => handleConsultarCepClientePdv()}
                             disabled={consultandoCep}
-                            className="px-2 py-2 rounded-xl bg-slate-100 border border-slate-300 shrink-0"
+                            className="px-2 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300 shrink-0 transition-colors cursor-pointer"
                           >
                             {consultandoCep ? <Loader2 className="w-4 h-4 animate-spin text-blue-600" /> : <Search className="w-4 h-4 text-slate-700" />}
                           </button>
@@ -1893,7 +1993,7 @@ export const PdvModulo: React.FC<Props> = ({
                           onChange={(e) => handleRuaChange(e.target.value)}
                           onFocus={() => { if (sugestoesEndereco.length > 0) setMostrarSugestoes(true); }}
                           onBlur={() => setTimeout(() => setMostrarSugestoes(false), 200)}
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                         {buscandoSugestoes && (
                           <div className="absolute right-3 top-9">
@@ -1901,12 +2001,12 @@ export const PdvModulo: React.FC<Props> = ({
                           </div>
                         )}
                         {mostrarSugestoes && (
-                          <ul className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs">
+                          <ul className="absolute z-50 mt-1 w-full bg-[#eaecf0] border border-slate-300 rounded-xl shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-200 text-xs">
                             {sugestoesEndereco.map((sug, i) => (
                               <li 
                                 key={i}
                                 onClick={() => selecionarSugestaoEndereco(sug)}
-                                className="px-3 py-2 hover:bg-slate-50 cursor-pointer flex flex-col"
+                                className="px-3 py-2 hover:bg-slate-200/80 cursor-pointer flex flex-col"
                               >
                                 <span className="font-bold text-slate-800">{sug.logradouro}</span>
                                 <span className="text-slate-500">{sug.bairro} - {sug.cep}</span>
@@ -1925,7 +2025,7 @@ export const PdvModulo: React.FC<Props> = ({
                           required
                           value={novoNumero}
                           onChange={(e) => setNovoNumero(e.target.value.toUpperCase())}
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-8 sm:col-span-5">
@@ -1933,7 +2033,7 @@ export const PdvModulo: React.FC<Props> = ({
                         <select
                           value={novoBairroId}
                           onChange={(e) => setNovoBairroId(e.target.value)}
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         >
                           {[...bairros, ...bairrosExtras].map((b) => <option key={b.id} value={b.id}>{b.nome}</option>)}
                         </select>
@@ -1945,14 +2045,14 @@ export const PdvModulo: React.FC<Props> = ({
                             type="text"
                             value={novoCidade}
                             onChange={(e) => setNovoCidade(e.target.value.toUpperCase())}
-                            className="bg-white border-slate-300 text-slate-900 w-full px-2 py-2 rounded-xl border font-bold shadow-xs min-w-0"
+                            className="w-full px-2 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs min-w-0"
                           />
                           <input
                             type="text"
                             maxLength={2}
                             value={novoEstado}
                             onChange={(e) => setNovoEstado(e.target.value.toUpperCase())}
-                            className="bg-white border-slate-300 text-slate-900 w-10 px-1 py-2 text-center rounded-xl border font-bold shadow-xs shrink-0"
+                            className="w-10 px-1 py-2 text-center rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs shrink-0"
                           />
                         </div>
                       </div>
@@ -1966,7 +2066,7 @@ export const PdvModulo: React.FC<Props> = ({
                           value={novoComplemento}
                           onChange={(e) => setNovoComplemento(e.target.value.toUpperCase())}
                           placeholder="Apto, Bloco..."
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                       <div className="col-span-12 sm:col-span-7">
@@ -1975,7 +2075,7 @@ export const PdvModulo: React.FC<Props> = ({
                           type="text"
                           value={novaReferencia}
                           onChange={(e) => setNovaReferencia(e.target.value.toUpperCase())}
-                          className="bg-white border-slate-300 text-slate-900 w-full px-3 py-2 rounded-xl border font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold shadow-xs focus:ring-2 focus:ring-blue-600"
                         />
                       </div>
                     </div>
@@ -2037,11 +2137,11 @@ export const PdvModulo: React.FC<Props> = ({
                 </div>
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-2.5 border-t border-slate-200 mt-1">
+              <div className="pt-4 flex items-center justify-end gap-2.5 border-t border-slate-300 mt-1">
                 <button
                   type="button"
                   onClick={() => setModalNovoCliente(false)}
-                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-100 font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-slate-700 hover:bg-slate-200 font-bold transition-colors cursor-pointer"
                   disabled={salvandoCliente}
                 >
                   Cancelar

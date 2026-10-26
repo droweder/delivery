@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
+import { SegmentedTabs, TabItem } from './SegmentedTabs';
 import { AberturaTurnoModal } from './AberturaTurnoModal';
 
 interface Props {
@@ -168,6 +170,8 @@ export const AcertoCaixa: React.FC<Props> = ({
             turnoId: turnoAtivo.id,
             kmFinal: kmFinalNum,
             totalDinheiroInformado: valorInformadoNum,
+            cascosP13Recolhidos: cascosP13Contados ? Number(cascosP13Contados) : totalCascosP13Calculados,
+            cascosP20LRecolhidos: cascosP20LContados ? Number(cascosP20LContados) : totalCascosP20LCalculados,
             observacoes: observacoesFechamento,
           }),
         });
@@ -191,58 +195,49 @@ export const AcertoCaixa: React.FC<Props> = ({
     }
   };
 
+  const tabsAcerto: TabItem<'fechamento' | 'historico'>[] = [
+    { id: 'fechamento', label: 'Fechamento de Caixa', badge: pedidosParaAcerto.length, icon: DollarSign },
+    { id: 'historico', label: 'Histórico de Turnos', badge: turnos.length, icon: History },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="3"
-        moduloCor="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
-        titulo="Módulo de Acerto & Fechamento de Caixa"
-        subtitulo="Conferência de valores recebidos (Dinheiro físico, PIX, Cartão) e recolhimento de vasilhames vazios no final do turno."
-      >
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setModalAberturaTurno(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs"
-          >
-            <PlayCircle className="w-3.5 h-3.5" />
-            <span>Iniciar Turno de Entregador</span>
-          </button>
-
-          <button
-            onClick={() => setVisualizarHistorico(!visualizarHistorico)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-xs ${
-              visualizarHistorico
-                ? 'bg-emerald-700 text-white border-emerald-800'
-                : 'border-slate-300 bg-[#eaecf0] text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>{visualizarHistorico ? 'Voltar ao Fechamento' : 'Histórico de Turnos'}</span>
-          </button>
-
-          <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Entregador:</span>
+    <div className="space-y-4 animate-fade-in">
+      {/* Controles do Acerto de Caixa Montados na Barra Superior */}
+      <TopBarActions>
+        {/* Seletor de Entregador Contextual */}
+        <div className="flex items-center gap-1 shrink-0">
           <select
             id="select-entregador-acerto"
             value={entregadorId}
             onChange={(e) => setEntregadorId(e.target.value)}
-            className="px-2.5 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 font-bold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 text-xs shadow-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="px-2.5 py-1.5 rounded-xl border border-slate-700 font-bold text-white bg-slate-800 text-xs shadow-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
           >
             {entregadores.map((ent) => (
               <option key={ent.id} value={ent.id}>
-                {ent.nome} ({ent.veiculo})
+                🛵 {ent.nome} ({ent.veiculo?.split(' ')[0]})
               </option>
             ))}
           </select>
         </div>
-      </ModuloHeader>
+
+        {/* Botão Iniciar Turno */}
+        <button
+          onClick={() => setModalAberturaTurno(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-xs active:scale-95 shrink-0"
+        >
+          <PlayCircle className="w-3.5 h-3.5" />
+          <span>Iniciar Turno</span>
+        </button>
+      </TopBarActions>
+
+      {/* Sub-Navegação Oficial em Pílulas (SegmentedTabs) */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
+        <SegmentedTabs
+          tabs={tabsAcerto}
+          activeTab={visualizarHistorico ? 'historico' : 'fechamento'}
+          onChange={(tab) => setVisualizarHistorico(tab === 'historico')}
+        />
+      </div>
 
       {/* Histórico View */}
       {visualizarHistorico ? (
@@ -272,33 +267,33 @@ export const AcertoCaixa: React.FC<Props> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 font-bold text-[11px]">
-                    <th className="p-2.5">Data / Hora</th>
-                    <th className="p-2.5">Entregador</th>
-                    <th className="p-2.5 text-center">Pedidos Concluídos</th>
-                    <th className="p-2.5 text-right">Dinheiro Esperado</th>
-                    <th className="p-2.5 text-right">Dinheiro Informado</th>
-                    <th className="p-2.5 text-right">Diferença</th>
-                    <th className="p-2.5 text-center">Cascos Recolhidos</th>
-                    <th className="p-2.5">Observação</th>
+                    <th className="py-2 px-3">Data / Hora</th>
+                    <th className="py-2 px-3">Entregador</th>
+                    <th className="py-2 px-3 text-center">Pedidos Concluídos</th>
+                    <th className="py-2 px-3 text-right">Dinheiro Esperado</th>
+                    <th className="py-2 px-3 text-right">Dinheiro Informado</th>
+                    <th className="py-2 px-3 text-right">Diferença</th>
+                    <th className="py-2 px-3 text-center">Cascos Recolhidos</th>
+                    <th className="py-2 px-3">Observação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-[#eaecf0]">
                   {historicoFechamentos.map((f) => (
                     <tr key={f.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="p-2.5 font-mono text-[11px] text-slate-700">
+                      <td className="py-1.5 px-3 font-mono text-[11px] text-slate-700">
                         {formatarDataHora(f.data)}
                       </td>
-                      <td className="p-2.5 font-bold text-slate-900">{f.entregadorNome}</td>
-                      <td className="p-2.5 text-center font-mono font-bold text-slate-700">
+                      <td className="py-1.5 px-3 font-bold text-slate-900">{f.entregadorNome}</td>
+                      <td className="py-1.5 px-3 text-center font-mono font-bold text-slate-700">
                         {f.pedidosConcluidosIds?.length || 0}
                       </td>
-                      <td className="p-2.5 text-right font-mono text-slate-700">
+                      <td className="py-1.5 px-3 text-right font-mono text-slate-700">
                         {formatarMoeda(f.totalDinheiroEsperado)}
                       </td>
-                      <td className="p-2.5 text-right font-mono font-bold text-slate-900">
+                      <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900">
                         {formatarMoeda(f.totalDinheiroInformado)}
                       </td>
-                      <td className="p-2.5 text-right font-mono">
+                      <td className="py-1.5 px-3 text-right font-mono">
                         <span
                           className={`font-bold ${
                             f.diferencaDinheiro === 0
@@ -311,13 +306,13 @@ export const AcertoCaixa: React.FC<Props> = ({
                           {f.diferencaDinheiro === 0 ? 'Exato' : formatarMoeda(f.diferencaDinheiro)}
                         </span>
                       </td>
-                      <td className="p-2.5 text-center font-mono text-xs">
+                      <td className="py-1.5 px-3 text-center font-mono text-xs">
                         <span className="text-amber-700 font-bold">{f.cascosP13Recolhidos}x P13</span>
                         {f.cascosP20LRecolhidos > 0 && (
                           <span className="text-blue-700 font-bold ml-1.5">{f.cascosP20LRecolhidos}x 20L</span>
                         )}
                       </td>
-                      <td className="p-2.5 text-slate-500 text-[11px] italic">
+                      <td className="py-1.5 px-3 text-slate-500 text-[11px] italic">
                         {f.observacoes || '-'}
                       </td>
                     </tr>

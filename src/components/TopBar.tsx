@@ -8,6 +8,7 @@ import {
   TrendingUp,
   FolderKanban,
   Users,
+  History,
   Menu,
 } from 'lucide-react';
 import { MainTab } from './Navbar';
@@ -73,6 +74,15 @@ export const TopBar: React.FC<TopBarProps> = ({
           subtitle: 'Demonstrativo de resultados e indicadores de desempenho',
           icon: TrendingUp,
           color: 'text-purple-400',
+          badge: null,
+          badgeColor: '',
+        };
+      case 'jornadas':
+        return {
+          title: 'Jornadas & Rastreio de Entregadores',
+          subtitle: 'Abertura de turnos, controle de KM e auditoria de frotas',
+          icon: History,
+          color: 'text-cyan-400',
           badge: null,
           badgeColor: '',
         };
@@ -157,6 +167,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Right Side: Contextual Screen Actions & Search Slot */}
+        <div
+          id="topbar-actions-slot"
+          className="flex items-center gap-2 justify-end min-w-0 flex-1 ml-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        />
       </div>
     </header>
   );

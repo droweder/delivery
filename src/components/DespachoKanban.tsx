@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ModuloHeader } from './ModuloHeader';
 import { MainTab } from './Navbar';
+import { TopBarActions } from './TopBarPortal';
 import { ModalRastreamentoEntregadores } from './ModalRastreamentoEntregadores';
 import { ModalBaixaEntrega } from './ModalBaixaEntrega';
 
@@ -115,63 +116,44 @@ export const DespachoKanban: React.FC<Props> = ({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header & Quick Dispatch Bar */}
-      <ModuloHeader
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        usuarioLogado={usuarioLogado}
-        isSuperAdmin={isSuperAdmin}
-        pedidosPendentesCount={pedidosPendentesCount}
-        pedidosEmRotaCount={pedidosEmRotaCount}
-        pedidosEntreguesCount={pedidosEntreguesCount}
-        moduloNumero="2"
-        moduloCor="bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300"
-        titulo="Módulo de Despacho • Kanban Operacional"
-        subtitulo={
-          <>
-            Atribuição de rotas, disparo de <strong>Notificações Push Supabase</strong> para o celular do entregador e impressão de comandas.
-          </>
-        }
-      >
-        {/* Quick Courier filter & Push status badge */}
-        <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold shadow-2xs">
-            <Radio className="w-3 h-3 text-emerald-600 dark:text-emerald-400 animate-pulse" />
-            <span>Supabase Push Ativo</span>
-          </div>
-
-          <button
-            id="btn-rastreamento-gps"
-            onClick={() => {
-              setEntregadorRastrearId(undefined);
-              setModalRastreamentoAberto(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
-          >
-            <Navigation className="w-3.5 h-3.5 animate-pulse" />
-            <span>Rastreamento GPS & Rotas</span>
-          </button>
-
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1">
-              <Filter className="w-3.5 h-3.5" /> Filtrar:
-            </span>
-            <select
-              value={filtroEntregador}
-              onChange={(e) => setFiltroEntregador(e.target.value)}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-            >
-              <option value="TODOS">Todos os Entregadores</option>
-              {entregadores.map((ent) => (
-                <option key={ent.id} value={ent.id}>
-                  {ent.nome} ({ent.veiculo?.split(' ')[0]})
-                </option>
-              ))}
-            </select>
-          </div>
+    <div className="space-y-4 animate-fade-in">
+      {/* Ações e Filtros de Despacho Montados na Barra Superior */}
+      <TopBarActions>
+        {/* Status Push Supabase */}
+        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 text-emerald-300 border border-emerald-800 text-[10px] font-bold shadow-2xs shrink-0">
+          <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+          <span>Push Ativo</span>
         </div>
-      </ModuloHeader>
+
+        {/* Botão Rastreamento GPS */}
+        <button
+          id="btn-rastreamento-gps"
+          onClick={() => {
+            setEntregadorRastrearId(undefined);
+            setModalRastreamentoAberto(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
+        >
+          <Navigation className="w-3.5 h-3.5 animate-pulse" />
+          <span>Rastreamento GPS</span>
+        </button>
+
+        {/* Filtro de Entregador */}
+        <div className="flex items-center gap-1 shrink-0">
+          <select
+            value={filtroEntregador}
+            onChange={(e) => setFiltroEntregador(e.target.value)}
+            className="px-2.5 py-1.5 rounded-xl border border-slate-700 text-xs font-bold bg-slate-800 text-white focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-xs"
+          >
+            <option value="TODOS">Todos os Entregadores</option>
+            {entregadores.map((ent) => (
+              <option key={ent.id} value={ent.id}>
+                {ent.nome} ({ent.veiculo?.split(' ')[0]})
+              </option>
+            ))}
+          </select>
+        </div>
+      </TopBarActions>
 
         {/* Push Alert Toast */}
         {alertaPushEnviado && (
@@ -336,9 +318,9 @@ export const DespachoKanban: React.FC<Props> = ({
                       </div>
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido))}
+                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONFIRMACAO'))}
                           className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors"
-                          title="Enviar aviso do pedido no WhatsApp do Cliente"
+                          title="Enviar confirmação e resumo do pedido via WhatsApp ao cliente"
                         >
                           <MessageCircle className="w-3 h-3" />
                           WhatsApp
@@ -444,11 +426,12 @@ export const DespachoKanban: React.FC<Props> = ({
                           </button>
                         )}
                         <button
-                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido))}
-                          className="flex items-center gap-1 text-emerald-600 hover:text-emerald-800 font-bold text-[11px]"
-                          title="Avisar cliente via WhatsApp que pedido está em rota"
+                          onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'ROTA'))}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] border border-emerald-300 transition-colors"
+                          title="Avisar cliente via WhatsApp que o pedido saiu para entrega"
                         >
-                          <MessageCircle className="w-3 h-3" /> WhatsApp
+                          <MessageCircle className="w-3 h-3 text-emerald-600" />
+                          <span>Avisar Saída</span>
                         </button>
                         <button
                           onClick={() => onVisualizarComanda(pedido)}
@@ -549,8 +532,18 @@ export const DespachoKanban: React.FC<Props> = ({
                     </div>
                   )}
 
-                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-100 font-mono">
-                    Entregue: {formatarDataHora(pedido.entregueEm)}
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 flex-wrap gap-1">
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Entregue: {formatarDataHora(pedido.entregueEm)}
+                    </span>
+                    <button
+                      onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONCLUIDO'))}
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-emerald-700 hover:bg-emerald-100 font-bold text-[10px] transition-colors cursor-pointer"
+                      title="Enviar comprovante e agradecimento pós-venda via WhatsApp ao cliente"
+                    >
+                      <MessageCircle className="w-3 h-3 text-emerald-600" />
+                      <span>Agradecer / Recibo</span>
+                    </button>
                   </div>
                 </div>
               ))
