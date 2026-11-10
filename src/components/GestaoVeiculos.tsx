@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Veiculo, TipoVeiculo, StatusVeiculo } from '../types';
+import { consultarFipeMarcas, MarcaFipe } from '../services/consultaApi';
 import {
   Car,
   Bike,
@@ -60,6 +61,24 @@ export const GestaoVeiculos: React.FC<Props> = ({
   const [kmUltimaRevisao, setKmUltimaRevisao] = useState<string>('');
   const [status, setStatus] = useState<StatusVeiculo>('DISPONIVEL');
   const [observacoes, setObservacoes] = useState('');
+  const [marcasFipe, setMarcasFipe] = useState<MarcaFipe[]>([]);
+  const [carregandoMarcasFipe, setCarregandoMarcasFipe] = useState(false);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const tipoFipe = tipo === 'MOTO' ? 'motos' : tipo === 'CAMINHAO' ? 'caminhoes' : 'carros';
+    setCarregandoMarcasFipe(true);
+    consultarFipeMarcas(tipoFipe)
+      .then((marcas) => {
+        setMarcasFipe(marcas || []);
+      })
+      .catch((err) => {
+        console.warn('Erro ao consultar marcas FIPE:', err);
+      })
+      .finally(() => {
+        setCarregandoMarcasFipe(false);
+      });
+  }, [tipo, isModalOpen]);
 
   const abrirModalNovo = () => {
     setVeiculoEditando(null);
@@ -532,17 +551,30 @@ export const GestaoVeiculos: React.FC<Props> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Modelo / Marca *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Modelo / Marca *
+                  </label>
+                  {marcasFipe.length > 0 && (
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">
+                      {carregandoMarcasFipe ? 'Carregando FIPE...' : `Tabela FIPE: ${marcasFipe.length} marcas`}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Honda Fan 160, Fiat Fiorino 1.4"
+                  list="lista-marcas-fipe"
+                  placeholder="Ex: Honda CG 160 Fan, Fiat Fiorino 1.4"
                   value={modelo}
                   onChange={(e) => setModelo(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 />
+                <datalist id="lista-marcas-fipe">
+                  {marcasFipe.map((m) => (
+                    <option key={m.valor} value={m.nome} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="grid grid-cols-3 gap-3">

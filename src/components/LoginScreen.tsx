@@ -14,7 +14,7 @@ import {
 import { Empresa, Usuario } from '../types';
 
 interface LoginScreenProps {
-  onLoginSucesso: (usuario: Usuario, empresa?: Empresa | null) => void;
+  onLoginSucesso: (usuario: Usuario, empresa?: Empresa | null, token?: string) => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
@@ -52,7 +52,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
         throw new Error(data.error || 'Falha ao autenticar.');
       }
 
-      onLoginSucesso(data.usuario, data.empresa);
+      if (data.token) {
+        localStorage.setItem('delivery_auth_token', data.token);
+      }
+      onLoginSucesso(data.usuario, data.empresa, data.token);
     } catch (err: any) {
       setErroMsg(err.message || 'Erro ao realizar login.');
     } finally {
@@ -123,11 +126,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
           )}
 
           <form onSubmit={handleSubmeterLogin} className="space-y-4">
-            {/* Input E-mail de Acesso */}
+            {/* Input E-mail, Login ou CNPJ de Acesso */}
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center justify-between">
-                <span>E-mail de Acesso</span>
-                <span className="text-[10px] text-blue-400 font-normal">Supabase Auth</span>
+                <span>E-mail, Login ou CNPJ</span>
+                <span className="text-[10px] text-blue-400 font-normal">Acesso Unificado</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -136,10 +139,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSucesso }) => {
                 <input
                   type="text"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
-                  placeholder="ex: admin@empresa.com.br"
+                  placeholder="ex: admin@empresa.com.br ou CNPJ"
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>

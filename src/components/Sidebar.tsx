@@ -23,6 +23,8 @@ import {
   Sparkles,
   ShieldCheck,
   Building2,
+  Factory,
+  Boxes,
 } from 'lucide-react';
 import { MainTab } from './Navbar';
 import { Usuario } from '../types';
@@ -102,6 +104,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         Boolean(usuarioLogado?.permissoes?.emitirPedidos),
     },
     {
+      id: 'producao',
+      label: 'Ordens de Produção (OP)',
+      shortLabel: 'Produção',
+      icon: Factory,
+      group: 'operacional',
+      descricao: 'Salgados fritos, receitas e consumo de insumos',
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        usuarioLogado?.perfil === 'GERENTE' ||
+        Boolean(usuarioLogado?.permissoes?.emitirPedidos || usuarioLogado?.permissoes?.ajustarEstoque),
+    },
+    {
       id: 'despacho',
       label: 'Despacho Kanban',
       shortLabel: 'Despacho',
@@ -130,12 +145,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         Boolean(usuarioLogado?.permissoes?.realizarAcertoCaixa),
     },
     {
+      id: 'estoque',
+      label: 'Estoque Geral',
+      shortLabel: 'Estoque Geral',
+      icon: Boxes,
+      group: 'estoque',
+      descricao: 'Saldos de insumos, matérias-primas e salgados',
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.ajustarEstoque),
+    },
+    {
       id: 'vasilhames',
-      label: 'Estoque de Vasilhames',
-      shortLabel: 'Estoque',
+      label: 'Vasilhames & Cascos',
+      shortLabel: 'Vasilhames',
       icon: Layers,
       group: 'estoque',
-      descricao: 'Controle P13, 20L e garrafeiros',
+      descricao: 'Controle de botijões P13, 20L e garrafeiros',
       permitido:
         isSuperAdmin ||
         usuarioLogado?.perfil === 'ADMIN' ||

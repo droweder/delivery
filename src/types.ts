@@ -1,4 +1,6 @@
-export type CategoriaProduto = 'GAS' | 'AGUA' | 'BEBIDAS' | 'CONVENIENCIA';
+export type CategoriaProduto = 'GAS' | 'AGUA' | 'BEBIDAS' | 'CONVENIENCIA' | 'ALIMENTOS' | 'SALGADOS' | 'INSUMOS' | 'OUTROS';
+
+export type TipoItemProduto = 'PRODUTO_FINAL' | 'INSUMO_MATERIA_PRIMA' | 'REVENDA';
 
 export type TipoVasilhame = 'P13' | 'P45' | 'P20L' | 'NENHUM';
 
@@ -9,6 +11,57 @@ export type StatusPedido = 'PENDENTE' | 'EM_ROTA' | 'ENTREGUE' | 'CONCLUIDO' | '
 export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'CARTAO_DEBITO' | 'CARTAO_CREDITO' | 'A_PRAZO_FIADO';
 
 export type TipoEntrega = 'IMEDIATA' | 'AGENDADA';
+
+export type StatusOrdemProducao = 'PLANEJADA' | 'EM_PREPARO' | 'FRITURA' | 'CONCLUIDA' | 'CANCELADA';
+
+export type TipoOrigemOP = 'SOB_ENCOMENDA' | 'PARA_ESTOQUE';
+
+export interface ItemEstruturaProduto {
+  id: string;
+  empresaId?: string;
+  produtoPaiId: string;
+  insumoId: string;
+  insumoNome?: string;
+  quantidadeNecessaria: number;
+  unidadeMedida: string; // KG, G, UN, L, ML
+  custoEstimado?: number;
+  criadoEm?: string;
+}
+
+export interface InsumoOrdemProducao {
+  id: string;
+  ordemProducaoId: string;
+  insumoId: string;
+  insumoNome: string;
+  quantidadeNecessaria: number;
+  quantidadeUtilizada: number;
+  unidadeMedida: string;
+  baixado: boolean;
+}
+
+export interface OrdemProducao {
+  id: string;
+  empresaId: string;
+  numeroOp: string;
+  pedidoId?: string;
+  clienteId?: string;
+  clienteNome?: string;
+  produtoId: string;
+  produtoNome: string;
+  quantidadePlanejada: number;
+  quantidadeProduzida: number;
+  unidadeMedida: string;
+  dataPrevisaoEntrega?: string;
+  status: StatusOrdemProducao;
+  tipoOrigem: TipoOrigemOP;
+  responsavelId?: string;
+  responsavelNome?: string;
+  observacoes?: string;
+  criadoEm: string;
+  iniciadoEm?: string;
+  concluidoEm?: string;
+  insumos?: InsumoOrdemProducao[];
+}
 
 export interface PagamentoItem {
   id?: string;
@@ -132,11 +185,14 @@ export interface Produto {
   codigo: string;
   nome: string;
   marca?: string;
-  unidadeMedida?: string; // UN, L, KG, PACK, CX, GL, etc.
+  tipoItem?: TipoItemProduto; // PRODUTO_FINAL, INSUMO_MATERIA_PRIMA, REVENDA
+  unidadeMedida?: string; // UN, L, KG, G, CENTO, PACK, CX, GL, etc.
   categoria: CategoriaProduto;
   tipoVasilhame: TipoVasilhame;
   precoRecarga: number;
   precoCompleto: number; // Preço com o casco
+  precoCusto?: number;
+  estoqueAtual?: number;
   estoqueCheio: number;
   estoqueVazio: number;
   estoqueMinimo: number;
@@ -144,6 +200,7 @@ export interface Produto {
   permiteVendaCasco: boolean;
   maisUtilizado?: boolean;
   vendasCount?: number;
+  estrutura?: ItemEstruturaProduto[]; // Ficha Técnica / Ingredientes
 }
 
 export interface ItemPedido {
@@ -374,6 +431,9 @@ export interface FechamentoCaixaEntregador {
   totalDinheiroInformado: number;
   totalPix: number;
   totalCartao: number;
+  totalCartaoDebito?: number;
+  totalCartaoCredito?: number;
+  totalFiado?: number;
   diferenca: number;
   cascosP13Recolhidos: number;
   cascosP20LRecolhidos: number;
@@ -460,7 +520,8 @@ export type TipoMovimentacaoEstoque =
   | 'RETORNO_ROTA'
   | 'AJUSTE_MANUAL'
   | 'CANCELAMENTO_ESTORNO'
-  | 'DEVOLUCAO_AVARIA';
+  | 'DEVOLUCAO_AVARIA'
+  | 'CONSUMO_PRODUCAO';
 
 export interface MovimentacaoEstoque {
   id: string;

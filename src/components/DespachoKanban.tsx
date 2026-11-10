@@ -48,7 +48,7 @@ export const DespachoKanban: React.FC<Props> = ({
   entregadores,
   usuarioLogado,
   activeTab = 'despacho',
-  setActiveTab = () => {},
+  setActiveTab = (_tab?: MainTab) => {},
   isSuperAdmin = false,
   pedidosPendentesCount = 0,
   pedidosEmRotaCount = 0,
@@ -65,6 +65,76 @@ export const DespachoKanban: React.FC<Props> = ({
   const [modalRastreamentoAberto, setModalRastreamentoAberto] = useState(false);
   const [entregadorRastrearId, setEntregadorRastrearId] = useState<string | undefined>(undefined);
   const [pedidoParaBaixaHub, setPedidoParaBaixaHub] = useState<Pedido | null>(null);
+  const [processandoAcaoId, setProcessandoAcaoId] = useState<string | null>(null);
+
+  const handleDevolverPedido = async (pedido: Pedido) => {
+    const motivo = prompt(
+      `Informe o motivo da devolução do pedido ${pedido.codigo} (ex: Cliente ausente, endereço não localizado):`
+    );
+    if (!motivo) return;
+
+    setProcessandoAcaoId(pedido.id);
+    try {
+      const res = await fetch('/api/entregador/devolver-pedido', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pedidoId: pedido.id, motivo }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao registrar devolução do pedido');
+      }
+      onPedidoAtualizado();
+    } catch (e: any) {
+      alert('Erro ao devolver pedido: ' + e.message);
+    } finally {
+      setProcessandoAcaoId(null);
+    }
+  };
+
+  const handleCancelarPedido = async (pedido: Pedido) => {
+    const motivo = prompt(`Deseja realmente cancelar o pedido ${pedido.codigo}? Informe o motivo:`);
+    if (!motivo) return;
+
+    setProcessandoAcaoId(pedido.id);
+    try {
+      const res = await fetch(`/api/pedidos/${pedido.id}/cancelar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Falha ao cancelar pedido');
+      }
+      onPedidoAtualizado();
+    } catch (e: any) {
+      alert('Erro ao cancelar pedido: ' + e.message);
+    } finally {
+      setProcessandoAcaoId(null);
+    }
+  };
+
+  const handleEstornarBaixa = async (pedido: Pedido) => {
+    if (!confirm(`Deseja estornar a entrega do pedido ${pedido.codigo}? O pedido retornará ao status EM ROTA e qualquer fiado ou vasilhames associados serão revertidos.`)) {
+      return;
+    }
+    setProcessandoAcaoId(pedido.id);
+    try {
+      const res = await fetch(`/api/pedidos/${pedido.id}/estornar-baixa`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.erro || 'Falha ao estornar baixa do pedido');
+      }
+      onPedidoAtualizado();
+    } catch (e: any) {
+      alert('Erro ao estornar baixa: ' + e.message);
+    } finally {
+      setProcessandoAcaoId(null);
+    }
+  };
 
   const pedidosPendentes = pedidos.filter((p) => p.status === 'PENDENTE');
   const pedidosEmRota = pedidos.filter((p) => {
@@ -441,13 +511,35 @@ export const DespachoKanban: React.FC<Props> = ({
                         </button>
                         <button
                           onClick={() => setPedidoParaBaixaHub(pedido)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer ml-1"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
                           title="Dar baixa no pedido e registrar recolhimento de cascos"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Dar Baixa</span>
                         </button>
                       </div>
+                    </div>
+
+                    {/* Ações de Devolução e Cancelamento em Rota */}
+                    <div className="pt-1 border-t border-slate-100 flex items-center justify-end gap-1.5 text-[10px]">
+                      <button
+                        type="button"
+                        disabled={processandoAcaoId === pedido.id}
+                        onClick={() => handleDevolverPedido(pedido)}
+                        className="px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold transition-colors cursor-pointer"
+                        title="Devolver pedido à base para reentrega ou ajuste"
+                      >
+                        ↩ Devolver à Base
+                      </button>
+                      <button
+                        type="button"
+                        disabled={processandoAcaoId === pedido.id}
+                        onClick={() => handleCancelarPedido(pedido)}
+                        className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold transition-colors cursor-pointer"
+                        title="Cancelar pedido e estornar estoque"
+                      >
+                        ✕ Cancelar Pedido
+                      </button>
                     </div>
                   </div>
                 )
@@ -536,14 +628,33 @@ export const DespachoKanban: React.FC<Props> = ({
                     <span className="text-[10px] text-slate-500 font-mono">
                       Entregue: {formatarDataHora(pedido.entregueEm)}
                     </span>
-                    <button
-                      onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONCLUIDO'))}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded text-emerald-700 hover:bg-emerald-100 font-bold text-[10px] transition-colors cursor-pointer"
-                      title="Enviar comprovante e agradecimento pós-venda via WhatsApp ao cliente"
-                    >
-                      <MessageCircle className="w-3 h-3 text-emerald-600" />
-                      <span>Agradecer / Recibo</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => abrirWhatsApp(pedido.cliente.telefone, gerarMensagemWhatsApp(pedido, 'CONCLUIDO'))}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-emerald-700 hover:bg-emerald-100 font-bold text-[10px] transition-colors cursor-pointer"
+                        title="Enviar comprovante e agradecimento pós-venda via WhatsApp ao cliente"
+                      >
+                        <MessageCircle className="w-3 h-3 text-emerald-600" />
+                        <span>Agradecer</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={processandoAcaoId === pedido.id}
+                        onClick={() => handleEstornarBaixa(pedido)}
+                        className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 hover:border-rose-300 font-bold text-[10px] transition-colors cursor-pointer"
+                        title="Estornar baixa e reabrir pedido em rota"
+                      >
+                        ↩ Estornar Baixa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('acerto')}
+                        className="flex items-center gap-0.5 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] transition-colors cursor-pointer shadow-2xs"
+                        title="Ir para o Acerto de Caixa para este entregador"
+                      >
+                        <span>💵 Acertar Caixa ➔</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))

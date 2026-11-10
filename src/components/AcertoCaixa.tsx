@@ -65,6 +65,8 @@ export const AcertoCaixa: React.FC<Props> = ({
   const [cascosP20LContados, setCascosP20LContados] = useState<string>('');
   const [observacoesFechamento, setObservacoesFechamento] = useState('');
   const [fechando, setFechando] = useState(false);
+  const [estornandoId, setEstornandoId] = useState<string | null>(null);
+  const [pedidosSelecionadosIds, setPedidosSelecionadosIds] = useState<string[]>([]);
   const [ultimoFechamento, setUltimoFechamento] = useState<FechamentoCaixaEntregador | null>(null);
   const [historicoFechamentos, setHistoricoFechamentos] = useState<FechamentoCaixaEntregador[]>([]);
   const [visualizarHistorico, setVisualizarHistorico] = useState(false);
@@ -93,37 +95,74 @@ export const AcertoCaixa: React.FC<Props> = ({
     (p) => p.entregadorId === entregadorId && p.status === 'ENTREGUE'
   );
 
-  // Totais calculados do sistema
+  // Sincroniza seleção de pedidos ao mudar entregador ou lista de pedidos
+  useEffect(() => {
+    setPedidosSelecionadosIds(pedidosParaAcerto.map((p) => p.id));
+  }, [entregadorId, pedidosParaAcerto.length]);
+
+  const toggleSelecionarTodos = () => {
+    if (pedidosSelecionadosIds.length === pedidosParaAcerto.length) {
+      setPedidosSelecionadosIds([]);
+    } else {
+      setPedidosSelecionadosIds(pedidosParaAcerto.map((p) => p.id));
+    }
+  };
+
+  const togglePedidoSelecionado = (id: string) => {
+    setPedidosSelecionadosIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  // Pedidos efetivamente selecionados para o lote de fechamento
+  const pedidosSelecionados = pedidosParaAcerto.filter((p) =>
+    pedidosSelecionadosIds.includes(p.id)
+  );
+
+  // Totais calculados do sistema com segregação precisa de pagamentos múltiplos
   let totalDinheiroEsperado = 0;
   let totalPixEsperado = 0;
-  let totalCartaoEsperado = 0;
+  let totalDebitoEsperado = 0;
+  let totalCreditoEsperado = 0;
+  let totalFiadoEsperado = 0;
   let totalCascosP13Calculados = 0;
   let totalCascosP20LCalculados = 0;
 
-  pedidosParaAcerto.forEach((p) => {
-    const forma = p.formaPagamentoRealizada || p.formaPagamentoPrevista;
-    const valor = p.valorRecebido || p.total;
-
-    if (forma === 'DINHEIRO') {
-      totalDinheiroEsperado += p.total;
-    } else if (forma === 'PIX') {
-      totalPixEsperado += valor;
-    } else if (forma === 'CARTAO_DEBITO' || forma === 'CARTAO_CREDITO') {
-      totalCartaoEsperado += valor;
+  pedidosSelecionados.forEach((p) => {
+    if (p.pagamentosRealizados && p.pagamentosRealizados.length > 0) {
+      p.pagamentosRealizados.forEach((pg) => {
+        if (pg.forma === 'DINHEIRO') totalDinheiroEsperado += pg.valor;
+        else if (pg.forma === 'PIX') totalPixEsperado += pg.valor;
+        else if (pg.forma === 'CARTAO_DEBITO') totalDebitoEsperado += pg.valor;
+        else if (pg.forma === 'CARTAO_CREDITO') totalCreditoEsperado += pg.valor;
+        else if (pg.forma === 'A_PRAZO_FIADO') totalFiadoEsperado += pg.valor;
+        else totalDinheiroEsperado += pg.valor;
+      });
+    } else {
+      const forma = p.formaPagamentoRealizada || p.formaPagamentoPrevista || 'DINHEIRO';
+      const valor = p.valorRecebido ?? p.total;
+      if (forma === 'DINHEIRO') totalDinheiroEsperado += valor;
+      else if (forma === 'PIX') totalPixEsperado += valor;
+      else if (forma === 'CARTAO_DEBITO') totalDebitoEsperado += valor;
+      else if (forma === 'CARTAO_CREDITO') totalCreditoEsperado += valor;
+      else if (forma === 'A_PRAZO_FIADO') totalFiadoEsperado += valor;
+      else totalDinheiroEsperado += valor;
     }
 
     p.itens.forEach((it) => {
       if (it.tipoVasilhame === 'P13') {
-        totalCascosP13Calculados += it.vasilhamesRecolhidosReais ?? it.vasilhamesRecolhidosEsperados;
+        totalCascosP13Calculados += it.vasilhamesRecolhidosReais ?? it.vasilhamesRecolhidosEsperados ?? 0;
       } else if (it.tipoVasilhame === 'P20L') {
-        totalCascosP20LCalculados += it.vasilhamesRecolhidosReais ?? it.vasilhamesRecolhidosEsperados;
+        totalCascosP20LCalculados += it.vasilhamesRecolhidosReais ?? it.vasilhamesRecolhidosEsperados ?? 0;
       }
     });
   });
 
-  const totalGeralRotas = totalDinheiroEsperado + totalPixEsperado + totalCartaoEsperado;
+  const totalCartaoEsperado = totalDebitoEsperado + totalCreditoEsperado;
+  const totalGeralRotas =
+    totalDinheiroEsperado + totalPixEsperado + totalCartaoEsperado + totalFiadoEsperado;
 
-  // Diferença de caixa
+  // Diferença de caixa (apenas em cima do dinheiro físico)
   const valorInformadoNum = Number(dinheiroContado) || 0;
   const diferencaDinheiro = valorInformadoNum - totalDinheiroEsperado;
 
@@ -132,22 +171,43 @@ export const AcertoCaixa: React.FC<Props> = ({
     (t) => t.entregadorId === entregadorId && t.status === 'EM_ANDAMENTO'
   );
 
+  const handleEstornarBaixa = async (pedidoId: string, pedidoCodigo: string) => {
+    if (!confirm(`Deseja estornar a entrega do pedido ${pedidoCodigo}? O pedido retornará ao status EM ROTA e qualquer fiado ou vasilhames associados serão revertidos.`)) {
+      return;
+    }
+    setEstornandoId(pedidoId);
+    try {
+      const res = await fetch(`/api/pedidos/${pedidoId}/estornar-baixa`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.erro || 'Falha ao estornar baixa do pedido');
+      }
+      onAcertoConcluido();
+    } catch (err: any) {
+      alert('Erro ao estornar baixa: ' + err.message);
+    } finally {
+      setEstornandoId(null);
+    }
+  };
+
   const handleFecharCaixa = async () => {
-    if (pedidosParaAcerto.length === 0 && !turnoAtivo) {
-      alert('Não há entregas nem turno ativo pendente para este entregador acertar.');
+    if (pedidosSelecionados.length === 0 && !turnoAtivo) {
+      alert('Selecione pelo menos um pedido entregue ou encerre o turno ativo pendente.');
       return;
     }
 
     setFechando(true);
     try {
-      // 1. Processa acerto de caixa de pedidos
-      if (pedidosParaAcerto.length > 0) {
+      // 1. Processa acerto de caixa dos pedidos selecionados
+      if (pedidosSelecionados.length > 0) {
         const res = await fetch('/api/acerto/fechamento', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             entregadorId,
-            pedidosIds: pedidosParaAcerto.map((p) => p.id),
+            pedidosIds: pedidosSelecionados.map((p) => p.id),
             totalDinheiroInformado: valorInformadoNum,
             cascosP13Recolhidos: cascosP13Contados ? Number(cascosP13Contados) : totalCascosP13Calculados,
             cascosP20LRecolhidos: cascosP20LContados ? Number(cascosP20LContados) : totalCascosP20LCalculados,
@@ -329,11 +389,21 @@ export const AcertoCaixa: React.FC<Props> = ({
         <div className="lg:col-span-7 space-y-3">
           <div className="bg-[#eaecf0] p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
-              <h3 className="font-black text-slate-900 text-xs sm:text-sm">
-                Entregas Realizadas • {entregadorSelecionado?.nome}
-              </h3>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="select-all-pedidos-acerto"
+                  checked={pedidosParaAcerto.length > 0 && pedidosSelecionadosIds.length === pedidosParaAcerto.length}
+                  onChange={toggleSelecionarTodos}
+                  disabled={pedidosParaAcerto.length === 0}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+                <label htmlFor="select-all-pedidos-acerto" className="font-black text-slate-900 text-xs sm:text-sm cursor-pointer select-none">
+                  Entregas Realizadas • {entregadorSelecionado?.nome}
+                </label>
+              </div>
               <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-black">
-                {pedidosParaAcerto.length} entregas pendentes
+                {pedidosSelecionadosIds.length} de {pedidosParaAcerto.length} selecionados
               </span>
             </div>
 
@@ -347,44 +417,103 @@ export const AcertoCaixa: React.FC<Props> = ({
               </div>
             ) : (
               <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
-                {pedidosParaAcerto.map((pedido) => (
-                  <div
-                    key={pedido.id}
-                    className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5 text-xs"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="font-black text-slate-900 text-xs">{pedido.codigo}</span>
-                        <div className="text-slate-600 font-bold text-[11px]">{pedido.cliente.nome}</div>
-                      </div>
-                      <span className="font-black font-mono text-blue-700 text-xs">{formatarMoeda(pedido.total)}</span>
-                    </div>
+                {pedidosParaAcerto.map((pedido) => {
+                  const isChecked = pedidosSelecionadosIds.includes(pedido.id);
+                  const isEstornando = estornandoId === pedido.id;
 
-                    <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-200 text-slate-500">
-                      <div>
-                        Forma:{' '}
-                        <strong className="text-slate-800">
-                          {pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista}
-                        </strong>
-                      </div>
-                      <div className="font-mono">Entregue: {formatarDataHora(pedido.entregueEm)}</div>
-                    </div>
+                  return (
+                    <div
+                      key={pedido.id}
+                      className={`p-2.5 rounded-lg border transition-all text-xs space-y-2 ${
+                        isChecked
+                          ? 'bg-white border-emerald-300 shadow-xs ring-1 ring-emerald-500/10'
+                          : 'bg-slate-100/70 border-slate-200 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => togglePedidoSelecionado(pedido.id)}
+                            className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-slate-900 text-xs">{pedido.codigo}</span>
+                              <span className="font-bold text-slate-700 text-[11px]">{pedido.cliente.nome}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono">
+                              Entregue: {formatarDataHora(pedido.entregueEm)}
+                            </div>
+                          </div>
+                        </div>
 
-                    {/* Cascos */}
-                    {pedido.itens.some((it) => (it.vasilhamesRecolhidosReais || 0) > 0) && (
-                      <div className="text-[9px] bg-amber-50 text-amber-900 px-1.5 py-0.5 rounded font-bold border border-amber-200 flex items-center gap-1">
-                        <Layers className="w-3 h-3 text-amber-700" />
-                        <span>
-                          Cascos:{' '}
-                          {pedido.itens
-                            .filter((it) => (it.vasilhamesRecolhidosReais || 0) > 0)
-                            .map((it) => `${it.vasilhamesRecolhidosReais}x ${it.tipoVasilhame}`)
-                            .join(', ')}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black font-mono text-blue-700 text-xs">{formatarMoeda(pedido.total)}</span>
+                          <button
+                            type="button"
+                            title="Estornar entrega e devolver para Em Rota"
+                            disabled={isEstornando}
+                            onClick={() => handleEstornarBaixa(pedido.id, pedido.codigo)}
+                            className="p-1 rounded bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-300 transition-colors text-[10px] font-bold flex items-center gap-0.5"
+                          >
+                            <span>↩ Estornar</span>
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {/* Discriminação de Pagamentos (Múltiplos ou Único) */}
+                      <div className="pt-1 border-t border-slate-100 flex flex-wrap gap-1.5 text-[10px]">
+                        {pedido.pagamentosRealizados && pedido.pagamentosRealizados.length > 0 ? (
+                          pedido.pagamentosRealizados.map((pg, i) => (
+                            <span
+                              key={i}
+                              className={`px-1.5 py-0.5 rounded font-bold border ${
+                                pg.forma === 'DINHEIRO'
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : pg.forma === 'PIX'
+                                  ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                  : pg.forma === 'A_PRAZO_FIADO'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              {pg.forma === 'DINHEIRO'
+                                ? '💵 Dinheiro'
+                                : pg.forma === 'PIX'
+                                ? '⚡ Pix'
+                                : pg.forma === 'CARTAO_DEBITO'
+                                ? '💳 Débito'
+                                : pg.forma === 'CARTAO_CREDITO'
+                                ? '💳 Crédito'
+                                : '📋 Fiado'}{' '}
+                              {formatarMoeda(pg.valor)}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            Forma: {pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Cascos */}
+                      {pedido.itens.some((it) => (it.vasilhamesRecolhidosReais || 0) > 0) && (
+                        <div className="text-[9px] bg-amber-50 text-amber-900 px-1.5 py-0.5 rounded font-bold border border-amber-200 flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-amber-700" />
+                          <span>
+                            Cascos recolhidos:{' '}
+                            {pedido.itens
+                              .filter((it) => (it.vasilhamesRecolhidosReais || 0) > 0)
+                              .map((it) => `${it.vasilhamesRecolhidosReais}x ${it.tipoVasilhame}`)
+                              .join(', ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -393,25 +522,40 @@ export const AcertoCaixa: React.FC<Props> = ({
         {/* Right Column: Physical Money & Empty Container Reconciliation (5 cols) */}
         <div className="lg:col-span-5 space-y-3">
           <div className="bg-[#eaecf0] p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-            <h3 className="font-black text-slate-900 text-xs sm:text-sm flex items-center gap-1.5">
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Conferência de Valores & Vasilhames</span>
+            <h3 className="font-black text-slate-900 text-xs sm:text-sm flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Conferência de Valores & Vasilhames</span>
+              </span>
+              <span className="text-[10px] text-slate-500 font-bold">
+                {pedidosSelecionados.length} pedido(s) no lote
+              </span>
             </h3>
 
             {/* Expected Summary Box */}
             <div className="p-3 rounded-lg bg-slate-900 text-white space-y-1.5 text-xs font-mono">
               <div className="flex justify-between text-slate-300">
-                <span className="text-[11px]">Dinheiro Físico Esperado:</span>
+                <span className="text-[11px] font-bold text-emerald-300">💵 Dinheiro Físico Esperado:</span>
                 <span className="font-black text-white text-xs">{formatarMoeda(totalDinheiroEsperado)}</span>
               </div>
               <div className="flex justify-between text-slate-300 text-[11px]">
-                <span>Chave PIX:</span>
+                <span className="text-purple-300">⚡ Chave PIX:</span>
                 <span>{formatarMoeda(totalPixEsperado)}</span>
               </div>
               <div className="flex justify-between text-slate-300 text-[11px]">
-                <span>Cartões (Maquininhas):</span>
-                <span>{formatarMoeda(totalCartaoEsperado)}</span>
+                <span className="text-blue-300">💳 Débito:</span>
+                <span>{formatarMoeda(totalDebitoEsperado)}</span>
               </div>
+              <div className="flex justify-between text-slate-300 text-[11px]">
+                <span className="text-blue-300">💳 Crédito:</span>
+                <span>{formatarMoeda(totalCreditoEsperado)}</span>
+              </div>
+              {totalFiadoEsperado > 0 && (
+                <div className="flex justify-between text-amber-300 text-[11px]">
+                  <span>📋 Fiado / A Prazo (Saldo Devedor):</span>
+                  <span>{formatarMoeda(totalFiadoEsperado)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-amber-300 pt-1.5 border-t border-slate-800 text-[11px]">
                 <span>Cascos P13 (Gás) Esperados:</span>
                 <span className="font-bold">{totalCascosP13Calculados} botijões</span>
@@ -421,7 +565,7 @@ export const AcertoCaixa: React.FC<Props> = ({
                 <span className="font-bold">{totalCascosP20LCalculados} galões</span>
               </div>
               <div className="flex justify-between font-black text-xs text-emerald-400 pt-1.5 border-t border-slate-800">
-                <span>TOTAL GERAL:</span>
+                <span>TOTAL DO LOTE:</span>
                 <span>{formatarMoeda(totalGeralRotas)}</span>
               </div>
             </div>
@@ -555,7 +699,7 @@ export const AcertoCaixa: React.FC<Props> = ({
             {/* Action Button: Finalizar Acerto */}
             <button
               id="btn-finalizar-acerto-turno"
-              disabled={fechando || pedidosParaAcerto.length === 0}
+              disabled={fechando || (pedidosSelecionados.length === 0 && !turnoAtivo)}
               onClick={handleFecharCaixa}
               className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-black text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs active:scale-98"
             >

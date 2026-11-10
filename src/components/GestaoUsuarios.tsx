@@ -280,7 +280,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
       cargo: 'Atendente',
       perfil: 'ATENDENTE_PDV',
       ativo: true,
-      pinAcesso: '1234',
+      pinAcesso: '',
       permissoes: {
         emitirPedidos: true,
         despacharPedidos: false,
@@ -300,7 +300,7 @@ export const GestaoUsuarios: React.FC<Props> = ({
   };
 
   const abrirModalEditar = (u: Usuario) => {
-    setUsuarioModal({ ...u, permissoes: { ...u.permissoes } });
+    setUsuarioModal({ ...u, pinAcesso: '', permissoes: { ...u.permissoes } });
     setIsEditando(true);
     setMensagemErro(null);
   };
@@ -625,9 +625,9 @@ export const GestaoUsuarios: React.FC<Props> = ({
 
                         {/* PIN Acesso */}
                         <td className="py-1.5 px-3 text-center whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono text-[10px] font-bold" title="PIN de acesso configurado">
                             <KeyRound className="w-3 h-3 text-slate-400" />
-                            <span>•••• ({u.pinAcesso || '1234'})</span>
+                            <span>••••</span>
                           </span>
                         </td>
 
@@ -956,14 +956,16 @@ export const GestaoUsuarios: React.FC<Props> = ({
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
                       <span>PIN Rápido (4 dígitos)</span>
-                      <span className="text-[10px] text-slate-400">Usado no caixa/móvel</span>
+                      <span className="text-[10px] text-slate-400">
+                        {isEditando ? 'Deixe em branco para manter o atual' : 'Usado no caixa/móvel'}
+                      </span>
                     </label>
                     <input
                       type="password"
                       maxLength={6}
                       value={usuarioModal.pinAcesso || ''}
                       onChange={(e) => setUsuarioModal({ ...usuarioModal, pinAcesso: e.target.value })}
-                      placeholder="1234"
+                      placeholder={isEditando ? '•••• (mantém o atual)' : 'Ex: 4 números'}
                       className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-mono focus:outline-hidden focus:border-blue-500"
                     />
                   </div>

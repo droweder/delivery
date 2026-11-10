@@ -11,6 +11,7 @@ import {
   TurnoEntregador,
   Usuario,
   Veiculo,
+  OrdemProducao,
 } from './types';
 import { INITIAL_EMPRESAS, INITIAL_USUARIOS } from './data/initialData';
 import { MainTab } from './components/Navbar';
@@ -18,9 +19,11 @@ import { TopBar } from './components/TopBar';
 import { Sidebar } from './components/Sidebar';
 import { isDeviceOffline, setSimulatedOffline } from './lib/offlineDb';
 import { PdvModulo } from './components/PdvModulo';
+import { OrdensProducaoModulo } from './components/OrdensProducaoModulo';
 import { DespachoKanban } from './components/DespachoKanban';
 import { AppEntregador } from './components/AppEntregador';
 import { AcertoCaixa } from './components/AcertoCaixa';
+import { EstoqueGeralModulo } from './components/EstoqueGeralModulo';
 import { EstoqueVasilhames } from './components/EstoqueVasilhames';
 import { DashboardGerente } from './components/DashboardGerente';
 import { AbaHistoricoJornadas } from './components/AbaHistoricoJornadas';
@@ -40,10 +43,17 @@ const isAbaPermitida = (tab: MainTab, usuario: Usuario | null, isSuperAdmin: boo
   switch (tab) {
     case 'pdv':
       return Boolean(usuario.permissoes?.emitirPedidos);
+    case 'producao':
+      return (
+        usuario.perfil === 'GERENTE' ||
+        Boolean(usuario.permissoes?.emitirPedidos || usuario.permissoes?.ajustarEstoque)
+      );
     case 'despacho':
       return Boolean(usuario.permissoes?.despacharPedidos);
     case 'acerto':
       return Boolean(usuario.permissoes?.realizarAcertoCaixa);
+    case 'estoque':
+      return Boolean(usuario.permissoes?.ajustarEstoque);
     case 'vasilhames':
       return Boolean(usuario.permissoes?.ajustarEstoque);
     case 'gerencia':
@@ -132,6 +142,7 @@ export default function App() {
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [turnos, setTurnos] = useState<TurnoEntregador[]>([]);
+  const [ordensProducao, setOrdensProducao] = useState<OrdemProducao[]>([]);
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pedidoComandaModal, setPedidoComandaModal] = useState<Pedido | null>(null);
@@ -177,11 +188,15 @@ export default function App() {
     }
   }, [syncFeedback]);
 
-  // Helper para requisições autenticadas com contexto de Tenant
+  // Helper para requisições autenticadas com contexto de Tenant e Token JWT
   const authFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const token = localStorage.getItem('delivery_auth_token');
     const headers: Record<string, string> = {
       ...(init.headers as Record<string, string> || {}),
     };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
     if (empresaAtual?.id) {
       headers['x-empresa-id'] = empresaAtual.id;
     }
@@ -193,6 +208,16 @@ export default function App() {
 
   // Carrega todos os dados do backend
   const carregarDadosServidor = async (forceSupabaseSync = false) => {
+    const token = localStorage.getItem('delivery_auth_token');
+    const userSalvo = localStorage.getItem('delivery_auth_user');
+
+    // Se o usuário não está autenticado (nem no estado nem no localStorage),
+    // ele está na tela de login. Não dispara chamadas privadas para evitar 401 Unauthorized no console.
+    if (!token && !usuarioLogado && !userSalvo) {
+      setCarregando(false);
+      return;
+    }
+
     try {
       if (forceSupabaseSync) {
         setSincronizandoAgora(true);
@@ -220,11 +245,15 @@ export default function App() {
       }
 
       const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       if (empresaAtual?.id) {
         headers['x-empresa-id'] = empresaAtual.id;
       }
-      if (usuarioLogado?.id) {
-        headers['x-user-id'] = usuarioLogado.id;
+      const userAtual = usuarioLogado || (userSalvo ? JSON.parse(userSalvo) : null);
+      if (userAtual?.id) {
+        headers['x-user-id'] = userAtual.id;
       }
 
       const parseSafeJson = async (res: Response) => {
@@ -242,7 +271,7 @@ export default function App() {
         }
       };
 
-      const [resBairros, resProdutos, resClientes, resEntregadores, resPedidos, resUsuarios, resEmpresas, resVeiculos, resColaboradores, resTurnos] =
+      const [resBairros, resProdutos, resClientes, resEntregadores, resPedidos, resUsuarios, resEmpresas, resVeiculos, resColaboradores, resTurnos, resProducao] =
         await Promise.all([
           fetch('/api/bairros', { headers }),
           fetch('/api/produtos', { headers }),
@@ -254,7 +283,18 @@ export default function App() {
           fetch('/api/veiculos', { headers }),
           fetch('/api/colaboradores', { headers }),
           fetch('/api/turnos/historico', { headers }),
+          fetch('/api/producao/ordens', { headers }),
         ]);
+
+      // Se a sessão expirou ou o token for inválido, limpa a sessão de forma suave
+      if (resUsuarios.status === 401 || resBairros.status === 401) {
+        console.warn('[Auth] Sessão expirada ou não autenticada. Apresentando tela de login.');
+        localStorage.removeItem('delivery_auth_token');
+        localStorage.removeItem('delivery_auth_user');
+        setUsuarioLogado(null);
+        setCarregando(false);
+        return;
+      }
 
       const dataBairros = await parseSafeJson(resBairros);
       if (dataBairros) setBairros(dataBairros);
@@ -283,6 +323,9 @@ export default function App() {
       const dataTurnos = await parseSafeJson(resTurnos);
       if (dataTurnos) setTurnos(dataTurnos);
 
+      const dataProducao = await parseSafeJson(resProducao);
+      if (dataProducao && Array.isArray(dataProducao)) setOrdensProducao(dataProducao);
+
       const dataUsuarios = await parseSafeJson(resUsuarios);
       if (dataUsuarios) {
         setUsuarios(dataUsuarios);
@@ -299,19 +342,32 @@ export default function App() {
 
   useEffect(() => {
     registerServiceWorker();
-    carregarDadosServidor();
+
+    const token = localStorage.getItem('delivery_auth_token');
+    const userSalvo = localStorage.getItem('delivery_auth_user');
+
+    if (token || usuarioLogado || userSalvo) {
+      carregarDadosServidor();
+    } else {
+      setCarregando(false);
+    }
 
     const handleSyncComplete = () => {
-      carregarDadosServidor();
+      if (localStorage.getItem('delivery_auth_token')) {
+        carregarDadosServidor();
+      }
     };
     window.addEventListener('sync-completed', handleSyncComplete);
     return () => window.removeEventListener('sync-completed', handleSyncComplete);
-  }, [empresaAtual?.id]);
+  }, [empresaAtual?.id, usuarioLogado?.id]);
 
   // Handler de Login Sucesso
-  const handleLoginSucesso = (usuario: Usuario, empresa?: Empresa | null) => {
+  const handleLoginSucesso = async (usuario: Usuario, empresa?: Empresa | null, token?: string) => {
     setUsuarioLogado(usuario);
     localStorage.setItem('delivery_auth_user', JSON.stringify(usuario));
+    if (token) {
+      localStorage.setItem('delivery_auth_token', token);
+    }
 
     if (usuario.perfil === 'SUPER_ADMIN') {
       if (empresa) {
@@ -337,6 +393,9 @@ export default function App() {
       }
       setActiveTab(getPrimeiraAbaPermitida(usuario, false));
     }
+
+    // Carrega imediatamente os dados do servidor com a nova sessão autenticada
+    await carregarDadosServidor();
   };
 
   // Garante que o usuário logado só fique em abas autorizadas para seu perfil
@@ -373,6 +432,7 @@ export default function App() {
     setModoSuperAdminHub(false);
     localStorage.removeItem('delivery_auth_user');
     localStorage.removeItem('delivery_auth_empresa');
+    localStorage.removeItem('delivery_auth_token');
   };
 
   // Super Admin CRUD Empresa
@@ -381,7 +441,7 @@ export default function App() {
     const url = isEdicao ? `/api/empresas/${dadosEmpresa.id}` : '/api/empresas';
     const method = isEdicao ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dadosEmpresa),
@@ -413,7 +473,7 @@ export default function App() {
   };
 
   const handleExcluirEmpresa = async (id: string) => {
-    const res = await fetch(`/api/empresas/${id}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/empresas/${id}`, { method: 'DELETE' });
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro ao excluir empresa');
@@ -671,6 +731,7 @@ export default function App() {
       <SuperAdminHub
         usuarioSuperAdmin={usuarioLogado}
         empresas={empresas}
+        carregando={carregando}
         onSelecionarEmpresa={handleSelecionarEmpresaSuperAdmin}
         onSalvarEmpresa={handleSalvarEmpresa}
         onExcluirEmpresa={handleExcluirEmpresa}
@@ -787,6 +848,21 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'producao' && (
+                <OrdensProducaoModulo
+                  produtos={produtos}
+                  clientes={clientes}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onProducaoAtualizada={carregarDadosServidor}
+                  onEstoqueAtualizado={carregarDadosServidor}
+                />
+              )}
+
               {activeTab === 'despacho' && (
                 <DespachoKanban
                   pedidos={pedidos}
@@ -820,6 +896,19 @@ export default function App() {
                   onAcertoConcluido={() => carregarDadosServidor()}
                   onTurnoIniciado={() => carregarDadosServidor()}
                   onTurnoFechado={() => carregarDadosServidor()}
+                />
+              )}
+
+              {activeTab === 'estoque' && (
+                <EstoqueGeralModulo
+                  produtos={produtos}
+                  usuarioLogado={usuarioLogado}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  pedidosPendentesCount={pendentesCount}
+                  pedidosEmRotaCount={emRotaCount}
+                  pedidosEntreguesCount={entreguesCount}
+                  onEstoqueAtualizado={carregarDadosServidor}
                 />
               )}
 

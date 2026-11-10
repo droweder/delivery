@@ -69,6 +69,7 @@ import {
   apenasDigitos,
   consultarCep,
   consultarCnpj,
+  consultarDdd,
   formatarCep,
   formatarCpfCnpj,
   formatarTelefone,
@@ -111,7 +112,7 @@ export const PdvModulo: React.FC<Props> = ({
   bairros,
   usuarioLogado,
   activeTab = 'pdv',
-  setActiveTab = () => {},
+  setActiveTab = (_tab?: MainTab) => {},
   isSuperAdmin = false,
   pedidosPendentesCount = 0,
   pedidosEmRotaCount = 0,
@@ -157,6 +158,23 @@ export const PdvModulo: React.FC<Props> = ({
   const [erroCnpjInfo, setErroCnpjInfo] = useState<string | null>(null);
   const [erroCepInfo, setErroCepInfo] = useState<string | null>(null);
   const [statusCepInfo, setStatusCepInfo] = useState<string | null>(null);
+  const [infoDddPdv, setInfoDddPdv] = useState<string | null>(null);
+
+  const handleConsultarDddClientePdv = async (ddd: string) => {
+    if (ddd.length !== 2) return;
+    try {
+      const res = await consultarDdd(ddd);
+      if (res && res.state) {
+        setInfoDddPdv(`DDD ${ddd}: ${res.state}`);
+        if (!novoEstado || novoEstado === 'SP') setNovoEstado(res.state);
+        if (res.cities && res.cities.length === 1 && (!novoCidade || novoCidade === 'São Paulo')) {
+          setNovoCidade(res.cities[0]);
+        }
+      }
+    } catch {
+      // Silencioso se DDD ainda incompleto
+    }
+  };
 
   // Catalog, Search & ERP Modal State
   const [buscaProduto, setBuscaProduto] = useState('');
@@ -889,7 +907,140 @@ export const PdvModulo: React.FC<Props> = ({
         </div>
       )}
 
-            <div className={`grid grid-cols-1 ${exibirKanban ? 'lg:grid-cols-12 gap-3.5' : 'lg:grid-cols-12 gap-4'}`}>
+      {/* Banner de Prontidão da Operação / Onboarding Guiado */}
+      {(clientes.length === 0 || produtos.length === 0 || bairros.length === 0 || entregadores.length === 0) && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/5 border border-amber-300/80 shadow-xs space-y-2.5 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-xl bg-amber-500 text-slate-950 font-black shadow-xs">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-extrabold text-slate-900">
+                  Configuração Inicial & Cadastros Pendentes para Operação
+                </h4>
+                <p className="text-[11px] text-slate-600">
+                  Para emitir pedidos com agilidade, configure os cadastros essenciais abaixo:
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('cadastros')}
+              className="text-xs font-extrabold text-amber-900 hover:text-amber-950 underline px-2 py-1 shrink-0"
+            >
+              Abrir Central de Cadastros ➔
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            {/* Clientes */}
+            <div className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 ${
+              clientes.length === 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-white/80 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">1. Clientes</span>
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                  clientes.length === 0 ? 'bg-amber-200 text-amber-900' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {clientes.length} cad.
+                </span>
+              </div>
+              {clientes.length === 0 ? (
+                <button
+                  onClick={handleAbrirNovoCliente}
+                  className="w-full py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                >
+                  + Cadastrar Cliente
+                </button>
+              ) : (
+                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Pronto
+                </span>
+              )}
+            </div>
+
+            {/* Produtos */}
+            <div className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 ${
+              produtos.length === 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-white/80 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">2. Produtos / OP</span>
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                  produtos.length === 0 ? 'bg-amber-200 text-amber-900' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {produtos.length} cad.
+                </span>
+              </div>
+              {produtos.length === 0 ? (
+                <button
+                  onClick={() => setActiveTab('cadastros')}
+                  className="w-full py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                >
+                  + Cadastrar Produtos
+                </button>
+              ) : (
+                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Pronto
+                </span>
+              )}
+            </div>
+
+            {/* Bairros */}
+            <div className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 ${
+              bairros.length === 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-white/80 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">3. Bairros & Taxas</span>
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                  bairros.length === 0 ? 'bg-amber-200 text-amber-900' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {bairros.length} cad.
+                </span>
+              </div>
+              {bairros.length === 0 ? (
+                <button
+                  onClick={() => setActiveTab('cadastros')}
+                  className="w-full py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                >
+                  + Cadastrar Bairros
+                </button>
+              ) : (
+                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Pronto
+                </span>
+              )}
+            </div>
+
+            {/* Entregadores */}
+            <div className={`p-2 rounded-xl border flex flex-col justify-between gap-1.5 ${
+              entregadores.length === 0 ? 'bg-amber-50/90 border-amber-300' : 'bg-white/80 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">4. Entregadores</span>
+                <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                  entregadores.length === 0 ? 'bg-amber-200 text-amber-900' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {entregadores.length} cad.
+                </span>
+              </div>
+              {entregadores.length === 0 ? (
+                <button
+                  onClick={() => setActiveTab('cadastros')}
+                  className="w-full py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg text-[10px] transition-colors"
+                >
+                  + Cadastrar Equipe
+                </button>
+              ) : (
+                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3 h-3" /> Pronto
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`grid grid-cols-1 ${exibirKanban ? 'lg:grid-cols-12 gap-3.5' : 'lg:grid-cols-12 gap-4'}`}>
         
         {/* COLUNA 1: ATENDIMENTO / IDENTIFICAÇÃO DO CLIENTE & RESUMO DO PEDIDO */}
         <div className={`${exibirKanban ? 'lg:col-span-4 xl:col-span-4' : 'lg:col-span-5'} space-y-3.5`}>
@@ -912,29 +1063,59 @@ export const PdvModulo: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* Phone search input */}
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
-              <input
-                id="input-search-client"
-                type="text"
-                value={buscaCliente}
-                onChange={(e) => {
-                  setBuscaCliente(e.target.value);
-                  if (!e.target.value) setClienteSelecionado(null);
-                }}
-                onBlur={() => {
-                  if (buscaCliente.trim() && !clienteSelecionado && clientesFiltrados.length === 0) {
-                    if (confirm('Cliente não encontrado. Deseja cadastrá-lo como novo cliente?')) {
-                      setNovoTelefone(buscaCliente.replace(/\D/g, ''));
-                      handleAbrirNovoCliente();
+            {/* Aviso quando não há clientes cadastrados */}
+            {clientes.length === 0 ? (
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 text-xs space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-extrabold text-amber-950 block">Nenhum cliente cadastrado ainda!</span>
+                    <span className="text-[11px] text-amber-800">
+                      Para emitir um pedido, cadastre o primeiro cliente da sua empresa pelo formulário rápido.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={handleAbrirNovoCliente}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs shadow-xs transition-all flex items-center gap-1 active:scale-95"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>+ Cadastrar Primeiro Cliente</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('cadastros')}
+                    className="text-[11px] font-bold text-amber-900 hover:text-amber-950 underline"
+                  >
+                    Ir para Cadastros ➔
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Phone search input */
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  id="input-search-client"
+                  type="text"
+                  value={buscaCliente}
+                  onChange={(e) => {
+                    setBuscaCliente(e.target.value);
+                    if (!e.target.value) setClienteSelecionado(null);
+                  }}
+                  onBlur={() => {
+                    if (buscaCliente.trim() && !clienteSelecionado && clientesFiltrados.length === 0) {
+                      if (confirm('Cliente não encontrado. Deseja cadastrá-lo como novo cliente?')) {
+                        setNovoTelefone(buscaCliente.replace(/\D/g, ''));
+                        handleAbrirNovoCliente();
+                      }
                     }
-                  }
-                }}
-                placeholder="Telefone ou nome do cliente..."
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-              />
-            </div>
+                  }}
+                  placeholder="Telefone ou nome do cliente..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                />
+              </div>
+            )}
 
             {/* Quick autocomplete dropdown results */}
             {buscaCliente && !clienteSelecionado && clientesFiltrados.length > 0 && (
@@ -1478,10 +1659,31 @@ export const PdvModulo: React.FC<Props> = ({
 
             {/* Products Vertical List */}
             {produtosFiltrados.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 space-y-1.5 border border-dashed border-slate-300 rounded-2xl bg-slate-100/60">
-                <Package className="w-6 h-6 mx-auto stroke-1 text-slate-400" />
-                <p className="text-xs font-semibold text-slate-600">Nenhum produto encontrado.</p>
-              </div>
+              produtos.length === 0 ? (
+                <div className="py-8 px-4 text-center space-y-3 border-2 border-dashed border-amber-300 rounded-2xl bg-amber-50/50">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+                    <Package className="w-5 h-5 stroke-[2]" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-black text-slate-900">Nenhum produto cadastrado</h5>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Cadastre produtos (salgadinhos, bebidas, gás, água) ou insumos na Central de Cadastros para iniciar suas vendas.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('cadastros')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-xs active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>+ Cadastrar Produtos Agora</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-slate-400 space-y-1.5 border border-dashed border-slate-300 rounded-2xl bg-slate-100/60">
+                  <Package className="w-6 h-6 mx-auto stroke-1 text-slate-400" />
+                  <p className="text-xs font-semibold text-slate-600">Nenhum produto encontrado nesta categoria/filtro.</p>
+                </div>
+              )
             ) : (
               <div className="space-y-2 max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
                 {produtosFiltrados.map((prod) => {
@@ -1921,12 +2123,26 @@ export const PdvModulo: React.FC<Props> = ({
                         )}
                       </div>
                       <div>
-                        <label className="block font-bold text-blue-900 mb-1">Telefone *</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-bold text-blue-900">Telefone *</label>
+                          {infoDddPdv && (
+                            <span className="text-[10px] text-emerald-600 font-bold">{infoDddPdv}</span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           required
                           value={novoTelefone}
-                          onChange={(e) => setNovoTelefone(formatarTelefone(e.target.value))}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const formatted = formatarTelefone(raw);
+                            setNovoTelefone(formatted);
+                            const digitos = apenasDigitos(raw);
+                            if (digitos.length >= 2) {
+                              const ddd = digitos.substring(0, 2);
+                              handleConsultarDddClientePdv(ddd);
+                            }
+                          }}
                           placeholder="(11) 99999-9999"
                           className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 font-bold text-xs shadow-xs focus:ring-2 focus:ring-blue-600"
                         />

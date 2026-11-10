@@ -1,5 +1,8 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import express from 'express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
@@ -39,6 +42,12 @@ import {
   Veiculo,
   PontoLocalizacaoHistorico,
   CascoItemRecolhimento,
+  ItemEstruturaProduto,
+  OrdemProducao,
+  InsumoOrdemProducao,
+  StatusOrdemProducao,
+  TipoOrigemOP,
+  TipoItemProduto,
 } from './src/types.js';
 
 // In-Memory Relational Store
@@ -53,6 +62,9 @@ let turnos: TurnoEntregador[] = [...INITIAL_TURNOS];
 let usuarios: Usuario[] = [...INITIAL_USUARIOS];
 let pedidos: Pedido[] = [...INITIAL_PEDIDOS];
 let fechamentos: FechamentoCaixaEntregador[] = [];
+let produtosEstruturas: ItemEstruturaProduto[] = [];
+let ordensProducao: OrdemProducao[] = [];
+let ordensProducaoInsumos: InsumoOrdemProducao[] = [];
 
 // Histórico de Localizações GPS / Telemetria dos Entregadores
 const agoraTimestamp = Date.now();
@@ -434,12 +446,174 @@ function registrarMovimentacaoEstoque(dados: {
 // Supabase Lazy Client
 let supabaseClient: any = null;
 
+// --------------------------------------------------------------------------
+// JWT AUTH & MULTI-TENANT ISOLATION UTILITIES
+// --------------------------------------------------------------------------
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'disk-entrega-super-secret-jwt-key-2026';
+
+export interface JwtTokenPayload {
+  userId: string;
+  empresaId?: string;
+  perfil: string;
+  login: string;
+  iat?: number;
+  exp?: number;
+}
+
+function base64UrlEncode(str: string): string {
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function base64UrlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  return Buffer.from(base64, 'base64').toString('utf8');
+}
+
+function gerarTokenJwt(payload: JwtTokenPayload, expiresInSeconds = 7 * 24 * 3600): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload = {
+    ...payload,
+    iat: now,
+    exp: now + expiresInSeconds,
+  };
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(fullPayload));
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  const signature = crypto
+    .createHmac('sha256', JWT_SECRET)
+    .update(data)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+
+  return `${data}.${signature}`;
+}
+
+function verificarTokenJwt(token: string): JwtTokenPayload | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const data = `${headerB64}.${payloadB64}`;
+
+    const expectedSig = crypto
+      .createHmac('sha256', JWT_SECRET)
+      .update(data)
+      .digest('base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+
+    const sigBuffer = Buffer.from(signatureB64);
+    const expectedBuffer = Buffer.from(expectedSig);
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+      return null;
+    }
+
+    const payload: JwtTokenPayload = JSON.parse(base64UrlDecode(payloadB64));
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      return null;
+    }
+
+    return payload;
+  } catch (err) {
+    return null;
+  }
+}
+
 function getTargetEmpresaId(req: any): string | null {
+  // Se a requisição foi autenticada pelo authMiddleware:
+  // Se for SUPER_ADMIN, permite alternar o contexto de visualização entre empresas
+  if (req.isSuperAdmin) {
+    const header = req.headers ? (req.headers['x-empresa-id'] as string) : null;
+    const query = req.query ? (req.query.empresaId as string) : null;
+    const body = req.body ? (req.body.empresaId || req.body.empresa_id) : null;
+    const val = header || query || body;
+    if (val && String(val).trim()) return String(val).trim();
+    return req.empresaId || null;
+  }
+
+  // Para operadores e administradores de empresa: o empresaId é RIGIDAMENTE travado na empresa da sessão
+  if (req.empresaId) {
+    return req.empresaId;
+  }
+
+  // Fallback seguro de compatibilidade
   const header = req.headers ? (req.headers['x-empresa-id'] as string) : null;
   const query = req.query ? (req.query.empresaId as string) : null;
   const body = req.body ? (req.body.empresaId || req.body.empresa_id) : null;
   const val = header || query || body;
   return val ? String(val).trim() : null;
+}
+
+function authMiddleware(req: any, res: express.Response, next: express.NextFunction) {
+  const path = req.path || '';
+  const originalUrl = req.originalUrl || '';
+
+  // Rotas públicas que não requerem token
+  const isPublic =
+    path === '/auth/login' || originalUrl.includes('/api/auth/login') ||
+    path === '/auth/esqueci-senha' || originalUrl.includes('/api/auth/esqueci-senha') ||
+    path === '/health' || originalUrl.includes('/api/health') ||
+    path === '/status/supabase' || originalUrl.includes('/api/status/supabase') ||
+    path === '/push/vapid-public-key' || originalUrl.includes('/api/push/vapid-public-key') ||
+    path === '/schema/sql' || originalUrl.includes('/api/schema/sql') ||
+    path.startsWith('/consulta/') || originalUrl.includes('/api/consulta/');
+
+  if (isPublic) {
+    return next();
+  }
+
+  const authHeader = req.headers ? (req.headers['authorization'] as string) : null;
+  let token: string | null = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7).trim();
+  }
+  if (!token && req.headers && req.headers['x-auth-token']) {
+    token = String(req.headers['x-auth-token']).trim();
+  }
+
+  if (!token) {
+    return res.status(401).json({ error: 'Acesso não autorizado. Token de autenticação ausente.' });
+  }
+
+  const payload = verificarTokenJwt(token);
+  if (!payload) {
+    return res.status(401).json({ error: 'Token de autenticação inválido ou expirado.' });
+  }
+
+  const user = usuarios.find((u) => u.id === payload.userId && u.ativo);
+  if (!user) {
+    return res.status(401).json({ error: 'Usuário associado à sessão não encontrado ou inativo.' });
+  }
+
+  req.user = user;
+  req.userPayload = payload;
+  req.isSuperAdmin = user.perfil === 'SUPER_ADMIN';
+
+  // Isolamento Multi-tenant estrito:
+  // SUPER_ADMIN pode escolher a empresa alvo; demais usuários são estritamente restritos ao seu empresaId
+  if (req.isSuperAdmin) {
+    const requestedTenant = req.headers ? (req.headers['x-empresa-id'] as string) : null;
+    req.empresaId = requestedTenant ? requestedTenant.trim() : (user.empresaId || undefined);
+  } else {
+    req.empresaId = user.empresaId || 'emp1';
+  }
+
+  next();
 }
 
 function mapEmpresaFromDb(r: any): Empresa {
@@ -491,11 +665,14 @@ function mapProdutoFromDb(r: any): Produto {
     codigo: r.codigo || `PROD-${r.id}`,
     nome: r.nome || 'Produto',
     marca: r.marca || 'Conveniência',
+    tipoItem: r.tipo_item || r.tipoItem || (r.tipo_vasilhame && r.tipo_vasilhame !== 'NENHUM' ? 'PRODUTO_FINAL' : (r.categoria === 'INSUMOS' ? 'INSUMO_MATERIA_PRIMA' : 'PRODUTO_FINAL')),
     unidadeMedida: r.unidade_medida || r.unidadeMedida || 'UN',
     categoria: r.categoria || 'GAS',
     tipoVasilhame: r.tipo_vasilhame || r.tipoVasilhame || 'NENHUM',
     precoRecarga,
     precoCompleto,
+    precoCusto: Number(r.preco_custo ?? r.precoCusto ?? 0),
+    estoqueAtual: Number(r.estoque_atual ?? r.estoqueAtual ?? r.estoque_cheio ?? r.estoqueCheio ?? 0),
     estoqueCheio: Number(r.estoque_cheio ?? r.estoqueCheio ?? r.estoque_atual ?? 0),
     estoqueVazio: Number(r.estoque_vazio ?? r.estoqueVazio ?? 0),
     estoqueMinimo: Number(r.estoque_minimo ?? r.estoqueMinimo ?? 5),
@@ -503,6 +680,57 @@ function mapProdutoFromDb(r: any): Produto {
     permiteVendaCasco: r.permite_venda_casco ?? r.permiteVendaCasco ?? (r.tipo_vasilhame && r.tipo_vasilhame !== 'NENHUM'),
     maisUtilizado: Boolean(r.mais_utilizado ?? r.maisUtilizado ?? false),
     vendasCount: Number(r.vendas_count ?? r.vendasCount ?? 0),
+  };
+}
+
+function mapProdutoEstruturaFromDb(r: any): ItemEstruturaProduto {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    produtoPaiId: r.produto_pai_id || r.produtoPaiId,
+    insumoId: r.insumo_id || r.insumoId,
+    quantidadeNecessaria: Number(r.quantidade_necessaria ?? r.quantidadeNecessaria ?? 1),
+    unidadeMedida: r.unidade_medida || r.unidadeMedida || 'UN',
+    custoEstimado: Number(r.custo_estimado ?? r.custoEstimado ?? 0),
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+  };
+}
+
+function mapOrdemProducaoFromDb(r: any): OrdemProducao {
+  return {
+    id: r.id,
+    empresaId: r.empresa_id || r.empresaId || 'emp1',
+    numeroOp: r.numero_op || r.numeroOp || '#OP-001',
+    pedidoId: r.pedido_id || r.pedidoId,
+    clienteId: r.cliente_id || r.clienteId,
+    clienteNome: r.cliente_nome || r.clienteNome,
+    produtoId: r.produto_id || r.produtoId,
+    produtoNome: r.produto_nome || r.produtoNome,
+    quantidadePlanejada: Number(r.quantidade_planejada ?? r.quantidadePlanejada ?? 0),
+    quantidadeProduzida: Number(r.quantidade_produzida ?? r.quantidadeProduzida ?? 0),
+    unidadeMedida: r.unidade_medida || r.unidadeMedida || 'CENTO',
+    dataPrevisaoEntrega: r.data_previsao_entrega || r.dataPrevisaoEntrega,
+    status: r.status || 'PLANEJADA',
+    tipoOrigem: r.tipo_origem || r.tipoOrigem || 'SOB_ENCOMENDA',
+    responsavelId: r.responsavel_id || r.responsavelId,
+    responsavelNome: r.responsavel_nome || r.responsavelNome,
+    observacoes: r.observacoes || '',
+    criadoEm: r.criado_em || r.criadoEm || new Date().toISOString(),
+    iniciadoEm: r.iniciado_em || r.iniciadoEm,
+    concluidoEm: r.concluido_em || r.concluidoEm,
+  };
+}
+
+function mapOrdemProducaoInsumoFromDb(r: any): InsumoOrdemProducao {
+  return {
+    id: r.id,
+    ordemProducaoId: r.ordem_producao_id || r.ordemProducaoId,
+    insumoId: r.insumo_id || r.insumoId,
+    insumoNome: r.insumo_nome || r.insumoNome,
+    quantidadeNecessaria: Number(r.quantidade_necessaria ?? r.quantidadeNecessaria ?? 0),
+    quantidadeUtilizada: Number(r.quantidade_utilizada ?? r.quantidadeUtilizada ?? 0),
+    unidadeMedida: r.unidade_medida || r.unidadeMedida || 'KG',
+    baixado: Boolean(r.baixado),
   };
 }
 
@@ -704,6 +932,19 @@ function mapUsuarioFromDb(r: any): Usuario {
   };
 }
 
+function sanitizeUsuario(u: Usuario): Omit<Usuario, 'senha'> {
+  const { senha, ...resto } = u;
+  return resto;
+}
+
+function sanitizeUsuarioParaListagem(u: Usuario): Omit<Usuario, 'senha'> {
+  const { senha, pinAcesso, ...resto } = u;
+  return {
+    ...resto,
+    pinAcesso: pinAcesso ? '••••' : '',
+  };
+}
+
 function mapVeiculoFromDb(r: any): Veiculo {
   return {
     id: r.id,
@@ -893,7 +1134,10 @@ async function syncFromSupabase() {
       { name: 'colaboradores', ref: colaboradores, mapper: mapColaboradorFromDb },
       { name: 'turnos_entregador', ref: turnos, mapper: mapTurnoFromDb },
       { name: 'fechamentos_caixa', ref: fechamentos, mapper: mapFechamentoFromDb },
-      { name: 'movimentacoes_estoque', ref: movimentacoesEstoque, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) }
+      { name: 'movimentacoes_estoque', ref: movimentacoesEstoque, mapper: (r: any) => ({ ...r, empresaId: r.empresa_id || r.empresaId || 'emp1' }) },
+      { name: 'produtos_estruturas', ref: produtosEstruturas, mapper: mapProdutoEstruturaFromDb },
+      { name: 'ordens_producao', ref: ordensProducao, mapper: mapOrdemProducaoFromDb },
+      { name: 'ordens_producao_insumos', ref: ordensProducaoInsumos, mapper: mapOrdemProducaoInsumoFromDb }
     ];
     const details: Record<string, any> = {};
     let hasError = false;
@@ -915,6 +1159,18 @@ async function syncFromSupabase() {
             const mapped = t.mapper ? data.map(t.mapper) : data;
             t.ref.splice(0, t.ref.length, ...mapped);
             summary.push(`${data.length} ${t.name}`);
+
+            if (t.name === 'pedidos') {
+              for (const p of mapped) {
+                const match = String(p.codigo || p.numero_pedido || '').match(/\d+/);
+                if (match) {
+                  const num = parseInt(match[0], 10);
+                  if (num >= orderCounter && num < 1000000) {
+                    orderCounter = num + 1;
+                  }
+                }
+              }
+            }
           }
         }
       } catch (errInner: any) {
@@ -1104,6 +1360,16 @@ async function getFreshPedidos(): Promise<Pedido[]> {
         });
 
         pedidos.splice(0, pedidos.length, ...pedidosLocaisNaoNoDb, ...merged);
+
+        for (const p of mapped) {
+          const match = String(p.codigo || '').match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (num >= orderCounter && num < 1000000) {
+              orderCounter = num + 1;
+            }
+          }
+        }
       }
     } catch (e) {}
   }
@@ -1298,11 +1564,112 @@ async function dispararNotificacaoPush(
 
 let orderCounter = 1045;
 
+async function gerarProximoCodigoPedido(empresaId?: string): Promise<string> {
+  const sb = getSupabase();
+  let maiorNumero = 1044;
+
+  // 1. Vasculha pedidos em memória (filtrando por tenant quando especificado)
+  for (const p of pedidos) {
+    if (!empresaId || (p.empresaId || 'emp1') === empresaId) {
+      const match = String(p.codigo || '').match(/\d+/);
+      if (match) {
+        const num = parseInt(match[0], 10);
+        if (num > maiorNumero && num < 1000000) {
+          maiorNumero = num;
+        }
+      }
+    }
+  }
+
+  // 2. Se Supabase estiver conectado, consulta o banco para evitar colisão após reinício
+  if (sb) {
+    try {
+      let query = sb
+        .from('pedidos')
+        .select('codigo, numero_pedido')
+        .order('criado_em', { ascending: false })
+        .limit(30);
+
+      if (empresaId) {
+        query = query.eq('empresa_id', empresaId);
+      }
+
+      const { data, error } = await query;
+      if (!error && data) {
+        for (const row of data) {
+          const val = row.codigo || row.numero_pedido || '';
+          const match = String(val).match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (num > maiorNumero && num < 1000000) {
+              maiorNumero = num;
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Gerador Pedido] Erro ao consultar último código no Supabase:', err?.message || err);
+    }
+  }
+
+  const proximoNumero = Math.max(orderCounter, maiorNumero + 1);
+  orderCounter = proximoNumero + 1;
+  return `#${proximoNumero}`;
+}
+
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ limit: '20mb', extended: true }));
+// Hardening de Segurança Perimétrica: Helmet (Security Headers)
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Mantém compatibilidade com Leaflet tiles e Google Maps
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// Rota silenciosa para favicon.ico (evita 404 no console do navegador)
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+// Limite estendido de 20MB exclusivamente para rotas de OCR de documentos / imagens
+app.use('/api/ocr', express.json({ limit: '20mb' }));
+app.use('/api/ocr', express.urlencoded({ limit: '20mb', extended: true }));
+
+// Limite geral restritivo de 1MB para todas as demais rotas (proteção contra DoS e Payload Bombing)
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+
+// Rate Limiters para proteção contra ataques de força bruta e esgotamento de cota
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 30, // máximo 30 tentativas por IP
+  message: { error: 'Muitas tentativas de autenticação. Tente novamente em 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/usuarios/login-pin', authLimiter);
+
+const ocrLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { error: 'Limite de requisições de OCR excedido. Tente novamente mais tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/ocr', ocrLimiter);
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 300, // 300 requisições por minuto por IP
+  message: { error: 'Muitas requisições. Aguarde um instante.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', apiLimiter);
+
+// Middleware Global de Autenticação JWT e Isolamento Multi-Tenant
+app.use('/api', authMiddleware);
 
 // Gemini GenAI Client Setup
 const ai = new GoogleGenAI({
@@ -1829,6 +2196,8 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       }
 
       usuarioAdminAtualizado = adminUsr;
+      const permissoesAdmin = adminUsr.permissoes || defaultPermissoes.ADMIN;
+      adminUsr.permissoes = permissoesAdmin;
 
       // Se foi fornecida senha ou solicitação explícita, inclui credenciais no retorno
       credenciaisGeradas = {
@@ -1849,7 +2218,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       try {
         const supabase = getSupabase();
         if (supabase) {
-          await supabase
+          const { error: errUpsertUser } = await supabase
             .from('usuarios')
             .upsert([
               {
@@ -1864,9 +2233,12 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
                 perfil: adminUsr.perfil,
                 cargo: adminUsr.cargo,
                 ativo: adminUsr.ativo,
-                permissoes: adminUsr.permissoes,
+                permissoes: permissoesAdmin,
               },
             ]);
+          if (errUpsertUser) {
+            console.error('[Supabase] Erro ao atualizar admin da empresa:', errUpsertUser);
+          }
         }
       } catch (e: any) {
         console.warn('[Supabase] Erro ao atualizar admin da empresa:', e.message);
@@ -1941,9 +2313,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     });
   });
 
-  // 1.2.3 Obter Administrador Master de uma Empresa Específica
+  // 1.2.3 Obter Administrador Master de uma Empresa Específica (Protegido para Admin / Super Admin)
   app.get('/api/empresas/:id/admin', (req, res) => {
     const { id } = req.params;
+    const callerId = req.headers ? (req.headers['x-user-id'] as string) : null;
+    const caller = callerId ? usuarios.find((u) => u.id === callerId && u.ativo) : null;
+    const isSuperAdmin = caller && caller.perfil === 'SUPER_ADMIN';
+    const isEmpresaAdmin = caller && caller.empresaId === id && (caller.perfil === 'ADMIN' || caller.perfil === 'GERENTE');
+
+    if (!isSuperAdmin && !isEmpresaAdmin) {
+      return res.status(403).json({ error: 'Acesso negado: dados confidenciais restritos ao administrador.' });
+    }
+
     const emp = empresas.find((e) => e.id === id);
     if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
 
@@ -1957,7 +2338,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         login: `admin_${emp.nomeFantasia.toLowerCase().replace(/[^a-z0-9]/g, '') || emp.id}`,
         email: emp.email || '',
         senha: 'Admin@123',
-        pinAcesso: '1234',
+        pinAcesso: Math.floor(1000 + Math.random() * 9000).toString(),
         telefone: emp.telefone || '',
         perfil: 'ADMIN',
         cargo: 'Diretor / Administrador',
@@ -1991,7 +2372,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         login: admin.login,
         email: admin.email,
         telefone: admin.telefone || emp.telefone || '',
-        pinAcesso: admin.pinAcesso || '1234',
+        pinAcesso: admin.pinAcesso || '',
         perfil: admin.perfil,
         cargo: admin.cargo,
         ativo: admin.ativo,
@@ -2000,9 +2381,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     });
   });
 
-  // 1.2.4 Redefinir Acesso / Senha do Administrador de uma Empresa
+  // 1.2.4 Redefinir Acesso / Senha do Administrador de uma Empresa (Protegido)
   app.post('/api/empresas/:id/redefinir-acesso', async (req, res) => {
     const { id } = req.params;
+    const callerId = req.headers ? (req.headers['x-user-id'] as string) : null;
+    const caller = callerId ? usuarios.find((u) => u.id === callerId && u.ativo) : null;
+    const isSuperAdmin = caller && caller.perfil === 'SUPER_ADMIN';
+    const isEmpresaAdmin = caller && caller.empresaId === id && (caller.perfil === 'ADMIN' || caller.perfil === 'GERENTE');
+
+    if (!isSuperAdmin && !isEmpresaAdmin) {
+      return res.status(403).json({ error: 'Acesso negado: apenas o Super Admin ou o Admin da empresa podem redefinir o acesso.' });
+    }
+
     const emp = empresas.find((e) => e.id === id);
     if (!emp) return res.status(404).json({ error: 'Empresa não encontrada' });
 
@@ -2471,6 +2861,148 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     return res.json({ sucesso: false, mensagem: 'Coordenadas não encontradas para o endereço.' });
   });
 
+  // --------------------------------------------------------------------------
+  // SUÍTE COMPLETA DE CONSULTAS BRASILAPI / APIBRASIL
+  // --------------------------------------------------------------------------
+
+  // 1. Consulta DDD (Estado e Cidades pertencentes ao DDD)
+  app.get('/api/consulta/ddd/:ddd', async (req, res) => {
+    const rawDdd = String(req.params.ddd || '').replace(/\D/g, '');
+    if (rawDdd.length !== 2) {
+      return res.status(400).json({ sucesso: false, mensagem: 'DDD deve conter 2 dígitos numéricos.' });
+    }
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/ddd/v1/${rawDdd}`, {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (!resp.ok) {
+        return res.status(404).json({ sucesso: false, mensagem: `DDD ${rawDdd} não localizado.` });
+      }
+      const data = await resp.json();
+      res.json({
+        sucesso: true,
+        ddd: rawDdd,
+        state: data.state,
+        cities: data.cities || [],
+      });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar DDD.' });
+    }
+  });
+
+  // 2. Consulta Lista Oficial de Bancos (COMPE, ISPB, Nome)
+  let cacheBancos: any[] | null = null;
+  let cacheBancosTimestamp = 0;
+  app.get('/api/consulta/bancos', async (req, res) => {
+    const agora = Date.now();
+    if (cacheBancos && agora - cacheBancosTimestamp < 3600000) {
+      return res.json({ sucesso: true, bancos: cacheBancos });
+    }
+    try {
+      const resp = await fetch('https://brasilapi.com.br/api/banks/v1', {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        cacheBancos = Array.isArray(data) ? data : [];
+        cacheBancosTimestamp = agora;
+        return res.json({ sucesso: true, bancos: cacheBancos });
+      }
+      res.status(502).json({ sucesso: false, mensagem: 'Falha ao buscar lista de bancos.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar bancos.' });
+    }
+  });
+
+  // 3. Consulta Tabela FIPE Marcas (motos, carros, caminhoes)
+  app.get('/api/consulta/fipe/marcas/:tipo', async (req, res) => {
+    const tipo = String(req.params.tipo || 'motos').toLowerCase();
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/fipe/marcas/v1/${tipo}`, {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return res.json({ sucesso: true, tipo, marcas: Array.isArray(data) ? data : [] });
+      }
+      res.status(404).json({ sucesso: false, mensagem: 'Marcas não localizadas para o tipo informado.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar marcas FIPE.' });
+    }
+  });
+
+  // 4. Consulta Tabela FIPE Preço e Dados do Veículo por Código FIPE
+  app.get('/api/consulta/fipe/preco/:codigoFipe', async (req, res) => {
+    const { codigoFipe } = req.params;
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/fipe/preco/v1/${codigoFipe}`, {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return res.json({ sucesso: true, dados: data });
+      }
+      res.status(404).json({ sucesso: false, mensagem: 'Código FIPE não localizado.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar veículo FIPE.' });
+    }
+  });
+
+  // 5. Consulta Feriados Nacionais por Ano
+  app.get('/api/consulta/feriados/:ano', async (req, res) => {
+    const ano = String(req.params.ano || new Date().getFullYear());
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/feriados/v1/${ano}`, {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return res.json({ sucesso: true, ano, feriados: Array.isArray(data) ? data : [] });
+      }
+      res.status(404).json({ sucesso: false, mensagem: 'Feriados não encontrados para o ano.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar feriados nacionais.' });
+    }
+  });
+
+  // 6. Consulta IBGE: UFs (Estados)
+  let cacheUfs: any[] | null = null;
+  app.get('/api/consulta/ibge/ufs', async (req, res) => {
+    if (cacheUfs) {
+      return res.json({ sucesso: true, ufs: cacheUfs });
+    }
+    try {
+      const resp = await fetch('https://brasilapi.com.br/api/ibge/uf/v1', {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        cacheUfs = Array.isArray(data) ? data : [];
+        return res.json({ sucesso: true, ufs: cacheUfs });
+      }
+      res.status(502).json({ sucesso: false, mensagem: 'Falha ao buscar UFs no IBGE.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar UFs.' });
+    }
+  });
+
+  // 7. Consulta IBGE: Municípios por UF
+  app.get('/api/consulta/ibge/municipios/:uf', async (req, res) => {
+    const uf = String(req.params.uf || '').toUpperCase();
+    try {
+      const resp = await fetch(`https://brasilapi.com.br/api/ibge/municipios/v1/${uf}`, {
+        headers: { 'User-Agent': 'DeliverySaas-App/1.0' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return res.json({ sucesso: true, uf, municipios: Array.isArray(data) ? data : [] });
+      }
+      res.status(404).json({ sucesso: false, mensagem: 'Municípios não localizados para esta UF.' });
+    } catch (err: any) {
+      res.status(500).json({ sucesso: false, mensagem: 'Erro ao consultar municípios IBGE.' });
+    }
+  });
+
   // 1.2 Status de Integração Supabase & Servidor
   app.get('/api/status/supabase', async (req, res) => {
     const supabase = getSupabase();
@@ -2530,16 +3062,20 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     res.json(result);
   });
 
-  // 1.3 Autenticação Unificada (Supabase Ready + Local Fallback)
+  // 1.3 Autenticação Unificada (Supabase Ready + Local Fallback com Validação Rigorosa)
   app.post('/api/auth/login', async (req, res) => {
     const { login, senha, pin } = req.body;
     const loginFormatado = String(login || '').toLowerCase().trim();
     const senhaOuPin = String(senha || pin || '').trim();
 
+    if (!loginFormatado && !senhaOuPin) {
+      return res.status(400).json({ error: 'Informe suas credenciais para autenticar.' });
+    }
+
     try {
       const supabase = getSupabase();
-      if (supabase && (loginFormatado.includes('@') || senha)) {
-        // Tenta autenticação real no Supabase Auth se houver e-mail
+      if (supabase && loginFormatado.includes('@') && senhaOuPin) {
+        // Tenta autenticação real no Supabase Auth se houver e-mail e senha
         const { data, error } = await supabase.auth.signInWithPassword({
           email: loginFormatado,
           password: senhaOuPin,
@@ -2575,11 +3111,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
             ? empresas.find((e) => e.id === usuarioEncontrado.empresaId)
             : null;
 
+          const tokenJwt = gerarTokenJwt({
+            userId: usuarioEncontrado.id,
+            empresaId: usuarioEncontrado.empresaId,
+            perfil: usuarioEncontrado.perfil,
+            login: usuarioEncontrado.login,
+          });
+
           return res.json({
             sucesso: true,
-            usuario: usuarioEncontrado,
+            usuario: sanitizeUsuario(usuarioEncontrado),
             empresa: emp || null,
-            token: data.session?.access_token,
+            token: tokenJwt,
             modo: 'SUPABASE_AUTH',
           });
         }
@@ -2589,38 +3132,66 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       let usuarioLocal: Usuario | undefined;
 
       if (loginFormatado) {
-        // 1. Tenta buscar usuário por login exato ou e-mail exato
+        // 1. Tenta buscar usuário por login exato ou e-mail exato (trim e case-insensitive)
         usuarioLocal = usuarios.find(
           (u) =>
             u.ativo &&
-            (u.login.toLowerCase() === loginFormatado ||
-              (u.email && u.email.toLowerCase() === loginFormatado))
+            ((u.login && u.login.toLowerCase().trim() === loginFormatado) ||
+              (u.email && u.email.toLowerCase().trim() === loginFormatado))
         );
 
-        // Se encontrou por login/email, valida senha ou PIN (se fornecidos)
-        if (usuarioLocal) {
-          if (senhaOuPin) {
-            const pinValido = usuarioLocal.pinAcesso && usuarioLocal.pinAcesso === senhaOuPin;
-            const senhaValida = usuarioLocal.senha && usuarioLocal.senha === senhaOuPin;
-            const devPass = senhaOuPin === '1234' && usuarioLocal.perfil !== 'SUPER_ADMIN';
+        // 1.1 Se não achou por login ou e-mail direto, tenta associar pela empresa (CNPJ ou E-mail da empresa)
+        if (!usuarioLocal) {
+          const cleanLoginDigitos = loginFormatado.replace(/\D/g, '');
+          const empMatch = empresas.find((e) => {
+            const cleanCnpj = (e.cnpj || '').replace(/\D/g, '');
+            const cleanTel = (e.telefone || '').replace(/\D/g, '');
+            return (
+              (cleanLoginDigitos.length === 14 && cleanCnpj === cleanLoginDigitos) ||
+              (cleanLoginDigitos.length >= 8 && cleanTel.endsWith(cleanLoginDigitos)) ||
+              (e.email && e.email.toLowerCase().trim() === loginFormatado)
+            );
+          });
 
-            if (!pinValido && !senhaValida && !devPass) {
-              return res.status(401).json({ error: 'Senha ou PIN incorreto.' });
-            }
-          }
-        } else {
-          // 2. Se o campo login tiver apenas um PIN, busca prioritariamente em usuários normais (NÃO super admin)
-          usuarioLocal = usuarios.find(
-            (u) => u.ativo && u.pinAcesso && u.pinAcesso === loginFormatado && u.perfil !== 'SUPER_ADMIN'
-          );
-
-          // 3. Se não achou usuário comum e o login for o PIN exclusivo do Super Admin
-          if (!usuarioLocal) {
+          if (empMatch) {
             usuarioLocal = usuarios.find(
-              (u) => u.ativo && u.pinAcesso && u.pinAcesso === loginFormatado && u.perfil === 'SUPER_ADMIN'
+              (u) => u.empresaId === empMatch.id && u.ativo && (u.perfil === 'ADMIN' || u.perfil === 'GERENTE')
             );
           }
         }
+
+        if (usuarioLocal) {
+          // Senha ou PIN OBRIGATÓRIOS quando o usuário for identificado por login/email/empresa
+          if (!senhaOuPin) {
+            return res.status(401).json({ error: 'Senha ou PIN é obrigatório.' });
+          }
+          const pinValido = Boolean(usuarioLocal.pinAcesso && usuarioLocal.pinAcesso.trim() === senhaOuPin);
+          const senhaValida = Boolean(usuarioLocal.senha && usuarioLocal.senha.trim() === senhaOuPin);
+
+          if (!pinValido && !senhaValida) {
+            return res.status(401).json({ error: 'Credenciais inválidas. Verifique seu login, senha ou PIN.' });
+          }
+        } else {
+          // 2. Se o campo login tiver apenas um PIN, busca prioritariamente em usuários normais (NÃO super admin)
+          const pinBuscado = senhaOuPin || loginFormatado;
+          if (pinBuscado) {
+            usuarioLocal = usuarios.find(
+              (u) => u.ativo && u.pinAcesso && u.pinAcesso.trim() === pinBuscado && u.perfil !== 'SUPER_ADMIN'
+            );
+
+            // 3. Se não achou usuário comum e for PIN do Super Admin
+            if (!usuarioLocal) {
+              usuarioLocal = usuarios.find(
+                (u) => u.ativo && u.pinAcesso && u.pinAcesso.trim() === pinBuscado && u.perfil === 'SUPER_ADMIN'
+              );
+            }
+          }
+        }
+      } else if (senhaOuPin) {
+        // Apenas PIN fornecido no payload
+        usuarioLocal = usuarios.find(
+          (u) => u.ativo && u.pinAcesso && u.pinAcesso === senhaOuPin
+        );
       }
 
       if (usuarioLocal) {
@@ -2629,11 +3200,18 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
           ? empresas.find((e) => e.id === usuarioLocal.empresaId)
           : null;
 
+        const tokenJwt = gerarTokenJwt({
+          userId: usuarioLocal.id,
+          empresaId: usuarioLocal.empresaId,
+          perfil: usuarioLocal.perfil,
+          login: usuarioLocal.login,
+        });
+
         return res.json({
           sucesso: true,
-          usuario: usuarioLocal,
+          usuario: sanitizeUsuario(usuarioLocal),
           empresa: emp || null,
-          token: `jwt_local_demo_${usuarioLocal.id}_${Date.now()}`,
+          token: tokenJwt,
           modo: 'LOCAL_DEV',
         });
       }
@@ -2794,7 +3372,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       marca: dados.marca || 'Genérica',
       unidadeMedida: dados.unidadeMedida || 'UN',
       categoria: dados.categoria || 'CONVENIENCIA',
+      tipoItem: dados.tipoItem || 'REVENDA',
       tipoVasilhame: dados.tipoVasilhame || 'NENHUM',
+      precoCusto: Number(dados.precoCusto) || 0,
       precoRecarga: typeof dados.precoRecarga === 'number' ? dados.precoRecarga : Number(dados.preco) || 0,
       precoCompleto:
         typeof dados.precoCompleto === 'number'
@@ -2823,7 +3403,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
           marca: novoProduto.marca,
           unidade_medida: novoProduto.unidadeMedida,
           categoria: novoProduto.categoria,
+          tipo_item: novoProduto.tipoItem,
           tipo_vasilhame: novoProduto.tipoVasilhame,
+          preco_custo: novoProduto.precoCusto,
           preco_recarga: novoProduto.precoRecarga,
           preco_completo: novoProduto.precoCompleto,
           estoque_cheio: novoProduto.estoqueCheio,
@@ -2856,7 +3438,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     if (dados.marca !== undefined) prod.marca = dados.marca;
     if (dados.unidadeMedida !== undefined) prod.unidadeMedida = dados.unidadeMedida;
     if (dados.categoria !== undefined) prod.categoria = dados.categoria;
+    if (dados.tipoItem !== undefined) prod.tipoItem = dados.tipoItem;
     if (dados.tipoVasilhame !== undefined) prod.tipoVasilhame = dados.tipoVasilhame;
+    if (dados.precoCusto !== undefined) prod.precoCusto = Number(dados.precoCusto);
     if (dados.precoRecarga !== undefined) prod.precoRecarga = Number(dados.precoRecarga);
     if (dados.precoCompleto !== undefined) prod.precoCompleto = Number(dados.precoCompleto);
     if (dados.estoqueCheio !== undefined) prod.estoqueCheio = Math.max(0, Number(dados.estoqueCheio));
@@ -2874,7 +3458,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
           marca: prod.marca,
           unidade_medida: prod.unidadeMedida,
           categoria: prod.categoria,
+          tipo_item: prod.tipoItem,
           tipo_vasilhame: prod.tipoVasilhame,
+          preco_custo: prod.precoCusto,
           preco_recarga: prod.precoRecarga,
           preco_completo: prod.precoCompleto,
           estoque_cheio: prod.estoqueCheio,
@@ -3089,6 +3675,335 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       usuarioResponsavel: usuarioResponsavel || 'Gerência',
       motivo: motivo || 'Ajuste manual de estoque',
     });
+
+    res.json({ sucesso: true, produto: prod, movimentacao: mov });
+  });
+
+  // 3.3 Ficha Técnica / Estrutura de Produtos (BOM)
+  app.get('/api/produtos/:id/estrutura', async (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const itens = produtosEstruturas.filter(
+      (e) => e.produtoPaiId === id && (!empId || (e.empresaId || 'emp1') === empId)
+    ).map((it) => {
+      const ins = produtos.find((p) => p.id === it.insumoId);
+      return {
+        ...it,
+        insumoNome: ins ? ins.nome : it.insumoNome || 'Insumo',
+        custoEstimado: ins ? (ins.precoCusto || ins.precoRecarga || 0) * it.quantidadeNecessaria : it.custoEstimado
+      };
+    });
+    res.json(itens);
+  });
+
+  app.post('/api/produtos/:id/estrutura', async (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req) || 'emp1';
+    const { itens } = req.body;
+
+    if (!Array.isArray(itens)) {
+      return res.status(400).json({ error: 'Array de itens da estrutura é obrigatório' });
+    }
+
+    // Remove estrutura anterior do produto em memória
+    produtosEstruturas = produtosEstruturas.filter((e) => e.produtoPaiId !== id);
+
+    const novosItens: ItemEstruturaProduto[] = itens.map((it: any, idx: number) => ({
+      id: it.id || `est_${id}_${Date.now()}_${idx}`,
+      empresaId: empId,
+      produtoPaiId: id,
+      insumoId: it.insumoId,
+      quantidadeNecessaria: Number(it.quantidadeNecessaria) || 1,
+      unidadeMedida: it.unidadeMedida || 'UN',
+      custoEstimado: Number(it.custoEstimado) || 0,
+      criadoEm: new Date().toISOString()
+    }));
+
+    produtosEstruturas.push(...novosItens);
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('produtos_estruturas').delete().eq('produto_pai_id', id);
+        if (novosItens.length > 0) {
+          await supabase.from('produtos_estruturas').insert(novosItens.map((ni) => ({
+            id: ni.id,
+            empresa_id: ni.empresaId,
+            produto_pai_id: ni.produtoPaiId,
+            insumo_id: ni.insumoId,
+            quantidade_necessaria: ni.quantidadeNecessaria,
+            unidade_medida: ni.unidadeMedida,
+            custo_estimado: ni.custoEstimado
+          })));
+        }
+      }
+    } catch (e: any) {
+      console.warn('[Supabase Sync Estrutura] Erro:', e?.message || e);
+    }
+
+    res.json({ sucesso: true, estrutura: novosItens });
+  });
+
+  // 3.4 Ordens de Produção (OP)
+  let opCounter = 2000;
+  app.get('/api/producao/ordens', async (req, res) => {
+    const empId = getTargetEmpresaId(req);
+    const lista = empId ? ordensProducao.filter((op) => (op.empresaId || 'emp1') === empId) : [...ordensProducao];
+    const enriquecidas = lista.map((op) => ({
+      ...op,
+      insumos: ordensProducaoInsumos.filter((ins) => ins.ordemProducaoId === op.id)
+    }));
+    res.json(enriquecidas);
+  });
+
+  app.post('/api/producao/ordens', async (req, res) => {
+    try {
+      const empId = getTargetEmpresaId(req) || 'emp1';
+      const {
+        produtoId,
+        quantidadePlanejada,
+        unidadeMedida = 'CENTO',
+        dataPrevisaoEntrega,
+        tipoOrigem = 'SOB_ENCOMENDA',
+        pedidoId,
+        clienteId,
+        clienteNome,
+        observacoes,
+        responsavelNome = 'Cozinha / Produção'
+      } = req.body;
+
+      const prod = produtos.find((p) => p.id === produtoId);
+      if (!prod) {
+        return res.status(404).json({ error: 'Produto acabado / a produzir não encontrado' });
+      }
+
+      opCounter += 1;
+      const numeroOp = `#OP-${opCounter}`;
+      const opId = `op_${Date.now()}`;
+      const qtdPlan = Number(quantidadePlanejada) || 1;
+
+      const novaOp: OrdemProducao = {
+        id: opId,
+        empresaId: empId,
+        numeroOp,
+        pedidoId: pedidoId || undefined,
+        clienteId: clienteId || undefined,
+        clienteNome: clienteNome || (clienteId ? clientes.find((c) => c.id === clienteId)?.nome : undefined),
+        produtoId: prod.id,
+        produtoNome: prod.nome,
+        quantidadePlanejada: qtdPlan,
+        quantidadeProduzida: 0,
+        unidadeMedida,
+        dataPrevisaoEntrega: dataPrevisaoEntrega || undefined,
+        status: 'PLANEJADA',
+        tipoOrigem,
+        responsavelNome,
+        observacoes: observacoes || '',
+        criadoEm: new Date().toISOString()
+      };
+
+      // Explosão de insumos com base na Ficha Técnica do produto
+      const receitas = produtosEstruturas.filter((e) => e.produtoPaiId === prod.id);
+      const insumosOp: InsumoOrdemProducao[] = receitas.map((r, idx) => {
+        const insumoProd = produtos.find((p) => p.id === r.insumoId);
+        return {
+          id: `op_ins_${opId}_${idx}`,
+          ordemProducaoId: opId,
+          insumoId: r.insumoId,
+          insumoNome: insumoProd ? insumoProd.nome : 'Ingrediente',
+          quantidadeNecessaria: r.quantidadeNecessaria * qtdPlan,
+          quantidadeUtilizada: 0,
+          unidadeMedida: r.unidadeMedida,
+          baixado: false
+        };
+      });
+
+      ordensProducao.unshift(novaOp);
+      ordensProducaoInsumos.push(...insumosOp);
+
+      try {
+        const supabase = getSupabase();
+        if (supabase) {
+          await supabase.from('ordens_producao').insert([{
+            id: novaOp.id,
+            empresa_id: novaOp.empresaId,
+            numero_op: novaOp.numeroOp,
+            pedido_id: novaOp.pedidoId || null,
+            cliente_id: novaOp.clienteId || null,
+            cliente_nome: novaOp.clienteNome || null,
+            produto_id: novaOp.produtoId,
+            produto_nome: novaOp.produtoNome,
+            quantidade_planejada: novaOp.quantidadePlanejada,
+            quantidade_produzida: 0,
+            unidade_medida: novaOp.unidadeMedida,
+            data_previsao_entrega: novaOp.dataPrevisaoEntrega || null,
+            status: novaOp.status,
+            tipo_origem: novaOp.tipoOrigem,
+            responsavel_nome: novaOp.responsavelNome || null,
+            observacoes: novaOp.observacoes || '',
+            criado_em: novaOp.criadoEm
+          }]);
+
+          if (insumosOp.length > 0) {
+            await supabase.from('ordens_producao_insumos').insert(insumosOp.map((ins) => ({
+              id: ins.id,
+              ordem_producao_id: ins.ordemProducaoId,
+              insumo_id: ins.insumoId,
+              insumo_nome: ins.insumoNome,
+              quantidade_necessaria: ins.quantidadeNecessaria,
+              quantidade_utilizada: 0,
+              unidade_medida: ins.unidadeMedida,
+              baixado: false
+            })));
+          }
+        }
+      } catch (e: any) {
+        console.warn('[Supabase OP Insert] Erro:', e?.message || e);
+      }
+
+      res.status(201).json({ ...novaOp, insumos: insumosOp });
+    } catch (err: any) {
+      console.error('[OP Create] Erro:', err);
+      res.status(500).json({ error: err.message || 'Erro ao criar Ordem de Produção' });
+    }
+  });
+
+  app.put('/api/producao/ordens/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status, quantidadeProduzida } = req.body;
+    const empId = getTargetEmpresaId(req);
+    const op = ordensProducao.find((o) => o.id === id && (!empId || (o.empresaId || 'emp1') === empId));
+
+    if (!op) return res.status(404).json({ error: 'Ordem de Produção não encontrada' });
+
+    op.status = status;
+    if (status === 'EM_PREPARO' && !op.iniciadoEm) {
+      op.iniciadoEm = new Date().toISOString();
+    }
+
+    if (status === 'CONCLUIDA') {
+      op.concluidoEm = new Date().toISOString();
+      op.quantidadeProduzida = Number(quantidadeProduzida) || op.quantidadePlanejada;
+
+      // 1. Dá baixa automática nos insumos e registra movimentação de consumo
+      const insumos = ordensProducaoInsumos.filter((ins) => ins.ordemProducaoId === op.id);
+      for (const ins of insumos) {
+        if (!ins.baixado) {
+          ins.baixado = true;
+          ins.quantidadeUtilizada = ins.quantidadeNecessaria;
+          const insProd = produtos.find((p) => p.id === ins.insumoId);
+          if (insProd) {
+            const ant = insProd.estoqueAtual || 0;
+            insProd.estoqueAtual = Math.max(0, ant - ins.quantidadeNecessaria);
+            registrarMovimentacaoEstoque({
+              produtoId: insProd.id,
+              tipoMovimentacao: 'CONSUMO_PRODUCAO',
+              deltaCheio: -ins.quantidadeNecessaria,
+              deltaVazio: 0,
+              motivo: `Consumo na OP ${op.numeroOp} (${op.produtoNome})`,
+              usuarioResponsavel: (req as any).user?.nome || 'Produção'
+            });
+          }
+        }
+      }
+
+      // 2. Incrementa estoque do produto final acabado
+      const prodFinal = produtos.find((p) => p.id === op.produtoId);
+      if (prodFinal) {
+        const qtdFinal = op.quantidadeProduzida;
+        prodFinal.estoqueAtual = (prodFinal.estoqueAtual || 0) + qtdFinal;
+        prodFinal.estoqueCheio = (prodFinal.estoqueCheio || 0) + qtdFinal;
+        registrarMovimentacaoEstoque({
+          produtoId: prodFinal.id,
+          tipoMovimentacao: 'ENTRADA',
+          deltaCheio: qtdFinal,
+          deltaVazio: 0,
+          motivo: `Conclusão da OP ${op.numeroOp} (${qtdFinal} ${op.unidadeMedida})`,
+          usuarioResponsavel: (req as any).user?.nome || 'Produção'
+        });
+      }
+    }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('ordens_producao').update({
+          status: op.status,
+          quantidade_produzida: op.quantidadeProduzida,
+          iniciado_em: op.iniciadoEm || null,
+          concluido_em: op.concluidoEm || null
+        }).eq('id', op.id);
+
+        await supabase.from('ordens_producao_insumos').update({
+          baixado: true
+        }).eq('ordem_producao_id', op.id);
+      }
+    } catch (e: any) {
+      console.warn('[Supabase OP Update] Erro:', e?.message || e);
+    }
+
+    res.json({
+      sucesso: true,
+      ordem: {
+        ...op,
+        insumos: ordensProducaoInsumos.filter((ins) => ins.ordemProducaoId === op.id)
+      }
+    });
+  });
+
+  app.delete('/api/producao/ordens/:id', async (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const index = ordensProducao.findIndex((o) => o.id === id && (!empId || (o.empresaId || 'emp1') === empId));
+    if (index === -1) return res.status(404).json({ error: 'Ordem de Produção não encontrada' });
+
+    ordensProducao.splice(index, 1);
+    ordensProducaoInsumos = ordensProducaoInsumos.filter((ins) => ins.ordemProducaoId !== id);
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('ordens_producao_insumos').delete().eq('ordem_producao_id', id);
+        await supabase.from('ordens_producao').delete().eq('id', id);
+      }
+    } catch (e: any) {}
+
+    res.json({ sucesso: true });
+  });
+
+  // 3.5 Movimentação de Estoque Geral (Entrada/Saída/Perda/Ajuste)
+  app.post('/api/estoque/movimentar', async (req, res) => {
+    const { produtoId, tipoMovimentacao, quantidade, motivo, usuarioResponsavel } = req.body;
+    const empId = getTargetEmpresaId(req);
+    const prod = produtos.find((p) => p.id === produtoId && (!empId || (p.empresaId || 'emp1') === empId));
+    if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+
+    const qtd = Number(quantidade) || 0;
+    if (qtd <= 0) return res.status(400).json({ error: 'Quantidade deve ser maior que zero' });
+
+    const delta = (tipoMovimentacao === 'ENTRADA' || tipoMovimentacao === 'DEVOLUCAO') ? qtd : -qtd;
+    const ant = prod.estoqueAtual ?? prod.estoqueCheio ?? 0;
+    prod.estoqueAtual = Math.max(0, ant + delta);
+    prod.estoqueCheio = Math.max(0, (prod.estoqueCheio || 0) + delta);
+
+    const mov = registrarMovimentacaoEstoque({
+      produtoId: prod.id,
+      tipoMovimentacao: tipoMovimentacao || 'AJUSTE_MANUAL',
+      deltaCheio: delta,
+      deltaVazio: 0,
+      usuarioResponsavel: usuarioResponsavel || (req as any).user?.nome || 'Operador',
+      motivo: motivo || 'Movimentação avulsa de estoque'
+    });
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('produtos').update({
+          estoque_atual: prod.estoqueAtual,
+          estoque_cheio: prod.estoqueCheio
+        }).eq('id', prod.id);
+      }
+    } catch (e) {}
 
     res.json({ sucesso: true, produto: prod, movimentacao: mov });
   });
@@ -4061,15 +4976,15 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     });
   });
 
-  // 5.1 Usuários e Gestão de Permissões
+  // 5.1 Usuários e Gestão de Permissões (Higienizado contra vazamento de credenciais)
   app.get('/api/usuarios', async (req, res) => {
     const uList = await getFreshUsuarios();
     const empId = getTargetEmpresaId(req);
-    if (empId) {
-      res.json(uList.filter((u) => u.perfil === 'SUPER_ADMIN' || (u.empresaId || 'emp1') === empId));
-    } else {
-      res.json(uList);
-    }
+    const lista = empId
+      ? uList.filter((u) => u.perfil === 'SUPER_ADMIN' || (u.empresaId || 'emp1') === empId)
+      : uList;
+
+    res.json(lista.map(sanitizeUsuarioParaListagem));
   });
 
   app.post('/api/usuarios', async (req, res) => {
@@ -4082,6 +4997,10 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     const perfil = dados.perfil || 'ATENDENTE_PDV';
     const permissoesBase = defaultPermissoes[perfil as keyof typeof defaultPermissoes] || defaultPermissoes.ATENDENTE_PDV;
 
+    const pinFinal = dados.pinAcesso && String(dados.pinAcesso).trim() !== '' && String(dados.pinAcesso).trim() !== '••••'
+      ? String(dados.pinAcesso).trim()
+      : Math.floor(1000 + Math.random() * 9000).toString();
+
     const novoUsuario: Usuario = {
       id: dados.id || `u_${Date.now()}`,
       empresaId: perfil === 'SUPER_ADMIN' ? undefined : (empId || dados.empresaId || 'emp1'),
@@ -4092,7 +5011,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       perfil,
       cargo: dados.cargo || (perfil === 'ADMIN' ? 'Administrador' : perfil === 'GERENTE' ? 'Gerente' : perfil === 'ENTREGADOR' ? 'Entregador' : 'Atendente'),
       ativo: dados.ativo ?? true,
-      pinAcesso: dados.pinAcesso || '1234',
+      pinAcesso: pinFinal,
       entregadorIdVinculado: dados.entregadorIdVinculado,
       permissoes: dados.permissoes ? { ...permissoesBase, ...dados.permissoes } : permissoesBase,
       criadoEm: new Date().toISOString(),
@@ -4121,7 +5040,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       console.warn('[Supabase Sync] Erro usuario:', err?.message || err);
     }
 
-    res.status(201).json(novoUsuario);
+    res.status(201).json(sanitizeUsuario(novoUsuario));
   });
 
   app.put('/api/usuarios/:id', (req, res) => {
@@ -4141,13 +5060,15 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     if (dados.cargo !== undefined) user.cargo = dados.cargo;
     if (dados.perfil !== undefined) user.perfil = dados.perfil;
     if (dados.ativo !== undefined) user.ativo = Boolean(dados.ativo);
-    if (dados.pinAcesso !== undefined) user.pinAcesso = dados.pinAcesso;
+    if (dados.pinAcesso !== undefined && String(dados.pinAcesso).trim() !== '' && String(dados.pinAcesso).trim() !== '••••') {
+      user.pinAcesso = String(dados.pinAcesso).trim();
+    }
     if (dados.entregadorIdVinculado !== undefined) user.entregadorIdVinculado = dados.entregadorIdVinculado;
     if (dados.permissoes !== undefined) {
       user.permissoes = { ...user.permissoes, ...dados.permissoes };
     }
 
-    res.json(user);
+    res.json(sanitizeUsuario(user));
   });
 
   app.put('/api/usuarios/:id/toggle-ativo', (req, res) => {
@@ -4160,7 +5081,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     }
 
     user.ativo = !user.ativo;
-    res.json(user);
+    res.json(sanitizeUsuario(user));
   });
 
   app.delete('/api/usuarios/:id', async (req, res) => {
@@ -4179,7 +5100,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         await supabase.from('usuarios').delete().eq('id', id);
       }
     } catch (err: any) {}
-    res.json({ sucesso: true, usuario: removido });
+    res.json({ sucesso: true, usuario: sanitizeUsuario(removido) });
   });
 
   app.post('/api/usuarios/login-pin', (req, res) => {
@@ -4192,7 +5113,13 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     }
 
     user.ultimoAcesso = new Date().toISOString();
-    res.json({ sucesso: true, usuario: user });
+    const tokenJwt = gerarTokenJwt({
+      userId: user.id,
+      empresaId: user.empresaId,
+      perfil: user.perfil,
+      login: user.login,
+    });
+    res.json({ sucesso: true, usuario: sanitizeUsuario(user), token: tokenJwt });
   });
 
   // 6. Pedidos
@@ -4382,8 +5309,8 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     res.json({ sucesso: true, pedido });
   });
 
-  // 6.3 Cancelar Pedido (com estorno de estoque)
-  app.post('/api/pedidos/:id/cancelar', (req, res) => {
+  // 6.3 Cancelar Pedido (com estorno de estoque e persistência)
+  app.post('/api/pedidos/:id/cancelar', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const { motivo } = req.body;
@@ -4422,19 +5349,21 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     try {
       const supabase = getSupabase();
       if (supabase) {
-         supabase.from('pedidos').update({
-            status: pedido.status,
-            versao: pedido.versao,
-            observacoes: pedido.observacoes
-         }).eq('id', pedido.id).then(({error}) => { if(error) console.log(error); });
+        await supabase.from('pedidos').update({
+          status: pedido.status,
+          versao: pedido.versao,
+          observacoes: pedido.observacoes,
+        }).eq('id', pedido.id);
       }
-    } catch(e) {}
+    } catch(e: any) {
+      console.warn('[Supabase Cancelar] Erro:', e?.message || e);
+    }
 
     res.json({ sucesso: true, pedido });
   });
 
-  // 6.4 Reabrir Pedido Cancelado
-  app.post('/api/pedidos/:id/reabrir', (req, res) => {
+  // 6.4 Reabrir Pedido Cancelado (com persistência)
+  app.post('/api/pedidos/:id/reabrir', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
@@ -4448,6 +5377,20 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     pedido.entregadorNome = undefined;
     pedido.versao += 1;
     pedido.observacoes = (pedido.observacoes || '') + `\n[REABERTO GERENTE ${new Date().toLocaleTimeString()}]`;
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('pedidos').update({
+          status: pedido.status,
+          entregador_id: null,
+          versao: pedido.versao,
+          observacoes: pedido.observacoes,
+        }).eq('id', pedido.id);
+      }
+    } catch (e: any) {
+      console.warn('[Supabase Reabrir] Erro:', e?.message || e);
+    }
 
     res.json({ sucesso: true, pedido });
   });
@@ -4581,11 +5524,12 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       });
 
       const total = subtotal + taxaEntrega - desconto;
+      const codigoPedido = await gerarProximoCodigoPedido(empId);
 
       const novoPedido: Pedido = {
         id: `ped_${Date.now()}`,
         empresaId: empId,
-        codigo: `#${orderCounter++}`,
+        codigo: codigoPedido,
         clienteId: cliente.id,
         cliente,
         status: 'PENDENTE',
@@ -4601,9 +5545,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         tipoEntrega,
         dataHoraEntregaAgendada,
         previsaoMinutos,
-        emitidoPorId: emitidoPorId || 'u3',
-        emitidoPorNome: emitidoPorNome || 'Atendente PDV',
-        emitidoPorPerfil: emitidoPorPerfil || 'ATENDENTE_PDV',
+        emitidoPorId: (req as any).user?.id || emitidoPorId || 'u3',
+        emitidoPorNome: (req as any).user?.nome || emitidoPorNome || 'Atendente PDV',
+        emitidoPorPerfil: (req as any).user?.perfil || emitidoPorPerfil || 'ATENDENTE_PDV',
         criadoEm: new Date().toISOString(),
         sincronizado: true,
         versao: 1,
@@ -4618,24 +5562,35 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
             id: novoPedido.id,
             empresa_id: novoPedido.empresaId,
             codigo: novoPedido.codigo,
+            numero_pedido: novoPedido.codigo,
             cliente_id: novoPedido.clienteId,
             status: novoPedido.status,
             subtotal: novoPedido.subtotal,
             taxa_entrega: novoPedido.taxaEntrega,
             desconto: novoPedido.desconto,
             total: novoPedido.total,
+            forma_pagamento: novoPedido.formaPagamentoPrevista,
             forma_pagamento_prevista: novoPedido.formaPagamentoPrevista,
+            pagamentos_previstos: novoPedido.pagamentosPrevistos || [],
             troco_para: novoPedido.trocoPara || null,
             observacoes: novoPedido.observacoes || '',
             emitido_por_id: novoPedido.emitidoPorId || null,
             emitido_por_nome: novoPedido.emitidoPorNome || null,
             emitido_por_perfil: novoPedido.emitidoPorPerfil || null,
+            tipo_entrega: novoPedido.tipoEntrega || 'IMEDIATA',
+            data_hora_entrega_agendada: novoPedido.dataHoraEntregaAgendada || null,
             criado_em: novoPedido.criadoEm,
             sincronizado: true,
             versao: novoPedido.versao,
             itens: novoPedido.itens,
           }]);
-          if (sbErr) console.warn('[Supabase Sync] Erro pedido:', sbErr);
+
+          if (sbErr) {
+            console.warn('[Supabase Sync] Erro pedido:', sbErr.message);
+            novoPedido.sincronizado = false;
+          } else {
+            novoPedido.sincronizado = true;
+          }
 
           if (itensProcessados.length > 0) {
             const rowsItens = itensProcessados.map((it) => ({
@@ -4653,7 +5608,8 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
               vasilhames_recolhidos_reais: it.vasilhamesRecolhidosReais
             }));
             try {
-              await supabase.from('itens_pedido').upsert(rowsItens);
+              const { error: errItens } = await supabase.from('itens_pedido').upsert(rowsItens);
+              if (errItens) console.warn('[Supabase Sync] Erro itens_pedido:', errItens.message);
             } catch (e: any) {
               console.warn('[Supabase Sync] Erro itens_pedido:', e);
             }
@@ -4661,6 +5617,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         }
       } catch (err: any) {
         console.warn('[Supabase Sync] Erro pedido:', err?.message || err);
+        novoPedido.sincronizado = false;
       }
 
       res.status(201).json(novoPedido);
@@ -4671,7 +5628,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
   });
 
   // 7.1 Devolução do Pedido pelo Entregador para Correção pelo Emitente
-  app.post('/api/entregador/devolver-pedido', (req, res) => {
+  app.post('/api/entregador/devolver-pedido', async (req, res) => {
     const { pedidoId, entregadorId, motivoDevolucao, observacao } = req.body;
     const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === pedidoId);
@@ -4719,30 +5676,38 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase.from('pedidos').update({
-          status: pedido.status,
-          devolvido_para_correcao: pedido.devolvidoParaCorrecao,
-          motivo_devolucao: pedido.motivoDevolucao,
-          devolvido_em: pedido.devolvidoEm,
-          devolvido_por_id: pedido.devolvidoPorId,
-          devolvido_por_nome: pedido.devolvidoPorNome,
-          observacoes: pedido.observacoes,
-          versao: pedido.versao,
-        }).eq('id', pedido.id).then(({error}) => { if(error) console.warn('[Supabase] Erro ao atualizar devolvido:', error); });
+        const promises: Promise<any>[] = [
+          supabase.from('pedidos').update({
+            status: pedido.status,
+            devolvido_para_correcao: pedido.devolvidoParaCorrecao,
+            motivo_devolucao: pedido.motivoDevolucao,
+            devolvido_em: pedido.devolvidoEm,
+            devolvido_por_id: pedido.devolvidoPorId,
+            devolvido_por_nome: pedido.devolvidoPorNome,
+            observacoes: pedido.observacoes,
+            versao: pedido.versao,
+          }).eq('id', pedido.id)
+        ];
 
         // Atualiza estoque devolvido
         pedido.itens.forEach((item) => {
           const prod = produtos.find((pr) => pr.id === item.produtoId);
           if (prod) {
-            supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id).then();
+            promises.push(supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id));
           }
         });
 
         if (entObj) {
-          supabase.from('entregadores').update({ pedidos_ativos_count: entObj.pedidosAtivosCount }).eq('id', entObj.id).then();
+          promises.push(
+            supabase.from('entregadores').update({ pedidos_ativos_count: entObj.pedidosAtivosCount }).eq('id', entObj.id)
+          );
         }
+
+        await Promise.allSettled(promises);
       }
-    } catch(e) {}
+    } catch(e: any) {
+      console.warn('[Supabase Devolver] Erro:', e?.message || e);
+    }
 
     console.log(`[Devolução] Pedido ${pedido.codigo} devolvido por ${entregador.nome}: ${motivoDevolucao}`);
 
@@ -4754,7 +5719,7 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
   });
 
   // 7.2 Correção e Reenvio do Pedido pelo Emitente / PDV / Gerente
-  app.post('/api/pedidos/:id/corrigir-reenviar', (req, res) => {
+  app.post('/api/pedidos/:id/corrigir-reenviar', async (req, res) => {
     const { id } = req.params;
     const empId = getTargetEmpresaId(req);
     const pedido = pedidos.find((p) => p.id === id);
@@ -4852,38 +5817,52 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase.from('pedidos').update({
-          status: pedido.status,
-          entregador_id: pedido.entregadorId || null,
-          subtotal: pedido.subtotal,
-          taxa_entrega: pedido.taxaEntrega,
-          desconto: pedido.desconto,
-          total: pedido.total,
-          forma_pagamento_prevista: pedido.formaPagamentoPrevista,
-          troco_para: pedido.trocoPara,
-          observacoes: pedido.observacoes,
-          devolvido_para_correcao: false,
-          despachado_em: pedido.despachadoEm || null,
-          versao: pedido.versao,
-        }).eq('id', pedido.id).then(({error}) => { if(error) console.warn('[Supabase] Erro ao atualizar pedido corrigido:', error); });
+        const promises: Promise<any>[] = [
+          supabase.from('pedidos').update({
+            status: pedido.status,
+            entregador_id: pedido.entregadorId || null,
+            subtotal: pedido.subtotal,
+            taxa_entrega: pedido.taxaEntrega,
+            desconto: pedido.desconto,
+            total: pedido.total,
+            forma_pagamento_prevista: pedido.formaPagamentoPrevista,
+            troco_para: pedido.trocoPara,
+            observacoes: pedido.observacoes,
+            devolvido_para_correcao: false,
+            despachado_em: pedido.despachadoEm || null,
+            versao: pedido.versao,
+          }).eq('id', pedido.id)
+        ];
 
         if (pedido.status === 'EM_ROTA') {
           pedido.itens.forEach((it) => {
             const pr = produtos.find((p) => p.id === it.produtoId);
             if (pr) {
-              supabase.from('produtos').update({ estoque_cheio: pr.estoqueCheio }).eq('id', pr.id).then();
+              promises.push(supabase.from('produtos').update({ estoque_cheio: pr.estoqueCheio }).eq('id', pr.id));
             }
           });
         }
+
+        await Promise.allSettled(promises);
       }
-    } catch(e) {}
+    } catch (e: any) {
+      console.warn('[Supabase Corrigir] Erro:', e?.message || e);
+    }
 
     res.json({ sucesso: true, mensagem: 'Pedido corrigido com sucesso!', pedido });
   });
 
   // 8. Despacho: Atribuir Pedidos ao Entregador e Mudar para "EM_ROTA"
   app.post('/api/despacho/atribuir', async (req, res) => {
-    const { pedidosIds, entregadorId, despachadoPor } = req.body;
+    const { pedidosIds, pedidoId, entregadorId, despachadoPor } = req.body;
+    const targetIds: string[] = Array.isArray(pedidosIds)
+      ? pedidosIds
+      : (pedidoId ? [String(pedidoId)] : []);
+
+    if (targetIds.length === 0) {
+      return res.status(400).json({ error: 'Nenhum pedido informado para despacho.' });
+    }
+
     const empId = getTargetEmpresaId(req);
     const entregador = entregadores.find((e) => e.id === entregadorId && (!empId || (e.empresaId || 'emp1') === empId));
 
@@ -4894,7 +5873,8 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     const pedidosAtualizados: Pedido[] = [];
 
     pedidos.forEach((p) => {
-      if (pedidosIds.includes(p.id) && (!empId || (p.empresaId || 'emp1') === empId)) {
+      if (targetIds.includes(p.id) && (!empId || (p.empresaId || 'emp1') === empId)) {
+        const statusAnterior = p.status;
         p.entregadorId = entregador.id;
         p.entregadorNome = `${entregador.nome} (${entregador.veiculo})`;
         p.status = 'EM_ROTA';
@@ -4903,13 +5883,27 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         p.devolvidoParaCorrecao = false;
         p.versao += 1;
 
-        // Deduz estoque cheio na base (passa para posse do entregador em trânsito)
-        p.itens.forEach((item) => {
-          const prod = produtos.find((pr) => pr.id === item.produtoId);
-          if (prod) {
-            prod.estoqueCheio = Math.max(0, prod.estoqueCheio - item.quantidade);
-          }
-        });
+        // Deduz estoque cheio na base APENAS se o pedido estava PENDENTE ou DEVOLVIDO_CORRECAO
+        // (Evita deduzir estoque em duplicidade caso o pedido já estivesse em rota e esteja apenas sendo reatribuído)
+        if (statusAnterior === 'PENDENTE' || statusAnterior === 'DEVOLVIDO_CORRECAO') {
+          p.itens.forEach((item) => {
+            const prod = produtos.find((pr) => pr.id === item.produtoId);
+            if (prod) {
+              registrarMovimentacaoEstoque({
+                produtoId: prod.id,
+                tipoMovimentacao: 'DESPACHO_ROTA',
+                deltaCheio: -item.quantidade,
+                deltaVazio: 0,
+                pedidoId: p.id,
+                pedidoCodigo: p.codigo,
+                entregadorId: entregador.id,
+                entregadorNome: entregador.nome,
+                motivo: `Despacho em rota no pedido ${p.codigo} para o entregador ${entregador.nome}`,
+                usuarioResponsavel: despachadoPor || 'Gerência',
+              });
+            }
+          });
+        }
 
         pedidosAtualizados.push(p);
       }
@@ -4917,42 +5911,47 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
 
     entregador.status = 'EM_ROTA';
     entregador.pedidosAtivosCount = pedidos.filter(
-      (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === entregador.id && (p.status === 'EM_ROTA' || p.status === 'ENTREGUE')
+      (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === entregador.id && p.status === 'EM_ROTA'
     ).length;
 
     try {
       const supabase = getSupabase();
       if (supabase && pedidosAtualizados.length > 0) {
-        // Atualiza pedidos em lote no supabase (apenas os campos necessários ou usar upsert)
+        const promises: Promise<any>[] = [];
+
         for (const p of pedidosAtualizados) {
-           supabase.from('pedidos').update({
-             entregador_id: p.entregadorId,
-             status: p.status,
-             despachado_em: p.despachadoEm,
-             despachado_por: p.despachadoPor,
-             devolvido_para_correcao: p.devolvidoParaCorrecao,
-             versao: p.versao
-           }).eq('id', p.id).then(({error}) => {
-             if (error) console.warn('[Supabase] Erro ao atribuir pedido:', error);
-           });
-           
-           // Se quiser abater estoque no db
-           p.itens.forEach(item => {
-             const prod = produtos.find(pr => pr.id === item.produtoId);
-             if (prod) {
-               supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id).then();
-             }
-           });
+          promises.push(
+            supabase.from('pedidos').update({
+              entregador_id: p.entregadorId,
+              status: p.status,
+              despachado_em: p.despachadoEm,
+              despachado_por: p.despachadoPor,
+              devolvido_para_correcao: p.devolvidoParaCorrecao,
+              versao: p.versao,
+            }).eq('id', p.id)
+          );
+
+          p.itens.forEach((item) => {
+            const prod = produtos.find((pr) => pr.id === item.produtoId);
+            if (prod) {
+              promises.push(
+                supabase.from('produtos').update({ estoque_cheio: prod.estoqueCheio }).eq('id', prod.id)
+              );
+            }
+          });
         }
-        
-        // Update entregador
-        supabase.from('entregadores').update({
-           status: entregador.status,
-           pedidos_ativos_count: entregador.pedidosAtivosCount
-        }).eq('id', entregador.id).then();
+
+        promises.push(
+          supabase.from('entregadores').update({
+            status: entregador.status,
+            pedidos_ativos_count: entregador.pedidosAtivosCount,
+          }).eq('id', entregador.id)
+        );
+
+        await Promise.allSettled(promises);
       }
-    } catch(e) {
-      console.warn(e);
+    } catch (e: any) {
+      console.warn('[Supabase Despacho] Erro:', e?.message || e);
     }
 
     // Dispara Notificação Push para o Celular do Entregador (Supabase Realtime / Web Push)
@@ -5424,6 +6423,39 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       pedido.observacoes = (pedido.observacoes ? `${pedido.observacoes} | ` : '') + payload.observacaoEntrega;
     }
 
+    // Se houve pagamento A_PRAZO_FIADO, registra débito imediato no saldo devedor do cliente
+    const pagamentosProcessados =
+      pedido.pagamentosRealizados && pedido.pagamentosRealizados.length > 0
+        ? pedido.pagamentosRealizados
+        : [{ forma: pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista, valor: pedido.valorRecebido || pedido.total }];
+
+    const valorFiado = pagamentosProcessados
+      .filter((pg) => pg.forma === 'A_PRAZO_FIADO')
+      .reduce((acc, pg) => acc + (Number(pg.valor) || 0), 0);
+
+    if (valorFiado > 0 && pedido.clienteId) {
+      const cliAlvo = clientes.find((c) => c.id === pedido.clienteId);
+      if (cliAlvo) {
+        cliAlvo.saldoDevedor = (cliAlvo.saldoDevedor || 0) + valorFiado;
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+            supabase.from('clientes').update({ saldo_devedor: cliAlvo.saldoDevedor }).eq('id', cliAlvo.id).then();
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Atualiza contagem de pedidos ativos em trânsito do entregador
+    if (pedido.entregadorId) {
+      const entObj = entregadores.find((e) => e.id === pedido.entregadorId);
+      if (entObj) {
+        entObj.pedidosAtivosCount = pedidos.filter(
+          (p) => p.entregadorId === entObj.id && p.status === 'EM_ROTA'
+        ).length;
+      }
+    }
+
     // Processa cascos
     if (payload.cascosDetalhados && Array.isArray(payload.cascosDetalhados) && payload.cascosDetalhados.length > 0) {
       pedido.cascosRecolhidos = payload.cascosDetalhados;
@@ -5491,29 +6523,114 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     try {
       const supabase = getSupabase();
       if (supabase) {
-        supabase.from('pedidos').update({
-          status: pedido.status,
-          entregue_em: pedido.entregueEm,
-          sincronizado: true,
-          versao: pedido.versao,
-          observacoes: pedido.observacoes,
-          forma_pagamento_realizada: pedido.formaPagamentoRealizada,
-          valor_recebido: pedido.valorRecebido,
-        }).eq('id', pedido.id).then();
+        const promises: Promise<any>[] = [
+          supabase.from('pedidos').update({
+            status: pedido.status,
+            entregue_em: pedido.entregueEm,
+            sincronizado: true,
+            versao: pedido.versao,
+            observacoes: pedido.observacoes,
+            forma_pagamento_realizada: pedido.formaPagamentoRealizada,
+            valor_recebido: pedido.valorRecebido,
+          }).eq('id', pedido.id)
+        ];
 
         if (pedido.cliente && pedido.cliente.vasilhamesPendentes) {
-          supabase.from('clientes').update({
-            vasilhames_pendentes: pedido.cliente.vasilhamesPendentes,
-          }).eq('id', pedido.cliente.id).then();
+          promises.push(
+            supabase.from('clientes').update({
+              vasilhames_pendentes: pedido.cliente.vasilhamesPendentes,
+            }).eq('id', pedido.cliente.id)
+          );
         }
+
+        await Promise.allSettled(promises);
       }
-    } catch(e) {}
+    } catch(e: any) {
+      console.warn('[Supabase Baixa] Erro:', e?.message || e);
+    }
 
     res.json({
       sucesso: true,
       mensagem: `Baixa do pedido ${pedido.codigo} concluída com sucesso!`,
       pedido,
     });
+  });
+
+  // 10.1.1 ESTORNAR BAIXA DE PEDIDO (Reabrir para EM_ROTA caso haja correção necessária)
+  app.post('/api/pedidos/:id/estornar-baixa', async (req, res) => {
+    const { id } = req.params;
+    const empId = getTargetEmpresaId(req);
+    const pedido = pedidos.find((p) => p.id === id);
+    if (!pedido) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (empId && pedido.empresaId && pedido.empresaId !== empId) {
+      return res.status(403).json({ error: 'Acesso negado: este pedido pertence a outra empresa.' });
+    }
+    if (pedido.status !== 'ENTREGUE') {
+      return res.status(400).json({ error: 'Apenas pedidos com status ENTREGUE podem ter a baixa estornada.' });
+    }
+
+    // Se houve débito em fiado, estorna da conta do cliente
+    const pagamentos =
+      pedido.pagamentosRealizados && pedido.pagamentosRealizados.length > 0
+        ? pedido.pagamentosRealizados
+        : [{ forma: pedido.formaPagamentoRealizada || pedido.formaPagamentoPrevista, valor: pedido.valorRecebido || pedido.total }];
+
+    const valorFiado = pagamentos
+      .filter((pg) => pg.forma === 'A_PRAZO_FIADO')
+      .reduce((acc, pg) => acc + (Number(pg.valor) || 0), 0);
+
+    if (valorFiado > 0 && pedido.clienteId) {
+      const cliAlvo = clientes.find((c) => c.id === pedido.clienteId);
+      if (cliAlvo) {
+        cliAlvo.saldoDevedor = Math.max(0, (cliAlvo.saldoDevedor || 0) - valorFiado);
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+            supabase.from('clientes').update({ saldo_devedor: cliAlvo.saldoDevedor }).eq('id', cliAlvo.id).then();
+          }
+        } catch (e) {}
+      }
+    }
+
+    pedido.status = 'EM_ROTA';
+    pedido.entregueEm = undefined;
+    pedido.formaPagamentoRealizada = undefined;
+    pedido.pagamentosRealizados = undefined;
+    pedido.valorRecebido = undefined;
+    pedido.cascosRecolhidos = undefined;
+    pedido.totalCascosRecolhidos = 0;
+    pedido.totalCascosPendentes = 0;
+    pedido.valeCascoGerado = false;
+    pedido.versao += 1;
+    pedido.observacoes = (pedido.observacoes ? `${pedido.observacoes} | ` : '') + `[BAIXA ESTORNADA EM ${new Date().toLocaleTimeString()}]: Reaberto para conferência em rota.`;
+
+    if (pedido.entregadorId) {
+      const entObj = entregadores.find((e) => e.id === pedido.entregadorId);
+      if (entObj) {
+        entObj.pedidosAtivosCount = pedidos.filter(
+          (p) => p.entregadorId === entObj.id && p.status === 'EM_ROTA'
+        ).length;
+      }
+    }
+
+    try {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('pedidos').update({
+          status: 'EM_ROTA',
+          entregue_em: null,
+          forma_pagamento_realizada: null,
+          pagamentos_realizados: null,
+          valor_recebido: null,
+          versao: pedido.versao,
+          observacoes: pedido.observacoes,
+        }).eq('id', pedido.id);
+      }
+    } catch (e: any) {
+      console.warn('[Supabase Estornar Baixa] Erro:', e?.message || e);
+    }
+
+    res.json({ sucesso: true, mensagem: `Baixa do pedido ${pedido.codigo} estornada com sucesso! O pedido voltou para Em Rota.`, pedido });
   });
 
   // 10.2 CONSULTAR CLIENTES COM VALES-CASCO PENDENTES
@@ -5607,6 +6724,9 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
     let totalDinheiroEsperado = 0;
     let totalPix = 0;
     let totalCartao = 0;
+    let totalCartaoDebito = 0;
+    let totalCartaoCredito = 0;
+    let totalFiado = 0;
     let cascosP13Calculados = 0;
     let cascosP20LCalculados = 0;
 
@@ -5633,8 +6753,14 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
           totalDinheiroEsperado += v;
         } else if (f === 'PIX') {
           totalPix += v;
-        } else if (f === 'CARTAO_DEBITO' || f === 'CARTAO_CREDITO') {
+        } else if (f === 'CARTAO_DEBITO') {
+          totalCartaoDebito += v;
           totalCartao += v;
+        } else if (f === 'CARTAO_CREDITO') {
+          totalCartaoCredito += v;
+          totalCartao += v;
+        } else if (f === 'A_PRAZO_FIADO') {
+          totalFiado += v;
         }
       });
 
@@ -5647,17 +6773,46 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       });
     });
 
-    // Atualiza o estoque físico de cascos vazios na base
+    // Ajuste de cascos físicos na base apenas se houver divergência entre o físico e o registrado na rota
     const p13Prod = produtos.find((pr) => pr.tipoVasilhame === 'P13' && (!empId || (pr.empresaId || 'emp1') === empId));
-    if (p13Prod) {
-      p13Prod.estoqueVazio += cascosP13Recolhidos ?? cascosP13Calculados;
-    }
-    const p20Prod = produtos.find((pr) => pr.tipoVasilhame === 'P20L' && (!empId || (pr.empresaId || 'emp1') === empId));
-    if (p20Prod) {
-      p20Prod.estoqueVazio += cascosP20LRecolhidos ?? cascosP20LCalculados;
+    const p13Informado = cascosP13Recolhidos !== undefined && cascosP13Recolhidos !== null ? Number(cascosP13Recolhidos) : cascosP13Calculados;
+    const diffP13 = p13Informado - cascosP13Calculados;
+    if (p13Prod && diffP13 !== 0) {
+      p13Prod.estoqueVazio = Math.max(0, p13Prod.estoqueVazio + diffP13);
+      registrarMovimentacaoEstoque({
+        produtoId: p13Prod.id,
+        tipoMovimentacao: 'AJUSTE_MANUAL',
+        deltaCheio: 0,
+        deltaVazio: diffP13,
+        motivo: `Ajuste de conferência física no fechamento de caixa (${diffP13 > 0 ? '+' : ''}${diffP13} P13)`,
+        usuarioResponsavel: (req as any).user?.nome || 'Conferência de Caixa',
+      });
     }
 
-    const diferenca = (totalDinheiroInformado || 0) - totalDinheiroEsperado;
+    const p20Prod = produtos.find((pr) => pr.tipoVasilhame === 'P20L' && (!empId || (pr.empresaId || 'emp1') === empId));
+    const p20Informado = cascosP20LRecolhidos !== undefined && cascosP20LRecolhidos !== null ? Number(cascosP20LRecolhidos) : cascosP20LCalculados;
+    const diffP20 = p20Informado - cascosP20LCalculados;
+    if (p20Prod && diffP20 !== 0) {
+      p20Prod.estoqueVazio = Math.max(0, p20Prod.estoqueVazio + diffP20);
+      registrarMovimentacaoEstoque({
+        produtoId: p20Prod.id,
+        tipoMovimentacao: 'AJUSTE_MANUAL',
+        deltaCheio: 0,
+        deltaVazio: diffP20,
+        motivo: `Ajuste de conferência física no fechamento de caixa (${diffP20 > 0 ? '+' : ''}${diffP20} P20L)`,
+        usuarioResponsavel: (req as any).user?.nome || 'Conferência de Caixa',
+      });
+    }
+
+    const diferenca = (Number(totalDinheiroInformado) || 0) - totalDinheiroEsperado;
+
+    // Atualiza status do entregador
+    entregador.pedidosAtivosCount = pedidos.filter(
+      (p) => (!empId || (p.empresaId || 'emp1') === empId) && p.entregadorId === entregador.id && p.status === 'EM_ROTA'
+    ).length;
+    if (entregador.pedidosAtivosCount === 0) {
+      entregador.status = 'DISPONIVEL';
+    }
 
     const fechamento: FechamentoCaixaEntregador = {
       id: `fech_${Date.now()}`,
@@ -5670,9 +6825,12 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
       totalDinheiroInformado: Number(totalDinheiroInformado) || 0,
       totalPix,
       totalCartao,
+      totalCartaoDebito,
+      totalCartaoCredito,
+      totalFiado,
       diferenca,
-      cascosP13Recolhidos: cascosP13Recolhidos ?? cascosP13Calculados,
-      cascosP20LRecolhidos: cascosP20LRecolhidos ?? cascosP20LCalculados,
+      cascosP13Recolhidos: p13Informado,
+      cascosP20LRecolhidos: p20Informado,
       cascosP13Pendentes: 0,
       cascosP20LPendentes: 0,
       status: 'CONCLUIDO',
@@ -5709,31 +6867,44 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
         };
         await supabase.from('fechamentos_caixa').insert([fechamentoDb]);
 
+        const fechamentoPromises: Promise<any>[] = [];
+
         // Atualiza todos os pedidos para CONCLUIDO no Supabase
         for (const p of pedidosFechamento) {
-          const { error: errConc } = await supabase.from('pedidos').update({
-            status: 'CONCLUIDO',
-            concluido_em: p.concluidoEm,
-          }).eq('id', p.id);
-          if (errConc) console.warn('[Supabase] Erro ao concluir pedido:', errConc);
+          fechamentoPromises.push(
+            supabase.from('pedidos').update({
+              status: 'CONCLUIDO',
+              concluido_em: p.concluidoEm,
+            }).eq('id', p.id)
+          );
         }
 
         // Atualiza status do entregador no Supabase
-        supabase.from('entregadores').update({
-          status: 'DISPONIVEL',
-          pedidos_ativos_count: 0,
-          total_entregas_hoje: entregador.totalEntregasHoje,
-        }).eq('id', entregador.id).then();
+        fechamentoPromises.push(
+          supabase.from('entregadores').update({
+            status: 'DISPONIVEL',
+            pedidos_ativos_count: 0,
+            total_entregas_hoje: entregador.totalEntregasHoje,
+          }).eq('id', entregador.id)
+        );
 
         // Atualiza vasilhames em estoque no Supabase
         if (p13Prod) {
-          supabase.from('produtos').update({ estoque_vazio: p13Prod.estoqueVazio }).eq('id', p13Prod.id).then();
+          fechamentoPromises.push(
+            supabase.from('produtos').update({ estoque_vazio: p13Prod.estoqueVazio }).eq('id', p13Prod.id)
+          );
         }
         if (p20Prod) {
-          supabase.from('produtos').update({ estoque_vazio: p20Prod.estoqueVazio }).eq('id', p20Prod.id).then();
+          fechamentoPromises.push(
+            supabase.from('produtos').update({ estoque_vazio: p20Prod.estoqueVazio }).eq('id', p20Prod.id)
+          );
         }
+
+        await Promise.allSettled(fechamentoPromises);
       }
-    } catch (e) {}
+    } catch (e: any) {
+      console.warn('[Supabase Fechamento] Erro:', e?.message || e);
+    }
 
     // Libera o entregador para status DISPONIVEL
     entregador.status = 'DISPONIVEL';
@@ -5825,7 +6996,17 @@ Se algum campo não for identificado no documento, retorne null para ele.`;
 
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('Unhandled API Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', message: err.message, stack: err.stack });
+    if (err.type === 'entity.too.large' || err.status === 413) {
+      return res.status(413).json({
+        error: 'Payload Too Large',
+        message: 'O corpo da requisição excede o limite permitido (1MB para rotas normais / 20MB para OCR).'
+      });
+    }
+    const statusCode = err.status || 500;
+    res.status(statusCode).json({
+      error: 'Internal Server Error',
+      message: process.env.NODE_ENV === 'production' ? 'Ocorreu um erro interno no servidor.' : err.message
+    });
   });
 
   // Fallback 404 para rotas de API não encontradas (impede que o Vite retorne HTML em chamadas /api/*)

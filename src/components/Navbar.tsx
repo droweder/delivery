@@ -25,14 +25,18 @@ import {
   Crown,
   LogOut,
   ArrowLeft,
+  Factory,
+  Boxes,
 } from 'lucide-react';
 import { isDeviceOffline, setSimulatedOffline } from '../lib/offlineDb';
 import { Usuario } from '../types';
 
 export type MainTab =
   | 'pdv'
+  | 'producao'
   | 'despacho'
   | 'acerto'
+  | 'estoque'
   | 'vasilhames'
   | 'gerencia'
   | 'jornadas'
@@ -99,8 +103,19 @@ export const Navbar: React.FC<Props> = ({
         Boolean(usuarioLogado?.permissoes?.emitirPedidos),
     },
     {
+      id: 'producao',
+      label: '2. Ordens de Produção (OP)',
+      shortLabel: 'Produção',
+      icon: Factory,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        usuarioLogado?.perfil === 'GERENTE' ||
+        Boolean(usuarioLogado?.permissoes?.emitirPedidos || usuarioLogado?.permissoes?.ajustarEstoque),
+    },
+    {
       id: 'despacho',
-      label: '2. Despacho Kanban',
+      label: '3. Despacho Kanban',
       shortLabel: 'Despacho',
       badge: pedidosEmRotaCount,
       badgeClass: 'bg-sky-400 text-slate-950',
@@ -112,7 +127,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'acerto',
-      label: '3. Acerto & Fechamento',
+      label: '4. Acerto & Fechamento',
       shortLabel: 'Acerto',
       badge: pedidosEntreguesCount,
       badgeClass: 'bg-emerald-400 text-slate-950',
@@ -123,9 +138,19 @@ export const Navbar: React.FC<Props> = ({
         Boolean(usuarioLogado?.permissoes?.realizarAcertoCaixa),
     },
     {
+      id: 'estoque',
+      label: '5. Estoque Geral',
+      shortLabel: 'Estoque Geral',
+      icon: Boxes,
+      permitido:
+        isSuperAdmin ||
+        usuarioLogado?.perfil === 'ADMIN' ||
+        Boolean(usuarioLogado?.permissoes?.ajustarEstoque),
+    },
+    {
       id: 'vasilhames',
-      label: '4. Estoque de Vasilhames',
-      shortLabel: 'Estoque',
+      label: '6. Vasilhames & Cascos',
+      shortLabel: 'Vasilhames',
       icon: Layers,
       permitido:
         isSuperAdmin ||
@@ -134,7 +159,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'gerencia',
-      label: '5. Gerência & Dashboard',
+      label: '7. Gerência & Dashboard',
       shortLabel: 'Gerência',
       icon: TrendingUp,
       permitido:
@@ -144,7 +169,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'jornadas',
-      label: '6. Jornadas & Rastreio',
+      label: '8. Jornadas & Rastreio',
       shortLabel: 'Jornadas',
       icon: History,
       permitido:
@@ -156,7 +181,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'cadastros',
-      label: '7. Central de Cadastros',
+      label: '9. Central de Cadastros',
       shortLabel: 'Cadastros',
       icon: FolderKanban,
       permitido:
@@ -166,7 +191,7 @@ export const Navbar: React.FC<Props> = ({
     },
     {
       id: 'usuarios',
-      label: '8. Gestão de Usuários & Permissões',
+      label: '10. Gestão de Usuários & Permissões',
       shortLabel: 'Usuários & Permissões',
       icon: Users,
       permitido:

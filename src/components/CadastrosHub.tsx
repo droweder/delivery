@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LocationPickerMap } from './LocationPickerMap';
-import { BairroTaxa, Cliente, Colaborador, Entregador, Produto, TipoVasilhame, Usuario, Veiculo } from '../types';
+import { BairroTaxa, Cliente, Colaborador, Entregador, Produto, TipoVasilhame, Usuario, Veiculo, ItemEstruturaProduto, TipoItemProduto } from '../types';
 import { GestaoVeiculos } from './GestaoVeiculos';
 import { GestaoColaboradores } from './GestaoColaboradores';
 import { formatarMoeda } from '../lib/thermalPrinter';
@@ -37,6 +37,10 @@ import {
   Car,
   History,
   UserCheck,
+  ChefHat,
+  Factory,
+  Boxes,
+  FileText,
 } from 'lucide-react';
 import { ModalImportarProdutosErp } from './ModalImportarProdutosErp';
 import { ModuloHeader } from './ModuloHeader';
@@ -47,6 +51,7 @@ import {
   apenasDigitos,
   consultarCep,
   consultarCnpj,
+  consultarDdd,
   formatarCep,
   formatarCpfCnpj,
   formatarTelefone,
@@ -127,6 +132,37 @@ export const CadastrosHub: React.FC<Props> = ({
   const [entregadorModal, setEntregadorModal] = useState<Partial<Entregador> | null>(null);
   const [bairroModal, setBairroModal] = useState<Partial<BairroTaxa> | null>(null);
 
+  // Ficha Técnica e Filtro por Tipo de Produto
+  const [filtroTipoProduto, setFiltroTipoProduto] = useState<string>('TODOS');
+  const [itensEstrutura, setItensEstrutura] = useState<ItemEstruturaProduto[]>([]);
+  const [carregandoEstrutura, setCarregandoEstrutura] = useState(false);
+  const [novoInsumoId, setNovoInsumoId] = useState('');
+  const [novaQtdInsumo, setNovaQtdInsumo] = useState<number>(1);
+  const [novaUnidadeInsumo, setNovaUnidadeInsumo] = useState('KG');
+
+  const carregarEstruturaProduto = async (prodId: string) => {
+    setCarregandoEstrutura(true);
+    try {
+      const token = localStorage.getItem('delivery_token');
+      const res = await fetch(`/api/produtos/${prodId}/estrutura`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItensEstrutura(Array.isArray(data) ? data : []);
+      } else {
+        setItensEstrutura([]);
+      }
+    } catch {
+      setItensEstrutura([]);
+    } finally {
+      setCarregandoEstrutura(false);
+    }
+  };
+
   const [salvando, setSalvando] = useState(false);
   const [consultandoCnpj, setConsultandoCnpj] = useState(false);
   const [consultandoCep, setConsultandoCep] = useState(false);
@@ -174,6 +210,7 @@ export const CadastrosHub: React.FC<Props> = ({
     setMostrarSugestoes(false);
   };
   const [notificacao, setNotificacao] = useState<{ tipo: 'sucesso' | 'erro' | 'aviso'; texto: string } | null>(null);
+  const [infoDdd, setInfoDdd] = useState<string | null>(null);
 
   const exibirNotificacao = (tipo: 'sucesso' | 'erro' | 'aviso', texto: string) => {
     setNotificacao({ tipo, texto });
@@ -181,8 +218,29 @@ export const CadastrosHub: React.FC<Props> = ({
   };
 
   // --------------------------------------------------------------------------
-  // CONSULTAS EXTERNAS DE CNPJ E CEP
+  // CONSULTAS EXTERNAS DE CNPJ, CEP E DDD (BRASILAPI)
   // --------------------------------------------------------------------------
+  const handleConsultarDddCliente = async (ddd: string) => {
+    if (ddd.length !== 2) return;
+    try {
+      const res = await consultarDdd(ddd);
+      if (res && res.state) {
+        setInfoDdd(`DDD ${ddd}: ${res.state}`);
+        setClienteModal((prev) => {
+          if (!prev) return prev;
+          const novoEstado = prev.estado || res.state;
+          const novaCidade = prev.cidade || (res.cities && res.cities.length === 1 ? res.cities[0] : prev.cidade);
+          return {
+            ...prev,
+            estado: novoEstado,
+            cidade: novaCidade,
+          };
+        });
+      }
+    } catch {
+      // Ignora erro de DDD incompleto
+    }
+  };
   const handleConsultarCnpjCliente = async (docCnpjParam?: string) => {
     const raw = docCnpjParam || clienteModal?.cpfCnpj || '';
     const clean = apenasDigitos(raw);
@@ -340,8 +398,23 @@ export const CadastrosHub: React.FC<Props> = ({
     try {
       setSalvando(true);
       await onSalvarProduto(produtoModal);
+
+      // Se for produto final e houver itens de estrutura definidos, salvar a receita
+      if (produtoModal.id && produtoModal.tipoItem === 'PRODUTO_FINAL') {
+        const token = localStorage.getItem('delivery_token');
+        await fetch(`/api/produtos/${produtoModal.id}/estrutura`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ itens: itensEstrutura }),
+        });
+      }
+
       setProdutoModal(null);
-      exibirNotificacao('sucesso', 'Produto salvo com sucesso!');
+      setItensEstrutura([]);
+      exibirNotificacao('sucesso', 'Produto e Ficha Técnica salvos com sucesso!');
     } catch (e: any) {
       exibirNotificacao('erro', e.message || 'Erro ao salvar produto');
     } finally {
@@ -406,12 +479,17 @@ export const CadastrosHub: React.FC<Props> = ({
   // --------------------------------------------------------------------------
   // FILTERED DATA
   // --------------------------------------------------------------------------
-  const produtosFiltrados = produtos.filter(
-    (p) =>
+  const produtosFiltrados = produtos.filter((p) => {
+    if (filtroTipoProduto === 'PRODUTO_FINAL' && p.tipoItem !== 'PRODUTO_FINAL') return false;
+    if (filtroTipoProduto === 'INSUMO' && p.tipoItem !== 'INSUMO_MATERIA_PRIMA') return false;
+    if (filtroTipoProduto === 'REVENDA' && p.tipoItem !== 'REVENDA' && p.tipoItem !== undefined) return false;
+
+    return (
       p.nome.toLowerCase().includes(busca.toLowerCase()) ||
       p.marca.toLowerCase().includes(busca.toLowerCase()) ||
       p.codigo.toLowerCase().includes(busca.toLowerCase())
-  );
+    );
+  });
 
   const clientesFiltrados = clientes.filter(
     (c) =>
@@ -489,22 +567,25 @@ export const CadastrosHub: React.FC<Props> = ({
 
         {abaAtiva === 'PRODUTOS' && (
           <button
-            onClick={() =>
+            onClick={() => {
               setProdutoModal({
                 nome: '',
-                marca: 'Ultragaz',
-                categoria: 'GAS_P13',
-                tipoVasilhame: 'P13',
-                unidadeMedida: 'UN',
-                precoRecarga: 115.0,
-                precoCompleto: 295.0,
-                estoqueCheio: 20,
-                estoqueVazio: 10,
+                marca: '',
+                tipoItem: 'PRODUTO_FINAL',
+                categoria: 'SALGADOS',
+                tipoVasilhame: 'NENHUM',
+                unidadeMedida: 'CENTO',
+                precoRecarga: 95.0,
+                precoCompleto: 95.0,
+                precoCusto: 38.0,
+                estoqueCheio: 10,
+                estoqueVazio: 0,
                 estoqueMinimo: 5,
-                permiteVendaCasco: true,
+                permiteVendaCasco: false,
                 maisUtilizado: false,
-              })
-            }
+              });
+              setItensEstrutura([]);
+            }}
             className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95 shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -608,121 +689,190 @@ export const CadastrosHub: React.FC<Props> = ({
       {/* ABA 1: PRODUTOS & ESTOQUE                                                */}
       {/* ========================================================================= */}
       {abaAtiva === 'PRODUTOS' && (
-        produtosFiltrados.length === 0 ? (
-          <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
-            <Package className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-            <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum produto encontrado</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ajuste os filtros de pesquisa ou cadastre um novo produto.</p>
+        <div className="space-y-3">
+          {/* Barra de Filtros por Tipo de Item */}
+          <div className="flex flex-wrap items-center gap-2 p-2 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800">
+            <button
+              onClick={() => setFiltroTipoProduto('TODOS')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                filtroTipoProduto === 'TODOS'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+              }`}
+            >
+              Todos ({produtos.length})
+            </button>
+            <button
+              onClick={() => setFiltroTipoProduto('PRODUTO_FINAL')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                filtroTipoProduto === 'PRODUTO_FINAL'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+              }`}
+            >
+              <ChefHat className="w-3.5 h-3.5" />
+              <span>🥟 Produtos Finais / Salgados ({produtos.filter((p) => p.tipoItem === 'PRODUTO_FINAL').length})</span>
+            </button>
+            <button
+              onClick={() => setFiltroTipoProduto('INSUMO')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                filtroTipoProduto === 'INSUMO'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+              }`}
+            >
+              <Boxes className="w-3.5 h-3.5" />
+              <span>🌾 Insumos & Matérias-Primas ({produtos.filter((p) => p.tipoItem === 'INSUMO_MATERIA_PRIMA').length})</span>
+            </button>
+            <button
+              onClick={() => setFiltroTipoProduto('REVENDA')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                filtroTipoProduto === 'REVENDA'
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white'
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>🛒 Revenda Direta ({produtos.filter((p) => p.tipoItem === 'REVENDA' || !p.tipoItem).length})</span>
+            </button>
           </div>
-        ) : (
-          <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
-                    <th className="py-2 px-3 text-center w-10">★</th>
-                    <th className="py-2 px-3">Cód / Ref</th>
-                    <th className="py-2 px-3">Produto & Marca</th>
-                    <th className="py-2 px-3">Unidade / Casco</th>
-                    <th className="py-2 px-3 text-center">Cheios</th>
-                    <th className="py-2 px-3 text-center">Vazios</th>
-                    <th className="py-2 px-3 text-center">Mín.</th>
-                    <th className="py-2 px-3 text-right">Preço Recarga / Venda</th>
-                    <th className="py-2 px-3 text-right">Completo (+Casco)</th>
-                    <th className="py-2 px-3 text-center">Vendas</th>
-                    <th className="py-2 px-3 text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
-                  {produtosFiltrados.map((prod) => (
-                    <tr
-                      key={prod.id}
-                      className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
-                    >
-                      <td className="py-1.5 px-3 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleMaisUtilizado(prod)}
-                          className={`p-1 rounded-md transition-colors ${
-                            prod.maisUtilizado
-                              ? 'text-amber-500 hover:text-amber-600'
-                              : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
-                          }`}
-                          title={prod.maisUtilizado ? 'Item Mais Utilizado (Clique para desmarcar)' : 'Marcar como Mais Utilizado'}
-                        >
-                          <Star className={`w-3.5 h-3.5 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
-                        </button>
-                      </td>
-                      <td className="py-1.5 px-3">
-                        <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold">
-                          {prod.codigo}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3">
-                        <div>
-                          <span className="font-bold text-slate-900 dark:text-white text-xs block">
-                            {prod.nome}
-                          </span>
-                          <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
-                            {prod.marca}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-1.5 px-3">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-slate-700 dark:text-slate-300 font-semibold">{prod.unidadeMedida}</span>
-                          {prod.tipoVasilhame && (
-                            <span className="text-[10px] text-slate-400">Casco: {prod.tipoVasilhame}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-1.5 px-3 text-center">
-                        <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-black text-xs">
-                          {prod.estoqueCheio}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3 text-center">
-                        <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-black text-xs">
-                          {prod.estoqueVazio}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3 text-center">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400">
-                          {prod.estoqueMinimo}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3 text-right">
-                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs">
-                          {formatarMoeda(prod.precoRecarga)}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3 text-right">
-                        {prod.permiteVendaCasco ? (
-                          <span className="font-black text-blue-600 dark:text-blue-400 text-xs">
-                            {formatarMoeda(prod.precoCompleto)}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">—</span>
-                        )}
-                      </td>
-                      <td className="py-1.5 px-3 text-center">
-                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                          {prod.vendasCount || 0}
-                        </span>
-                      </td>
-                      <td className="py-1.5 px-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
+
+          {produtosFiltrados.length === 0 ? (
+            <div className="text-center py-12 bg-[#eaecf0] dark:bg-slate-900/90 rounded-2xl border border-slate-300 dark:border-slate-800 p-8 shadow-xs">
+              <Package className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+              <p className="text-base font-bold text-slate-700 dark:text-slate-200">Nenhum produto encontrado</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ajuste os filtros de pesquisa ou cadastre um novo produto.</p>
+            </div>
+          ) : (
+            <div className="bg-[#eaecf0] dark:bg-slate-900/90 border border-slate-300 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 select-none">
+                      <th className="py-2 px-3 text-center w-10">★</th>
+                      <th className="py-2 px-3">Cód / Tipo</th>
+                      <th className="py-2 px-3">Produto & Marca</th>
+                      <th className="py-2 px-3">Unidade / Casco</th>
+                      <th className="py-2 px-3 text-center">Saldo</th>
+                      <th className="py-2 px-3 text-right">Preço Venda</th>
+                      <th className="py-2 px-3 text-right">Custo / Completo</th>
+                      <th className="py-2 px-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-medium">
+                    {produtosFiltrados.map((prod) => (
+                      <tr
+                        key={prod.id}
+                        className="hover:bg-blue-50/40 dark:hover:bg-slate-800/40 transition-colors group"
+                      >
+                        <td className="py-1.5 px-3 text-center">
                           <button
-                            onClick={() => setProdutoModal({ ...prod })}
-                            title="Editar produto"
-                            className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                            type="button"
+                            onClick={() => handleToggleMaisUtilizado(prod)}
+                            className={`p-1 rounded-md transition-colors ${
+                              prod.maisUtilizado
+                                ? 'text-amber-500 hover:text-amber-600'
+                                : 'text-slate-300 dark:text-slate-600 hover:text-amber-400'
+                            }`}
+                            title={prod.maisUtilizado ? 'Item Mais Utilizado (Clique para desmarcar)' : 'Marcar como Mais Utilizado'}
                           >
-                            <Edit className="w-3.5 h-3.5" />
+                            <Star className={`w-3.5 h-3.5 ${prod.maisUtilizado ? 'fill-amber-400' : ''}`} />
                           </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Excluir produto "${prod.nome}"?`)) onExcluirProduto(prod.id);
-                            }}
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold w-fit">
+                              {prod.codigo}
+                            </span>
+                            <span
+                              className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded w-fit ${
+                                prod.tipoItem === 'PRODUTO_FINAL'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  : prod.tipoItem === 'INSUMO_MATERIA_PRIMA'
+                                  ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {prod.tipoItem === 'PRODUTO_FINAL'
+                                ? '🥟 Final'
+                                : prod.tipoItem === 'INSUMO_MATERIA_PRIMA'
+                                ? '🌾 Insumo'
+                                : '🛒 Revenda'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white text-xs block">
+                              {prod.nome}
+                            </span>
+                            {prod.marca && (
+                              <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                                {prod.marca}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-slate-700 dark:text-slate-300 font-semibold">{prod.unidadeMedida}</span>
+                            {prod.tipoVasilhame && prod.tipoVasilhame !== 'NENHUM' && (
+                              <span className="text-[10px] text-slate-400">Casco: {prod.tipoVasilhame}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-3 text-center">
+                          <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-black text-xs">
+                            {prod.estoqueCheio ?? 0}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          <span className="font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                            {formatarMoeda(prod.precoRecarga)}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          {prod.precoCusto ? (
+                            <span className="font-bold text-slate-600 dark:text-slate-400 text-xs">
+                              Custo: {formatarMoeda(prod.precoCusto)}
+                            </span>
+                          ) : prod.permiteVendaCasco ? (
+                            <span className="font-black text-blue-600 dark:text-blue-400 text-xs">
+                              {formatarMoeda(prod.precoCompleto)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {prod.tipoItem === 'PRODUTO_FINAL' && (
+                              <button
+                                onClick={() => {
+                                  setProdutoModal({ ...prod, tipoItem: 'PRODUTO_FINAL' });
+                                  if (prod.id) carregarEstruturaProduto(prod.id);
+                                }}
+                                title="Editar Receita / Ficha Técnica"
+                                className="px-2 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors text-[10px] font-bold flex items-center gap-1"
+                              >
+                                <ChefHat className="w-3 h-3" />
+                                <span>Receita</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setProdutoModal({ ...prod, tipoItem: prod.tipoItem || 'REVENDA' });
+                                if (prod.id) carregarEstruturaProduto(prod.id);
+                              }}
+                              title="Editar produto"
+                              className="p-1 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Excluir produto "${prod.nome}"?`)) onExcluirProduto(prod.id);
+                              }}
                             title="Excluir produto"
                             className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
                           >
@@ -736,8 +886,9 @@ export const CadastrosHub: React.FC<Props> = ({
               </table>
             </div>
           </div>
-        )
-      )}
+        )}
+      </div>
+    )}
 
       {/* ========================================================================= */}
       {/* ABA 2: CLIENTES & FIADOS                                                 */}
@@ -1087,27 +1238,75 @@ export const CadastrosHub: React.FC<Props> = ({
 
             <form onSubmit={handleSalvarProduto} className="p-4 sm:p-6 space-y-4 overflow-y-auto text-xs">
               <div className="grid grid-cols-2 gap-3">
+                {/* Tipo de Item / Finalidade */}
                 <div className="col-span-2">
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Nome do Produto *
+                    Tipo de Item / Finalidade *
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setProdutoModal({ ...produtoModal, tipoItem: 'PRODUTO_FINAL', unidadeMedida: produtoModal.unidadeMedida || 'CENTO' })}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all ${
+                        produtoModal.tipoItem === 'PRODUTO_FINAL'
+                          ? 'bg-amber-100 border-amber-500 text-amber-950 ring-2 ring-amber-400/40'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      🥟 Produto Final / Salgado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdutoModal({ ...produtoModal, tipoItem: 'INSUMO_MATERIA_PRIMA', unidadeMedida: produtoModal.unidadeMedida || 'KG' })}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all ${
+                        produtoModal.tipoItem === 'INSUMO_MATERIA_PRIMA'
+                          ? 'bg-amber-100 border-amber-500 text-amber-950 ring-2 ring-amber-400/40'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      🌾 Insumo / Matéria-Prima
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdutoModal({ ...produtoModal, tipoItem: 'REVENDA' })}
+                      className={`p-2 rounded-xl border text-center text-xs font-bold transition-all ${
+                        produtoModal.tipoItem === 'REVENDA' || !produtoModal.tipoItem
+                          ? 'bg-amber-100 border-amber-500 text-amber-950 ring-2 ring-amber-400/40'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      🛒 Revenda Direta
+                    </button>
+                  </div>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Nome do Produto / Insumo *
                   </label>
                   <input
                     type="text"
                     required
                     value={produtoModal.nome || ''}
                     onChange={(e) => setProdutoModal({ ...produtoModal, nome: e.target.value.toUpperCase() })}
-                    placeholder="Ex: Gás de Cozinha P13"
+                    placeholder={
+                      produtoModal.tipoItem === 'PRODUTO_FINAL'
+                        ? 'Ex: Coxinha de Frango com Catupiry (Cento)'
+                        : produtoModal.tipoItem === 'INSUMO_MATERIA_PRIMA'
+                        ? 'Ex: Farinha de Trigo Especial 1kg'
+                        : 'Ex: Gás de Cozinha P13'
+                    }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Marca</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Marca / Fornecedor</label>
                   <input
                     type="text"
                     value={produtoModal.marca || ''}
                     onChange={(e) => setProdutoModal({ ...produtoModal, marca: e.target.value })}
-                    placeholder="Ex: Ultragaz, Liquigás, Lindoya"
+                    placeholder="Ex: Dona Benta, Sadia, Ultragaz"
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
@@ -1117,22 +1316,25 @@ export const CadastrosHub: React.FC<Props> = ({
                     Unidade de Medida
                   </label>
                   <select
-                    value={produtoModal.unidadeMedida || 'UN'}
+                    value={produtoModal.unidadeMedida || (produtoModal.tipoItem === 'PRODUTO_FINAL' ? 'CENTO' : 'UN')}
                     onChange={(e) => setProdutoModal({ ...produtoModal, unidadeMedida: e.target.value })}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   >
+                    <option value="CENTO">CENTO (100 un)</option>
                     <option value="UN">UN (Unidade)</option>
-                    <option value="GL">GL (Galão)</option>
-                    <option value="CX">CX (Caixa)</option>
-                    <option value="FD">FD (Fardo)</option>
                     <option value="KG">KG (Quilo)</option>
+                    <option value="G">G (Grama)</option>
                     <option value="L">L (Litro)</option>
+                    <option value="ML">ML (Mililitro)</option>
+                    <option value="PACOTE">PACOTE</option>
+                    <option value="CX">CX (Caixa)</option>
+                    <option value="GL">GL (Galão)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Preço Recarga / Unitário (R$) *
+                    Preço de Venda (R$) *
                   </label>
                   <input
                     type="number"
@@ -1148,22 +1350,23 @@ export const CadastrosHub: React.FC<Props> = ({
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Preço Completo (+Vasilhame R$)
+                    Custo Unitário Estimado (R$)
                   </label>
                   <input
                     type="number"
                     step="0.01"
-                    value={produtoModal.precoCompleto ?? ''}
+                    value={produtoModal.precoCusto ?? ''}
                     onChange={(e) =>
-                      setProdutoModal({ ...produtoModal, precoCompleto: parseFloat(e.target.value) || 0 })
+                      setProdutoModal({ ...produtoModal, precoCusto: parseFloat(e.target.value) || 0 })
                     }
+                    placeholder="Ex: 35.00"
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-bold"
                   />
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Estoque Cheio Atual
+                    Estoque Atual
                   </label>
                   <input
                     type="number"
@@ -1177,18 +1380,138 @@ export const CadastrosHub: React.FC<Props> = ({
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Estoque Vazios (Cascos)
+                    Estoque Mínimo (Alerta)
                   </label>
                   <input
                     type="number"
-                    value={produtoModal.estoqueVazio ?? ''}
+                    value={produtoModal.estoqueMinimo ?? 5}
                     onChange={(e) =>
-                      setProdutoModal({ ...produtoModal, estoqueVazio: parseInt(e.target.value) || 0 })
+                      setProdutoModal({ ...produtoModal, estoqueMinimo: parseInt(e.target.value) || 5 })
                     }
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
+
+              {/* Se for Produto Final: Seção de Ficha Técnica / Receita */}
+              {produtoModal.tipoItem === 'PRODUTO_FINAL' && (
+                <div className="p-3.5 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-extrabold text-xs">
+                      <ChefHat className="w-4 h-4 text-amber-600" />
+                      <span>Ficha Técnica & Receita (Estrutura do Produto)</span>
+                    </div>
+                    {carregandoEstrutura && (
+                      <span className="text-[10px] text-amber-600 animate-pulse">Carregando insumos...</span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                    Defina quais matérias-primas e quantidades são necessárias para produzir 1 {produtoModal.unidadeMedida || 'CENTO'} deste produto.
+                  </p>
+
+                  {/* Lista de Insumos da Receita */}
+                  {itensEstrutura.length > 0 ? (
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {itensEstrutura.map((item, index) => (
+                        <div
+                          key={item.id || index}
+                          className="flex items-center justify-between p-2 rounded-xl bg-white dark:bg-slate-800 border border-amber-200/80 dark:border-slate-700 text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {item.insumoNome || produtos.find((p) => p.id === item.insumoId)?.nome || 'Insumo'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-black text-amber-700 dark:text-amber-300">
+                              {item.quantidadeNecessaria} {item.unidadeMedida}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItensEstrutura(itensEstrutura.filter((_, idx) => idx !== index));
+                              }}
+                              className="text-rose-500 hover:text-rose-700 p-1"
+                              title="Remover insumo da receita"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-2 text-slate-400 italic text-[11px]">
+                      Nenhum insumo adicionado a esta receita ainda.
+                    </div>
+                  )}
+
+                  {/* Adicionar Novo Insumo à Receita */}
+                  <div className="pt-2 border-t border-amber-200/60 dark:border-amber-800/60 flex flex-wrap items-center gap-2">
+                    <select
+                      value={novoInsumoId}
+                      onChange={(e) => setNovoInsumoId(e.target.value)}
+                      className="flex-1 min-w-[130px] p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                    >
+                      <option value="">Selecione o Insumo...</option>
+                      {produtos
+                        .filter((p) => p.id !== produtoModal.id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nome} ({p.unidadeMedida})
+                          </option>
+                        ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.001"
+                      placeholder="Qtd"
+                      value={novaQtdInsumo}
+                      onChange={(e) => setNovaQtdInsumo(Number(e.target.value))}
+                      className="w-16 p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-bold"
+                    />
+
+                    <select
+                      value={novaUnidadeInsumo}
+                      onChange={(e) => setNovaUnidadeInsumo(e.target.value)}
+                      className="w-16 p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-xs"
+                    >
+                      <option value="KG">KG</option>
+                      <option value="G">G</option>
+                      <option value="L">L</option>
+                      <option value="ML">ML</option>
+                      <option value="UN">UN</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!novoInsumoId) return alert('Selecione um insumo para adicionar.');
+                        if (novaQtdInsumo <= 0) return alert('Informe uma quantidade válida.');
+                        const prodInsumo = produtos.find((p) => p.id === novoInsumoId);
+                        const novoItem: ItemEstruturaProduto = {
+                          id: `est_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                          produtoPaiId: produtoModal.id || '',
+                          insumoId: novoInsumoId,
+                          insumoNome: prodInsumo?.nome || 'Insumo',
+                          quantidadeNecessaria: novaQtdInsumo,
+                          unidadeMedida: novaUnidadeInsumo,
+                          custoEstimado: prodInsumo?.precoCusto ? prodInsumo.precoCusto * novaQtdInsumo : undefined,
+                        };
+                        setItensEstrutura([...itensEstrutura, novoItem]);
+                        setNovoInsumoId('');
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors flex items-center gap-1 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>Adicionar</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="pt-2 flex items-center gap-2">
                 <input
@@ -1302,12 +1625,28 @@ export const CadastrosHub: React.FC<Props> = ({
                       </div>
 
                       <div>
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Telefone *</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block font-bold text-slate-700 dark:text-slate-300">Telefone *</label>
+                          {infoDdd && (
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                              {infoDdd}
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           required
                           value={clienteModal.telefone || ''}
-                          onChange={(e) => setClienteModal({ ...clienteModal, telefone: formatarTelefone(e.target.value) })}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const formatted = formatarTelefone(raw);
+                            setClienteModal({ ...clienteModal, telefone: formatted });
+                            const digitos = apenasDigitos(raw);
+                            if (digitos.length >= 2) {
+                              const ddd = digitos.substring(0, 2);
+                              handleConsultarDddCliente(ddd);
+                            }
+                          }}
                           placeholder="(11) 98765-4321"
                           className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
                         />

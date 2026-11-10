@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -54,6 +54,7 @@ import {
 interface SuperAdminHubProps {
   usuarioSuperAdmin: Usuario;
   empresas: Empresa[];
+  carregando?: boolean;
   onSelecionarEmpresa: (empresa: Empresa) => void;
   onSalvarEmpresa: (empresa: any) => Promise<any>;
   onExcluirEmpresa: (id: string) => Promise<void>;
@@ -64,12 +65,20 @@ interface SuperAdminHubProps {
 export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
   usuarioSuperAdmin,
   empresas,
+  carregando = false,
   onSelecionarEmpresa,
   onSalvarEmpresa,
   onExcluirEmpresa,
   onLogout,
   onRecarregar,
 }) => {
+  // Garante o carregamento das empresas ao montar o painel
+  useEffect(() => {
+    if (onRecarregar && empresas.length === 0) {
+      onRecarregar();
+    }
+  }, []);
+
   const [busca, setBusca] = useState('');
   const [filtroPlano, setFiltroPlano] = useState<string>('TODOS');
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
@@ -232,7 +241,14 @@ export const SuperAdminHub: React.FC<SuperAdminHubProps> = ({
 
     try {
       setCarregandoAdminEdicao(true);
-      const res = await fetch(`/api/empresas/${emp.id}/admin`);
+      const token = localStorage.getItem('delivery_auth_token');
+      const res = await fetch(`/api/empresas/${emp.id}/admin`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(usuarioSuperAdmin?.id ? { 'x-user-id': usuarioSuperAdmin.id } : {}),
+        },
+      });
       if (res.ok) {
         const json = await res.json();
         if (json.usuario) {
@@ -705,17 +721,32 @@ Em caso de dúvidas, estamos à disposição!`;
             </span>
           </div>
 
-          {empresasFiltradas.length === 0 ? (
+          {carregando && empresas.length === 0 ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-400 space-y-3">
+              <Loader2 className="w-10 h-10 text-amber-500 animate-spin mx-auto" />
+              <p className="text-sm font-bold text-slate-300">Carregando empresas cadastradas no Supabase...</p>
+            </div>
+          ) : empresasFiltradas.length === 0 ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500 space-y-3">
               <Building2 className="w-12 h-12 text-slate-600 mx-auto opacity-50" />
               <p className="text-sm font-bold text-slate-400">Nenhuma empresa encontrada com os filtros atuais.</p>
-              <button
-                type="button"
-                onClick={abrirModalNovo}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition-all"
-              >
-                Cadastrar Nova Empresa
-              </button>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={onRecarregar}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center gap-1.5 transition-all"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Recarregar do Supabase</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={abrirModalNovo}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition-all"
+                >
+                  Cadastrar Nova Empresa
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -824,7 +855,7 @@ Em caso de dúvidas, estamos à disposição!`;
                       </button>
 
                       {/* Ações Secundárias */}
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-1.5">
                         <button
                           type="button"
                           onClick={() => abrirModalEdicao(emp)}
@@ -832,6 +863,19 @@ Em caso de dúvidas, estamos à disposição!`;
                         >
                           <Edit className="w-3.5 h-3.5" />
                           <span>Editar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            abrirModalEdicao(emp);
+                            setAbaAtivaModal('admin');
+                          }}
+                          title="Alterar senha e dados de login do Administrador da empresa"
+                          className="py-1.5 px-2 bg-slate-800 hover:bg-amber-950/40 text-amber-300 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1 border border-amber-500/30"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                          <span>Senha</span>
                         </button>
 
                         <button
